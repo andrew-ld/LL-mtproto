@@ -51,7 +51,7 @@ class Session:
         self._rsa = TELEGRAM_RSA
         self._session = None
 
-    async def rpc_call(self, message):
+    async def rpc_call(self, message: dict[str, any]) -> dict[str, any]:
         if self._mtproto is None:
             self.start_mtproto_loop()
 
