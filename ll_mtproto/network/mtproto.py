@@ -1,4 +1,5 @@
 import asyncio
+import logging
 import os
 import secrets
 import time
@@ -234,7 +235,7 @@ class MTProto:
                 raise ValueError("Received a message with unknown session_id!", message.session_id)
 
             if self._server_salt != message.salt:
-                raise ValueError("Received a message with unknown salt!", message.salt)
+                logging.log(logging.ERROR, "Received a message with unknown salt! %d", message.salt)
 
             self._link.clear_buffer()  # remove padded data from link buffer
 

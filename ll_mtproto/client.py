@@ -31,6 +31,7 @@ class Session:
     _host: str
     _port: int
     _rsa: str
+    _session: tuple[str, int] | None
 
     def __init__(self):
         self._seq_no = -1
@@ -48,6 +49,7 @@ class Session:
         self._host = TELEGRAM_HOST
         self._port = TELEGRAM_PORT
         self._rsa = TELEGRAM_RSA
+        self._session = None
 
     async def rpc_call(self, message):
         if self._mtproto is None:
@@ -76,6 +78,9 @@ class Session:
 
         self._mtproto_loop = self._loop.create_task(self.mtproto_loop())
         self._mtproto = mtproto.MTProto(self._host, self._port, self._rsa)
+
+        if self._session is not None:
+            self._mtproto.set_session(*self._session)
 
     def _delete_pending_request(self, msg_id):
         if msg_id in self._pending_requests:
@@ -227,4 +232,16 @@ class Session:
         self._mtproto_read_future.cancel()
         self._flush_msgids_to_ack()
         self._loop.create_task(self._mtproto.stop())
-        del self._mtproto
+        self._mtproto = None
+
+    def get_session(self) -> tuple[str, int]:
+        if self._mtproto is None:
+            raise ConnectionError("Session not connected")
+
+        return self._mtproto.get_session()
+
+    def set_session(self, session: tuple[str, int] | None):
+        if self._mtproto is not None:
+            raise ConnectionError("Session already connected")
+
+        self._session = session
