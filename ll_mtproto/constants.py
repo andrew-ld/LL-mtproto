@@ -1,7 +1,6 @@
 import enum
 import os.path as __ospath
 
-
 _path = __ospath.dirname(__file__)
 _telegram_rsa = open(_path + "/resources/telegram.rsa.pub").read()
 
