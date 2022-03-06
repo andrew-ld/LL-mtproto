@@ -17,7 +17,7 @@ class _PendingRequest:
         self.request = message
 
 
-class Session:
+class Client:
     _seq_no: int
     _mtproto: mtproto.MTProto | None
     _loop: asyncio.AbstractEventLoop

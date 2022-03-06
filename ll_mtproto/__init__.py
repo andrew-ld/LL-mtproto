@@ -1,3 +1,3 @@
-from .client import Session
+from .client import Client
 from .constants import TelegramSchema, TelegramDatacenter
 
