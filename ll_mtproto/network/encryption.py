@@ -4,7 +4,7 @@ import re
 import secrets
 from concurrent.futures.thread import ThreadPoolExecutor
 
-import pyaes
+import Crypto.Cipher.AES
 
 from ..tl.byteutils import (
     xor,
@@ -82,7 +82,6 @@ class AesIge:
     iv1: bytes
     iv2: bytes
     plain_buffer: bytes
-    aes: pyaes.AES
 
     def __init__(self, key: bytes, iv: bytes):
         if len(key) != 32:
@@ -92,11 +91,11 @@ class AesIge:
             raise ValueError(f"AES init vector length must be 32 bytes, got {len(iv):d} bytes: {short_hex(key)}")
 
         self.iv1, self.iv2 = iv[:16], iv[16:]
-        self.aes = pyaes.AES(key)
+        self._aes = Crypto.Cipher.AES.new(key, Crypto.Cipher.AES.MODE_ECB)
         self.plain_buffer = b""
 
     def decrypt_block(self, cipher_block: bytes) -> bytes:
-        plain_block = xor(self.iv1, self.aes.decrypt(xor(self.iv2, cipher_block)))
+        plain_block = xor(self.iv1, self._aes.decrypt(xor(self.iv2, cipher_block)))
         self.iv1, self.iv2 = cipher_block, plain_block
         return plain_block
 
@@ -127,7 +126,7 @@ class AesIge:
         if len(self.iv2) != 16:
             raise RuntimeError("iv2 block is wrong")
 
-        cipher_block = xor(self.iv2, self.aes.encrypt(xor(self.iv1, plain_block)))
+        cipher_block = xor(self.iv2, self._aes.encrypt(xor(self.iv1, plain_block)))
         self.iv1, self.iv2 = cipher_block, plain_block
 
         return cipher_block
