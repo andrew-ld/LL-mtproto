@@ -91,33 +91,42 @@ async def unpack_binary_string_header(bytereader: ByteReader) -> tuple[int, int]
     return str_len, padding_bytes
 
 
-class _BinaryStringStreamState:
-    __slots__ = ["remaining_len"]
+class _BinaryStreamState:
+    __slots__ = ["remaining", "padding"]
 
-    remaining_len: int
+    remaining: int
+    padding: int
 
-    def __init__(self, str_len: int):
-        self.remaining_len = str_len
+    def __init__(self, remaining: int, padding: int):
+        self.remaining = remaining
+        self.padding = padding
 
 
-async def unpack_binary_string_stream(bytereader: ByteReader) -> ByteReader:
-    str_len, padding_bytes = await unpack_binary_string_header(bytereader)
-    state = _BinaryStringStreamState(str_len)
-
+def unpack_binary_stream(bytereader: ByteReader, state: _BinaryStreamState) -> ByteReader:
     async def reader(num_bytes: int) -> bytes:
-        if num_bytes >= state.remaining_len:
-            result = await bytereader(state.remaining_len)
+        if num_bytes >= state.remaining:
+            result = await bytereader(state.remaining)
 
-            if state.remaining_len > 0:
-                await bytereader(padding_bytes)
-                state.remaining_len = 0
+            if state.remaining > 0:
+                await bytereader(state.padding)
+                state.remaining = 0
 
             return result
         else:
-            state.remaining_len -= num_bytes
+            state.remaining -= num_bytes
             return await bytereader(num_bytes)
 
     return reader
+
+
+async def unpack_binary_string_stream(bytereader: ByteReader):
+    state = _BinaryStreamState(*await unpack_binary_string_header(bytereader))
+    return unpack_binary_stream(bytereader, state)
+
+
+async def unpack_long_binary_string_stream(bytereader: ByteReader) -> ByteReader:
+    state = _BinaryStreamState(int.from_bytes(await bytereader(4), "little", signed=False), 0)
+    return unpack_binary_stream(bytereader, state)
 
 
 async def unpack_binary_string(bytereader: ByteReader) -> bytes:
@@ -129,11 +138,6 @@ async def unpack_binary_string(bytereader: ByteReader) -> bytes:
 
 def pack_long_binary_string(data: bytes) -> bytes:
     return len(data).to_bytes(4, "little", signed=False) + data
-
-
-async def unpack_long_binary_string(bytereader: ByteReader) -> bytes:
-    strlen = int.from_bytes(await bytereader(4), "little", signed=False)
-    return await bytereader(strlen)
 
 
 @functools.lru_cache()

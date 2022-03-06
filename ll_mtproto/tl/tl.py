@@ -7,11 +7,11 @@ from .byteutils import (
     long_hex,
     pack_binary_string,
     unpack_binary_string,
-    unpack_long_binary_string,
     pack_long_binary_string,
     Bytedata,
     unpack_gzip_stream,
     unpack_binary_string_stream,
+    unpack_long_binary_string_stream,
 )
 from ..typed import InThread, ByteReader
 
@@ -553,7 +553,7 @@ class Constructor:
             return await self.scheme.read(bytereader)
 
         elif parameter.type == "object":
-            return await self.scheme.read_from_string(await unpack_long_binary_string(bytereader))
+            return await self.scheme.read(await unpack_long_binary_string_stream(bytereader))
 
         elif parameter.is_vector:
             if parameter.is_boxed:
