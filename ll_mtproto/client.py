@@ -5,6 +5,7 @@ import typing
 
 from .constants import TelegramDatacenter, _TelegramDatacenterInfo
 from .network import mtproto
+from .tl.tl import Structure
 
 
 class _PendingRequest:
@@ -58,11 +59,11 @@ class Session:
         pending_request = _PendingRequest(self._loop, message)
         return await self._rpc_call(pending_request)
 
-    def _get_next_odd_seqno(self):
+    def _get_next_odd_seqno(self) -> int:
         self._last_seqno = ((self._last_seqno + 1) // 2) * 2 + 1
         return self._last_seqno
 
-    def _get_next_even_seqno(self):
+    def _get_next_even_seqno(self) -> int:
         self._last_seqno = (self._last_seqno // 2 + 1) * 2
         return self._last_seqno
 
@@ -85,7 +86,7 @@ class Session:
         if msg_id in self._pending_requests:
             self._pending_requests[msg_id].response.set_result(dict(_cons="rpc_timeout"))
 
-    async def _rpc_call(self, pending_request):
+    async def _rpc_call(self, pending_request: _PendingRequest) -> dict[str, any]:
         self._flush_msgids_to_ack()
         seqno = self._get_next_odd_seqno()
 
@@ -112,7 +113,7 @@ class Session:
             if len(self._msgids_to_ack) >= 32 or (time.time() - self._last_time_acks_flushed) > 10:
                 self._flush_msgids_to_ack()
 
-    def _process_telegram_message(self, message) -> None:
+    def _process_telegram_message(self, message: Structure):
         self._update_last_seqno_from_incoming_message(message)
 
         body = message.body.packed_data if message.body == "gzip_packed" else message.body
@@ -125,7 +126,7 @@ class Session:
             self._process_telegram_message_body(body)
             self._acknowledge_telegram_message(message)
 
-    def _process_telegram_message_body(self, body):
+    def _process_telegram_message_body(self, body: Structure):
         if body == "new_session_created":
             pass
 
@@ -145,7 +146,7 @@ class Session:
             else:
                 self._process_rpc_result(body)
 
-    def _acknowledge_telegram_message(self, message):
+    def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
             self._msgids_to_ack.append(message.msg_id)
             self._flush_msgids_to_ack()
@@ -160,10 +161,10 @@ class Session:
         self._mtproto.write(seqno, _cons="msgs_ack", msg_ids=self._msgids_to_ack)
         self._msgids_to_ack = []
 
-    def _update_last_seqno_from_incoming_message(self, message):
+    def _update_last_seqno_from_incoming_message(self, message: Structure):
         self._last_seqno = max(self._last_seqno, message.seqno)
 
-    def _process_bad_server_salt(self, body):
+    def _process_bad_server_salt(self, body: Structure):
         if self._mtproto.get_server_salt != 0:
             self._stable_seqno = False
 
@@ -177,7 +178,7 @@ class Session:
         else:
             logging.log(logging.DEBUG, "bad_msg_id not found")
 
-    def _process_bad_msg_notification_msg_seqno_too_low(self, body):
+    def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure):
         self._seqno_increment = min(2 ** 31 - 1, self._seqno_increment << 1)
         self._last_seqno += self._seqno_increment
 
@@ -188,7 +189,7 @@ class Session:
             self._loop.create_task(self._rpc_call(bad_request))
             del self._pending_requests[body.bad_msg_id]
 
-    def _process_rpc_error_flood_wait(self, body):
+    def _process_rpc_error_flood_wait(self, body: Structure):
         seconds_to_wait = 2 * int(body.result.error_message[11:])
         self._set_flood_wait(seconds_to_wait)
 
@@ -197,7 +198,7 @@ class Session:
             self._loop.create_task(self._rpc_call(pending_request))
             del self._pending_requests[body.bad_msg_id]
 
-    def _process_rpc_result(self, body):
+    def _process_rpc_result(self, body: Structure):
         self._stable_seqno = True
 
         if body.req_msg_id in self._pending_requests:
@@ -217,12 +218,12 @@ class Session:
         if self._flood_wait():
             await self._future_flood_wait
 
-    def _set_flood_wait(self, seconds_to_wait):
+    def _set_flood_wait(self, seconds_to_wait: int):
         if not self._flood_wait():
             self._future_flood_wait = self._loop.create_future()
             self._loop.create_task(self._resume_after_flood_wait_delay(seconds_to_wait))
 
-    async def _resume_after_flood_wait_delay(self, seconds_to_wait):
+    async def _resume_after_flood_wait_delay(self, seconds_to_wait: int):
         logging.log(logging.DEBUG, "FLOOD_WAIT for %d seconds", seconds_to_wait)
         await asyncio.sleep(seconds_to_wait)
         self._future_flood_wait.set_result(True)
