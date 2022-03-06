@@ -11,8 +11,6 @@ from .byteutils import (
     unpack_long_binary_string,
     pack_long_binary_string,
     Bytedata,
-    base64decode,
-    base64encode,
 )
 from ..typed import InThread, ByteReader
 
@@ -468,7 +466,6 @@ class Constructor:
             data.append(pack_binary_string(argument))
 
         elif parameter.type == "bytes":
-            argument = base64decode(argument)
             data.append(pack_binary_string(argument))
 
         elif parameter.type == "object":
@@ -544,7 +541,7 @@ class Constructor:
             return await unpack_binary_string(bytereader)
 
         elif parameter.type == "bytes":
-            return base64encode(await unpack_binary_string(bytereader))
+            return await unpack_binary_string(bytereader)
 
         elif parameter.type == "gzip":
             unpacked = self.scheme._in_thread(gzip.decompress, await unpack_binary_string(bytereader))
