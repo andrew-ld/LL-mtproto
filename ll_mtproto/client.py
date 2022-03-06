@@ -32,7 +32,7 @@ class Session:
     _session: tuple[str, int] | None
     _datacenter: _TelegramDatacenterInfo
 
-    def __init__(self, datacenter: TelegramDatacenter):
+    def __init__(self, datacenter: TelegramDatacenter, session: tuple[str, int] | None = None):
         self._seq_no = -1
         self._mtproto = None
         self._loop = asyncio.get_event_loop()
@@ -46,7 +46,7 @@ class Session:
         self._pending_requests = dict()
         self._future_flood_wait = None
         self._datacenter = typing.cast(_TelegramDatacenterInfo, datacenter.value)
-        self._session = None
+        self._session = session
 
     async def rpc_call(self, message: dict[str, any]) -> dict[str, any]:
         if self._mtproto is None:
