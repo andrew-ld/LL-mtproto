@@ -69,6 +69,7 @@ class Session:
     def start_mtproto_loop(self):
         if self._mtproto is not None:
             self._mtproto_loop.cancel()
+            self._session = self._mtproto.get_session()
             self._mtproto = None
 
         logging.log(logging.DEBUG, f"connecting to Telegram at {self._datacenter}")
