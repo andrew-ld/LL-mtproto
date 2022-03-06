@@ -73,11 +73,12 @@ class Session:
 
         logging.log(logging.DEBUG, f"connecting to Telegram at {self._datacenter}")
 
-        self._mtproto_loop = self._loop.create_task(self.mtproto_loop())
         self._mtproto = mtproto.MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa)
 
         if self._session is not None:
             self._mtproto.set_session(*self._session)
+
+        self._mtproto_loop = self._loop.create_task(self.mtproto_loop())
 
     def _delete_pending_request(self, msg_id):
         if msg_id in self._pending_requests:
