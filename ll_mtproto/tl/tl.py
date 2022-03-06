@@ -1,6 +1,5 @@
 import binascii
 import functools
-import gzip
 import re
 import struct
 
@@ -11,6 +10,8 @@ from .byteutils import (
     unpack_long_binary_string,
     pack_long_binary_string,
     Bytedata,
+    unpack_gzip_stream,
+    unpack_binary_string_stream,
 )
 from ..typed import InThread, ByteReader
 
@@ -74,14 +75,14 @@ class Scheme:
     constructors: dict[str, "Constructor"]
     types: dict[str, set]
     cons_numbers: dict[bytes, "Constructor"]
-    _in_thread: InThread
+    in_thread: InThread
 
     def __init__(self, in_thread: InThread, scheme_data: str):
         self.constructors = dict()
         self.types = dict()
         self.cons_numbers = dict()
         self._parse_file(scheme_data)
-        self._in_thread = in_thread
+        self.in_thread = in_thread
 
     def __repr__(self):
         return "\n".join(repr(cons) for cons in self.constructors.values())
@@ -544,8 +545,9 @@ class Constructor:
             return await unpack_binary_string(bytereader)
 
         elif parameter.type == "gzip":
-            unpacked = self.scheme._in_thread(gzip.decompress, await unpack_binary_string(bytereader))
-            return await self.scheme.read_from_string(await unpacked)
+            string_stream = await unpack_binary_string_stream(bytereader)
+            gzip_stream = unpack_gzip_stream(string_stream, self.scheme.in_thread)
+            return await self.scheme.read(gzip_stream)
 
         elif parameter.type == "rawobject":
             return await self.scheme.read(bytereader)

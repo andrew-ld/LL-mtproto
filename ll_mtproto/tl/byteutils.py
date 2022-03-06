@@ -1,10 +1,11 @@
 import base64
 import functools
+import zlib
 import hashlib
 import typing
 from typing import Literal
 
-from ..typed import ByteReader
+from ..typed import ByteReader, InThread
 
 
 def xor(a: bytes, b: bytes) -> bytes:
@@ -50,7 +51,31 @@ def pack_binary_string(data: bytes) -> bytes:
         raise OverflowError("String too long")
 
 
-async def unpack_binary_string(bytereader: ByteReader) -> bytes:
+class _GzipDecompressStreamState:
+    __slots__ = ["buffer"]
+
+    buffer: bytes
+
+    def __init__(self):
+        self.buffer = b""
+
+
+def unpack_gzip_stream(bytedata: ByteReader, in_thread: InThread) -> ByteReader:
+    decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    state = _GzipDecompressStreamState()
+
+    async def read(num_bytes: int) -> bytes:
+        while len(state.buffer) < num_bytes:
+            state.buffer += await in_thread(decompressor.decompress, await bytedata(16))
+
+        result = state.buffer[:num_bytes]
+        state.buffer = state.buffer[num_bytes:]
+        return result
+
+    return read
+
+
+async def unpack_binary_string_header(bytereader: ByteReader) -> tuple[int, int]:
     str_len = ord(await bytereader(1))
 
     if str_len > 0xFE:
@@ -63,9 +88,43 @@ async def unpack_binary_string(bytereader: ByteReader) -> bytes:
     else:
         padding_bytes = (3 - str_len) % 4
 
-    s = await bytereader(str_len)
+    return str_len, padding_bytes
+
+
+class _BinaryStringStreamState:
+    __slots__ = ["remaining_len"]
+
+    remaining_len: int
+
+    def __init__(self, str_len: int):
+        self.remaining_len = str_len
+
+
+async def unpack_binary_string_stream(bytereader: ByteReader) -> ByteReader:
+    str_len, padding_bytes = await unpack_binary_string_header(bytereader)
+    state = _BinaryStringStreamState(str_len)
+
+    async def reader(num_bytes: int) -> bytes:
+        if num_bytes >= state.remaining_len:
+            result = await bytereader(state.remaining_len)
+
+            if state.remaining_len > 0:
+                await bytereader(padding_bytes)
+                state.remaining_len = 0
+
+            return result
+        else:
+            state.remaining_len -= num_bytes
+            return await bytereader(num_bytes)
+
+    return reader
+
+
+async def unpack_binary_string(bytereader: ByteReader) -> bytes:
+    str_len, padding_bytes = await unpack_binary_string_header(bytereader)
+    string = await bytereader(str_len)
     await bytereader(padding_bytes)
-    return s
+    return string
 
 
 def pack_long_binary_string(data: bytes) -> bytes:
