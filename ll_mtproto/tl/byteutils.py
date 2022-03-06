@@ -66,7 +66,7 @@ def unpack_gzip_stream(bytedata: ByteReader, in_thread: InThread) -> ByteReader:
 
     async def read(num_bytes: int) -> bytes:
         while len(state.buffer) < num_bytes:
-            state.buffer += await in_thread(decompressor.decompress, await bytedata(16))
+            state.buffer += await in_thread(decompressor.decompress, await bytedata(4096))
 
         result = state.buffer[:num_bytes]
         state.buffer = state.buffer[num_bytes:]
