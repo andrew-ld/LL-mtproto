@@ -31,7 +31,7 @@ def _pack_flags(flags: set[int]) -> bytes:
 
 
 @functools.lru_cache()
-def unpack_flags(n: int) -> list:
+def unpack_flags(n: int) -> list[int]:
     i = 0
     flags = []
 

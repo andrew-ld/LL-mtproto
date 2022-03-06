@@ -167,7 +167,7 @@ class Bytedata:
 
         return s
 
-    def read(self, num_bytes) -> bytes:
+    def read(self, num_bytes: int) -> bytes:
         if len(self._data) < num_bytes:
             raise ValueError(f"Unexpected end of data `{self!r}` while reading {num_bytes:d} bytes")
 
@@ -175,10 +175,10 @@ class Bytedata:
         self._offset += num_bytes
         return result
 
-    async def cororead(self, num_bytes) -> bytes:
+    async def cororead(self, num_bytes: int) -> bytes:
         return self.read(num_bytes)
 
-    def blocks(self, block_size) -> typing.Generator[bytes, None, None]:
+    def blocks(self, block_size: int) -> typing.Generator[bytes, None, None]:
         while self._offset < len(self._data):
             block = self._data[self._offset: self._offset + block_size]
             self._offset += block_size
