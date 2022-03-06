@@ -1,2 +1,3 @@
 from .client import Session
-from .localsettings import SCHEME_LAYER
+from .constants import TelegramSchema, TelegramDatacenter
+

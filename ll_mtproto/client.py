@@ -1,8 +1,9 @@
 import asyncio
 import logging
 import time
+import typing
 
-from .localsettings import TELEGRAM_HOST, TELEGRAM_PORT, TELEGRAM_RSA
+from .constants import TelegramDatacenter, _TelegramDatacenterInfo
 from .network import mtproto
 
 
@@ -28,12 +29,10 @@ class Session:
     _mtproto_read_future: asyncio.Future | None
     _pending_requests: dict[int, _PendingRequest]
     _future_flood_wait: asyncio.Future | None
-    _host: str
-    _port: int
-    _rsa: str
     _session: tuple[str, int] | None
+    _datacenter: _TelegramDatacenterInfo
 
-    def __init__(self):
+    def __init__(self, datacenter: TelegramDatacenter):
         self._seq_no = -1
         self._mtproto = None
         self._loop = asyncio.get_event_loop()
@@ -46,9 +45,7 @@ class Session:
         self._mtproto_read_future = None
         self._pending_requests = dict()
         self._future_flood_wait = None
-        self._host = TELEGRAM_HOST
-        self._port = TELEGRAM_PORT
-        self._rsa = TELEGRAM_RSA
+        self._datacenter = typing.cast(_TelegramDatacenterInfo, datacenter.value)
         self._session = None
 
     async def rpc_call(self, message: dict[str, any]) -> dict[str, any]:
@@ -74,10 +71,10 @@ class Session:
             self._mtproto_loop.cancel()
             self._mtproto = None
 
-        logging.log(logging.DEBUG, f"connecting to Telegram at {self._host}:{self._port:d}")
+        logging.log(logging.DEBUG, f"connecting to Telegram at {self._datacenter}")
 
         self._mtproto_loop = self._loop.create_task(self.mtproto_loop())
-        self._mtproto = mtproto.MTProto(self._host, self._port, self._rsa)
+        self._mtproto = mtproto.MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa)
 
         if self._session is not None:
             self._mtproto.set_session(*self._session)

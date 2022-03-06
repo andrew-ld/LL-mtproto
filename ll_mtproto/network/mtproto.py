@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 from . import encryption
 from .encryption import AesIge
 from .tcp import AbridgedTCP
-from .. import localsettings
+from .. import constants
 from ..math import primes
 from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, base64decode, base64encode, sha256
@@ -35,11 +35,11 @@ def _get_scheme(in_thread: InThread) -> tl.Scheme:
     if _singleton_scheme is None:
         _singleton_scheme = tl.Scheme(
             in_thread,
-            open(localsettings.AUTH_SCHEME, "r").read()
+            open(constants.TelegramSchema.AUTH_SCHEME, "r").read()
             + "\n"
-            + open(localsettings.APPLICATION_SCHEME, "r").read()
+            + open(constants.TelegramSchema.APPLICATION_SCHEME, "r").read()
             + "\n"
-            + open(localsettings.SERVICE_SCHEME, "r").read(),
+            + open(constants.TelegramSchema.SERVICE_SCHEME, "r").read(),
         )
 
     return _singleton_scheme
