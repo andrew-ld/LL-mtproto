@@ -12,7 +12,7 @@ from .tcp import AbridgedTCP
 from .. import constants
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, base64decode, base64encode, sha256
+from ..tl.byteutils import to_bytes, sha1, xor, sha256
 from ..tl.tl import Structure, Value
 from ..typed import InThread
 
@@ -45,27 +45,34 @@ def _get_scheme(in_thread: InThread) -> tl.Scheme:
     return _singleton_scheme
 
 
+class AuthKey:
+    auth_key: None | bytes
+    auth_key_id: None | bytes
+    auth_key_lock: asyncio.Lock
+
+    def __init__(self, auth_key: None | bytes = None, auth_key_id: None | bytes = None):
+        self.auth_key = auth_key
+        self.auth_key_id = auth_key_id
+        self.auth_key_lock = asyncio.Lock()
+
+
 class MTProto:
     _loop: asyncio.AbstractEventLoop
     _link: AbridgedTCP
     _public_rsa_key: encryption.PublicRSA
-    _auth_key: None | bytes
-    _auth_key_id: None | bytes
-    _auth_key_lock: asyncio.Lock
     _read_message_lock: asyncio.Lock
     _session_id: int
     _server_salt: int
     _last_message_id: int
+    _auth_key: AuthKey
     _executor: ThreadPoolExecutor
     _scheme: tl.Scheme
 
-    def __init__(self, host: str, port: int, public_rsa_key: str):
+    def __init__(self, host: str, port: int, public_rsa_key: str, auth_key: AuthKey):
         self._loop = asyncio.get_event_loop()
         self._link = AbridgedTCP(host, port)
         self._public_rsa_key = encryption.PublicRSA(public_rsa_key)
-        self._auth_key = None
-        self._auth_key_id = None
-        self._auth_key_lock = asyncio.Lock()
+        self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
         self._session_id = secrets.randbits(64)
         self._client_salt = int.from_bytes(secrets.token_bytes(4), "little", signed=True)
@@ -101,14 +108,13 @@ class MTProto:
         return self._loop.create_task(self._link.write(message.get_flat_bytes()))
 
     async def _get_auth_key(self) -> tuple[bytes, bytes]:
-        async with self._auth_key_lock:
-            if self._auth_key is None:
+        async with self._auth_key.auth_key_lock:
+            if self._auth_key.auth_key is None:
                 await self._create_auth_key()
 
-        return self._auth_key, self._auth_key_id
+        return self._auth_key.auth_key, self._auth_key.auth_key_id
 
     async def _create_auth_key(self):
-        generate_b = self._loop.create_task(self._in_thread(secrets.randbits, 2048))
         nonce = await self._in_thread(secrets.token_bytes, 16)
 
         await self._write_unencrypted_message(_cons="req_pq", nonce=nonce)
@@ -160,7 +166,7 @@ class MTProto:
 
         (answer_hash, answer), b = await asyncio.gather(
             self._in_thread(tmp_aes.decrypt_with_hash, params.encrypted_answer),
-            generate_b,
+            self._in_thread(secrets.randbits, 2048),
         )
 
         params2 = await self._scheme.read_from_string(answer)
@@ -178,7 +184,7 @@ class MTProto:
         if params2.nonce != nonce or params2.server_nonce != server_nonce or not primes.is_safe_dh_prime(g, dh_prime):
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
 
-        g_b, self._auth_key = map(
+        g_b, auth_key = map(
             to_bytes,
             await asyncio.gather(
                 self._in_thread(pow, g, b, dh_prime),
@@ -186,7 +192,8 @@ class MTProto:
             ),
         )
 
-        self._set_auth_key_id()
+        self._auth_key.auth_key = auth_key
+        self._auth_key.auth_key_id = (await self._in_thread(sha1, self._auth_key.auth_key))[-8:]
 
         self._server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
 
@@ -212,9 +219,6 @@ class MTProto:
         if params3 != "dh_gen_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
-    def _set_auth_key_id(self):
-        self._auth_key_id = sha1(self._auth_key)[-8:]
-
     async def read(self) -> Structure:
         auth_key, auth_key_id = await self._get_auth_key()
 
@@ -235,19 +239,11 @@ class MTProto:
                 raise ValueError("Received a message with unknown session_id!", message.session_id)
 
             if self._server_salt != message.salt:
-                logging.log(logging.ERROR, "Received a message with unknown salt! %d", message.salt)
+                logging.log(logging.ERROR, "received a message with unknown salt! %d", message.salt)
 
             self._link.clear_buffer()  # remove padded data from link buffer
 
             return message.message
-
-    def set_session(self, auth_key: str, session_id: int):
-        self._auth_key = base64decode(auth_key)
-        self._session_id = session_id
-        self._set_auth_key_id()
-
-    def get_session(self) -> tuple[str, int]:
-        return base64encode(self._auth_key), self._session_id
 
     def set_server_salt(self, salt: int):
         self._server_salt = salt
@@ -292,5 +288,5 @@ class MTProto:
 
         await self._link.write(full_message)
 
-    async def stop(self):
-        await self._link.stop()
+    def stop(self):
+        self._link.stop()

@@ -1,4 +1,6 @@
 import asyncio
+import logging
+import traceback
 from asyncio import Lock, open_connection
 
 
@@ -11,6 +13,7 @@ class AbridgedTCP:
     _reader: asyncio.StreamReader | None
     _writer: asyncio.StreamWriter | None
     _write_lock: asyncio.Lock
+    _retry_wait: int
 
     def __init__(self, host: str, port: int):
         self._loop = asyncio.get_event_loop()
@@ -21,12 +24,19 @@ class AbridgedTCP:
         self._reader = None
         self._writer = None
         self._write_lock = Lock()
+        self._retry_wait = 1
 
     async def _reconnect_if_needed(self):
         async with self._connect_lock:
-            if self._reader is None or self._writer is None:
-                self._reader, self._writer = await open_connection(self._host, self._port, limit=2 ** 24)
-                self._writer.write(b"\xef")
+            while self._reader is None or self._writer is None:
+                try:
+                    self._reader, self._writer = await open_connection(self._host, self._port, limit=2 ** 24)
+                    self._writer.write(b"\xef")
+                except (ConnectionError, OSError, asyncio.TimeoutError):
+                    logging.log(logging.ERROR, "failure while connecting to Telegram: %s", traceback.format_exc())
+                    self._reader, self._writer = None, None
+                    await asyncio.sleep(self._retry_wait)
+                    self._retry_wait = min(self._retry_wait * 2, 15)
 
     async def _write_abridged_packet(self, data: bytes):
         await self._reconnect_if_needed()
@@ -74,5 +84,9 @@ class AbridgedTCP:
                 await self._write_abridged_packet(data[:chunk_len])
                 data = data[chunk_len:]
 
-    async def stop(self):
-        pass
+    def stop(self):
+        if self._writer is not None:
+            self._writer.close()
+
+        self._writer = None
+        self._reader = None

@@ -1,10 +1,13 @@
 import asyncio
 import logging
+import random
 import time
+import traceback
 import typing
 
 from .constants import TelegramDatacenter, _TelegramDatacenterInfo
 from .network import mtproto
+from .network.mtproto import AuthKey, MTProto
 from .tl.tl import Structure
 
 
@@ -26,14 +29,13 @@ class Client:
     _last_seqno: int
     _stable_seqno: bool
     _seqno_increment: int
-    _mtproto_loop: asyncio.Task | None
-    _mtproto_read_future: asyncio.Future | None
+    _mtproto_loop_task: asyncio.Task | None
     _pending_requests: dict[int, _PendingRequest]
-    _future_flood_wait: asyncio.Future | None
-    _session: tuple[str, int] | None
+    _pending_pongs: dict[int, asyncio.TimerHandle]
     _datacenter: _TelegramDatacenterInfo
+    _auth_key: AuthKey
 
-    def __init__(self, datacenter: TelegramDatacenter, session: tuple[str, int] | None = None):
+    def __init__(self, datacenter: TelegramDatacenter, auth_key: AuthKey):
         self._seq_no = -1
         self._mtproto = None
         self._loop = asyncio.get_event_loop()
@@ -42,16 +44,15 @@ class Client:
         self._last_seqno = 0
         self._stable_seqno = False
         self._seqno_increment = 1
-        self._mtproto_loop = None
-        self._mtproto_read_future = None
+        self._mtproto_loop_task = None
         self._pending_requests = dict()
-        self._future_flood_wait = None
+        self._pending_pongs = dict()
         self._datacenter = typing.cast(_TelegramDatacenterInfo, datacenter.value)
-        self._session = session
+        self._auth_key = auth_key
 
     async def rpc_call(self, message: dict[str, any]) -> dict[str, any]:
         if self._mtproto is None:
-            self.start_mtproto_loop()
+            await self._start_mtproto_loop()
 
         if "_cons" not in message:
             raise RuntimeError("`_cons` attribute is required in message object")
@@ -67,22 +68,38 @@ class Client:
         self._last_seqno = (self._last_seqno // 2 + 1) * 2
         return self._last_seqno
 
-    def start_mtproto_loop(self):
+    async def _start_mtproto_loop(self):
+        self._delete_all_pending_data()
+
         if self._mtproto is not None:
-            self._mtproto_loop.cancel()
-            self._session = self._mtproto.get_session()
-            self._mtproto = None
+            self._mtproto_loop_task.cancel()
+            await self._mtproto.stop()
 
-        logging.log(logging.DEBUG, f"connecting to Telegram at {self._datacenter}")
+        logging.log(logging.DEBUG, "connecting to Telegram at %s", self._datacenter)
 
-        self._mtproto = mtproto.MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa)
+        self._mtproto = MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa, self._auth_key)
 
-        if self._session is not None:
-            self._mtproto.set_session(*self._session)
+        self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
+        self._create_new_ping_request()
 
-        self._mtproto_loop = self._loop.create_task(self.mtproto_loop())
+    def _create_new_ping_request(self):
+        new_random_ping_id = random.randrange(-2**63, 2**63)
+        self._pending_pongs[new_random_ping_id] = self._loop.call_later(10, self._mtproto.stop)
+        self._mtproto.write(self._get_next_odd_seqno(), _cons="ping", ping_id=new_random_ping_id)
 
-    def _delete_pending_request(self, msg_id):
+    def _delete_all_pending_pongs(self):
+        for pending_pong_id in self._pending_pongs.keys():
+            self._delete_pending_pong(pending_pong_id)
+
+    def _delete_all_pending_requests(self):
+        for pending_request_id in self._pending_requests.keys():
+            self._delete_pending_request(pending_request_id)
+
+    def _delete_pending_pong(self, ping_id: int):
+        if ping_id in self._pending_pongs:
+            self._pending_pongs[ping_id].cancel()
+
+    def _delete_pending_request(self, msg_id: int):
         if msg_id in self._pending_requests:
             self._pending_requests[msg_id].response.set_result(dict(_cons="rpc_timeout"))
 
@@ -90,7 +107,6 @@ class Client:
         self._flush_msgids_to_ack()
         seqno = self._get_next_odd_seqno()
 
-        await self._flood_sleep()
         message_id = self._mtproto.write(seqno, **pending_request.request)
 
         self._pending_requests[message_id] = pending_request
@@ -104,14 +120,28 @@ class Client:
 
         return response
 
-    async def mtproto_loop(self):
+    async def _mtproto_loop(self):
         while True:
-            self._mtproto_read_future = self._loop.create_task(self._mtproto.read())
-            message_mtproto = await self._mtproto_read_future
-            self._process_telegram_message(message_mtproto)
+            try:
+                message_mtproto = await self._mtproto.read()
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                raise
+            except:
+                logging.log(logging.ERROR, "failure while read message from mtproto: %s", traceback.format_exc())
+                self._delete_all_pending_data()
+                self._mtproto.stop()
+                self._create_new_ping_request()
+            else:
+                self._process_telegram_message(message_mtproto)
+                self._flush_msgids_to_ack_if_needed()
 
-            if len(self._msgids_to_ack) >= 32 or (time.time() - self._last_time_acks_flushed) > 10:
-                self._flush_msgids_to_ack()
+    def _delete_all_pending_data(self):
+        self._delete_all_pending_requests()
+        self._delete_all_pending_pongs()
+
+    def _flush_msgids_to_ack_if_needed(self):
+        if len(self._msgids_to_ack) >= 32 or (time.time() - self._last_time_acks_flushed) > 10:
+            self._flush_msgids_to_ack()
 
     def _process_telegram_message(self, message: Structure):
         self._update_last_seqno_from_incoming_message(message)
@@ -127,24 +157,22 @@ class Client:
             self._acknowledge_telegram_message(message)
 
     def _process_telegram_message_body(self, body: Structure):
-        if body == "new_session_created":
-            pass
+        if body == "pong":
+            self._process_pong(body)
 
-        elif body == "msgs_ack":
-            pass
-
-        elif body == "bad_server_salt":
+        if body == "bad_server_salt":
             self._process_bad_server_salt(body)
 
         elif body == "bad_msg_notification" and body.error_code == 32 and not self._stable_seqno:
-            # msg_seqno too low
             self._process_bad_msg_notification_msg_seqno_too_low(body)
 
         elif body == "rpc_result":
-            if body.result == "rpc_error" and body.result.error_message[:11] == "FLOOD_WAIT_":
-                self._process_rpc_error_flood_wait(body)
-            else:
-                self._process_rpc_result(body)
+            self._process_rpc_result(body)
+
+    def _process_pong(self, pong: Structure):
+        logging.log(logging.DEBUG, "pong message: %d", pong.ping_id)
+        self._delete_pending_pong(pong.ping_id)
+        self._loop.call_later(10, self._create_new_ping_request)
 
     def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
@@ -169,7 +197,7 @@ class Client:
             self._stable_seqno = False
 
         self._mtproto.set_server_salt(body.new_server_salt)
-        logging.log(logging.DEBUG, f"updating salt: {body.new_server_salt:d}")
+        logging.log(logging.DEBUG, "updating salt: %d", body.new_server_salt)
 
         if body.bad_msg_id in self._pending_requests:
             bad_request = self._pending_requests[body.bad_msg_id]
@@ -182,20 +210,11 @@ class Client:
         self._seqno_increment = min(2 ** 31 - 1, self._seqno_increment << 1)
         self._last_seqno += self._seqno_increment
 
-        logging.log(logging.DEBUG, f"updating seqno by {self._seqno_increment:d} to {self._last_seqno:d}")
+        logging.log(logging.DEBUG, "updating seqno by %d to %d", self._seqno_increment, self._last_seqno)
 
         if body.bad_msg_id in self._pending_requests:
             bad_request = self._pending_requests[body.bad_msg_id]
             self._loop.create_task(self._rpc_call(bad_request))
-            del self._pending_requests[body.bad_msg_id]
-
-    def _process_rpc_error_flood_wait(self, body: Structure):
-        seconds_to_wait = 2 * int(body.result.error_message[11:])
-        self._set_flood_wait(seconds_to_wait)
-
-        if body.req_msg_id in self._pending_requests:
-            pending_request = self._pending_requests[body.req_msg_id]
-            self._loop.create_task(self._rpc_call(pending_request))
             del self._pending_requests[body.bad_msg_id]
 
     def _process_rpc_result(self, body: Structure):
@@ -211,37 +230,12 @@ class Client:
 
             pending_request.response.set_result(result.get_dict())
 
-    def _flood_wait(self):
-        return self._future_flood_wait is not None and not self._future_flood_wait.done()
+    async def disconnect(self):
+        self._delete_all_pending_data()
 
-    async def _flood_sleep(self):
-        if self._flood_wait():
-            await self._future_flood_wait
-
-    def _set_flood_wait(self, seconds_to_wait: int):
-        if not self._flood_wait():
-            self._future_flood_wait = self._loop.create_future()
-            self._loop.create_task(self._resume_after_flood_wait_delay(seconds_to_wait))
-
-    async def _resume_after_flood_wait_delay(self, seconds_to_wait: int):
-        logging.log(logging.DEBUG, "FLOOD_WAIT for %d seconds", seconds_to_wait)
-        await asyncio.sleep(seconds_to_wait)
-        self._future_flood_wait.set_result(True)
-
-    def disconnect(self):
-        self._mtproto_read_future.cancel()
-        self._flush_msgids_to_ack()
-        self._loop.create_task(self._mtproto.stop())
-        self._mtproto = None
-
-    def get_session(self) -> tuple[str, int]:
-        if self._mtproto is None:
-            raise ConnectionError("Session not connected")
-
-        return self._mtproto.get_session()
-
-    def set_session(self, session: tuple[str, int] | None):
         if self._mtproto is not None:
-            raise ConnectionError("Session already connected")
+            self._mtproto_loop_task.cancel()
+            self._mtproto.stop()
 
-        self._session = session
+        self._mtproto = None
+        self._mtproto_loop_task = None
