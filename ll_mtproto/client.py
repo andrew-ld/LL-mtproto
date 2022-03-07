@@ -230,7 +230,7 @@ class Client:
 
             pending_request.response.set_result(result.get_dict())
 
-    async def disconnect(self):
+    def disconnect(self):
         self._delete_all_pending_data()
 
         if self._mtproto is not None:
@@ -239,3 +239,7 @@ class Client:
 
         self._mtproto = None
         self._mtproto_loop_task = None
+
+    def __del__(self):
+        if self._mtproto is not None:
+            logging.log(logging.CRITICAL, "client %d not disconnected", id(self))
