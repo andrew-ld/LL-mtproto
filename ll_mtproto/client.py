@@ -216,7 +216,6 @@ class Client:
             self._loop.create_task(self._rpc_call(bad_request))
 
         else:
-            print(body)
             logging.log(logging.DEBUG, "bad_msg_id not found")
 
     def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure):
