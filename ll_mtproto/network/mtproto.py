@@ -226,6 +226,7 @@ class MTProto:
         auth_key, auth_key_id = await self._get_auth_key()
 
         async with self._read_message_lock:
+            self._link.clear_buffer()
             server_auth_key_id = await self._link.read(8)
 
             if server_auth_key_id != auth_key_id:
@@ -243,8 +244,6 @@ class MTProto:
 
             if self._server_salt != message.salt:
                 logging.log(logging.ERROR, "received a message with unknown salt! %d", message.salt)
-
-            self._link.clear_buffer()  # remove padded data from link buffer
 
             return message.message
 
@@ -293,3 +292,4 @@ class MTProto:
 
     def stop(self):
         self._link.stop()
+        logging.log(logging.DEBUG, "disconnected from Telegram")

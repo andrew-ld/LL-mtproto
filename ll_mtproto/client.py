@@ -86,8 +86,12 @@ class Client:
 
     def _create_new_ping_request(self):
         new_random_ping_id = random.randrange(-2**63, 2**63)
+        seqno = self._get_next_odd_seqno()
+
+        request = dict(_cons="ping", ping_id=new_random_ping_id)
+
         self._pending_pongs[new_random_ping_id] = self._loop.call_later(10, self._mtproto.stop)
-        self._mtproto.write(self._get_next_odd_seqno(), _cons="ping", ping_id=new_random_ping_id)
+        self._pending_requests[self._mtproto.write(seqno, **request)] = _PendingRequest(self._loop, request)
 
     def _delete_all_pending_pongs(self):
         for pending_pong_id in self._pending_pongs.keys():
@@ -138,11 +142,13 @@ class Client:
                 self._flush_msgids_to_ack_if_needed()
 
     def _delete_all_pending_data(self):
-        if self._pending_ping_request is not None:
-            self._pending_ping_request.cancel()
-            self._pending_ping_request = None
         self._delete_all_pending_pongs()
         self._delete_all_pending_requests()
+
+        if self._pending_ping_request is not None:
+            self._pending_ping_request.cancel()
+
+        self._pending_ping_request = None
 
     def _flush_msgids_to_ack_if_needed(self):
         if len(self._msgids_to_ack) >= 32 or (time.time() - self._last_time_acks_flushed) > 10:
@@ -209,6 +215,7 @@ class Client:
             self._loop.create_task(self._rpc_call(bad_request))
 
         else:
+            print(body)
             logging.log(logging.DEBUG, "bad_msg_id not found")
 
     def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure):
