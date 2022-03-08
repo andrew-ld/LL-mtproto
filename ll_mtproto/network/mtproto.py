@@ -49,10 +49,12 @@ class AuthKey:
     auth_key: None | bytes
     auth_key_id: None | bytes
     auth_key_lock: asyncio.Lock
+    session_id: None | int
 
-    def __init__(self, auth_key: None | bytes = None, auth_key_id: None | bytes = None):
+    def __init__(self, auth_key: None | bytes = None, auth_key_id: None | bytes = None, session_id: None | int = None):
         self.auth_key = auth_key
         self.auth_key_id = auth_key_id
+        self.session_id = session_id
         self.auth_key_lock = asyncio.Lock()
 
 
@@ -61,7 +63,6 @@ class MTProto:
     _link: AbridgedTCP
     _public_rsa_key: encryption.PublicRSA
     _read_message_lock: asyncio.Lock
-    _session_id: int
     _server_salt: int
     _last_message_id: int
     _auth_key: AuthKey
@@ -74,12 +75,14 @@ class MTProto:
         self._public_rsa_key = encryption.PublicRSA(public_rsa_key)
         self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
-        self._session_id = secrets.randbits(64)
         self._client_salt = int.from_bytes(secrets.token_bytes(4), "little", signed=True)
         self._server_salt = 0
         self._last_message_id = 0
         self._executor = _get_executor()
         self._scheme = _get_scheme(self._in_thread)
+
+        if self._auth_key.session_id is None:
+            self._auth_key.session_id = secrets.randbits(64)
 
     async def _in_thread(self, *args, **kwargs):
         return await self._loop.run_in_executor(self._executor, *args, **kwargs)
@@ -235,7 +238,7 @@ class MTProto:
             decrypter = aes.decrypt_async_stream(self._loop, self._executor, self._link.read)
             message = await self._scheme.read(decrypter, is_boxed=False, parameter_type="message_inner_data")
 
-            if message.session_id != self._session_id:
+            if message.session_id != self._auth_key.session_id:
                 raise ValueError("Received a message with unknown session_id!", message.session_id)
 
             if self._server_salt != message.salt:
@@ -270,7 +273,7 @@ class MTProto:
         message_inner_data = self._scheme.bare(
             _cons="message_inner_data",
             salt=self._server_salt,
-            session_id=self._session_id,
+            session_id=self._auth_key.session_id,
             message=message,
         ).get_flat_bytes()
 

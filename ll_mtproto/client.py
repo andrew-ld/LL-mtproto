@@ -34,6 +34,7 @@ class Client:
     _pending_pongs: dict[int, asyncio.TimerHandle]
     _datacenter: _TelegramDatacenterInfo
     _auth_key: AuthKey
+    _pending_ping_request: asyncio.TimerHandle | None
 
     def __init__(self, datacenter: TelegramDatacenter, auth_key: AuthKey):
         self._seq_no = -1
@@ -49,6 +50,7 @@ class Client:
         self._pending_pongs = dict()
         self._datacenter = typing.cast(_TelegramDatacenterInfo, datacenter.value)
         self._auth_key = auth_key
+        self._pending_ping_request = None
 
     async def rpc_call(self, message: dict[str, any]) -> dict[str, any]:
         if self._mtproto is None:
@@ -136,8 +138,11 @@ class Client:
                 self._flush_msgids_to_ack_if_needed()
 
     def _delete_all_pending_data(self):
-        self._delete_all_pending_requests()
+        if self._pending_ping_request is not None:
+            self._pending_ping_request.cancel()
+            self._pending_ping_request = None
         self._delete_all_pending_pongs()
+        self._delete_all_pending_requests()
 
     def _flush_msgids_to_ack_if_needed(self):
         if len(self._msgids_to_ack) >= 32 or (time.time() - self._last_time_acks_flushed) > 10:
@@ -172,7 +177,7 @@ class Client:
     def _process_pong(self, pong: Structure):
         logging.log(logging.DEBUG, "pong message: %d", pong.ping_id)
         self._delete_pending_pong(pong.ping_id)
-        self._loop.call_later(10, self._create_new_ping_request)
+        self._pending_ping_request = self._loop.call_later(10, self._create_new_ping_request)
 
     def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
