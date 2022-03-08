@@ -73,7 +73,7 @@ class Client:
 
         if self._mtproto is not None:
             self._mtproto_loop_task.cancel()
-            await self._mtproto.stop()
+            self._mtproto.stop()
 
         logging.log(logging.DEBUG, "connecting to Telegram at %s", self._datacenter)
 
