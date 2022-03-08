@@ -89,9 +89,10 @@ class Client:
         seqno = self._get_next_odd_seqno()
 
         request = dict(_cons="ping", ping_id=new_random_ping_id)
+        pending_request = _PendingRequest(self._loop, request)
 
         self._pending_pongs[new_random_ping_id] = self._loop.call_later(10, self._mtproto.stop)
-        self._pending_requests[self._mtproto.write(seqno, **request)] = _PendingRequest(self._loop, request)
+        self._pending_requests[self._mtproto.write(seqno, **request)] = pending_request
 
     def _delete_all_pending_pongs(self):
         for pending_pong_id in self._pending_pongs.keys():
