@@ -130,9 +130,10 @@ class Client:
         message_id = self._mtproto.write(seqno, **pending_request.request)
 
         self._pending_requests[message_id] = pending_request
-        self._loop.call_later(600, self._delete_pending_request, message_id)
+        pending_request_timeout = self._loop.call_later(600, self._delete_pending_request, message_id)
 
         response = await pending_request.response
+        pending_request_timeout.cancel()
         self._seqno_increment = 1
 
         if message_id in self._pending_requests:
