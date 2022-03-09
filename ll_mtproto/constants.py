@@ -32,3 +32,6 @@ class TelegramDatacenter(enum.Enum):
     AURORA = _TelegramDatacenterInfo("149.154.175.100", 443, _telegram_rsa)
     VESTA = _TelegramDatacenterInfo("149.154.167.91", 443, _telegram_rsa)
     FLORA = _TelegramDatacenterInfo("91.108.56.130", 443, _telegram_rsa)
+
+    VENUS_MEDIA = _TelegramDatacenterInfo("149.154.167.151", 443, _telegram_rsa)
+    VESTA_MEDIA = _TelegramDatacenterInfo("149.154.164.250", 443, _telegram_rsa)
