@@ -115,10 +115,10 @@ class Client:
 
     def _delete_pending_request(self, msg_id: int, remove: bool = True):
         if msg_id in self._pending_requests:
-            pending_request = self._pending_requests[msg_id].response
+            pending_response = self._pending_requests[msg_id].response
 
-            if not pending_request.done():
-                pending_request.set_result(dict(_cons="rpc_timeout"))
+            if not pending_response.done():
+                pending_response.set_result(dict(_cons="rpc_timeout"))
 
             if remove:
                 del self._pending_requests[msg_id]
