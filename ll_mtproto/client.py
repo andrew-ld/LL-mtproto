@@ -91,24 +91,34 @@ class Client:
         request = dict(_cons="ping", ping_id=new_random_ping_id)
         pending_request = _PendingRequest(self._loop, request)
 
-        self._pending_pongs[new_random_ping_id] = self._loop.call_later(10, self._mtproto.stop)
+        self._pending_pongs[new_random_ping_id] = self._loop.call_later(20, self._mtproto.stop)
         self._pending_requests[self._mtproto.write(seqno, **request)] = pending_request
 
     def _delete_all_pending_pongs(self):
         for pending_pong_id in self._pending_pongs.keys():
-            self._delete_pending_pong(pending_pong_id)
+            self._delete_pending_pong(pending_pong_id, False)
+
+        self._pending_pongs.clear()
 
     def _delete_all_pending_requests(self):
         for pending_request_id in self._pending_requests.keys():
-            self._delete_pending_request(pending_request_id)
+            self._delete_pending_request(pending_request_id, False)
 
-    def _delete_pending_pong(self, ping_id: int):
+        self._pending_requests.clear()
+
+    def _delete_pending_pong(self, ping_id: int, remove: bool = True):
         if ping_id in self._pending_pongs:
             self._pending_pongs[ping_id].cancel()
 
-    def _delete_pending_request(self, msg_id: int):
+            if remove:
+                del self._pending_pongs[ping_id]
+
+    def _delete_pending_request(self, msg_id: int, remove: bool = True):
         if msg_id in self._pending_requests:
             self._pending_requests[msg_id].response.set_result(dict(_cons="rpc_timeout"))
+
+            if remove:
+                del self._pending_requests[msg_id]
 
     async def _rpc_call(self, pending_request: _PendingRequest) -> dict[str, any]:
         self._flush_msgids_to_ack()
@@ -184,6 +194,7 @@ class Client:
     def _process_pong(self, pong: Structure):
         logging.log(logging.DEBUG, "pong message: %d", pong.ping_id)
         self._delete_pending_pong(pong.ping_id)
+        self._delete_pending_request(pong.msg_id)
         self._pending_ping_request = self._loop.call_later(10, self._create_new_ping_request)
 
     def _acknowledge_telegram_message(self, message: Structure):
@@ -214,6 +225,7 @@ class Client:
         if body.bad_msg_id in self._pending_requests:
             bad_request = self._pending_requests[body.bad_msg_id]
             self._loop.create_task(self._rpc_call(bad_request))
+            del self._pending_requests[body.bad_msg_id]
 
         else:
             logging.log(logging.DEBUG, "bad_msg_id not found")
