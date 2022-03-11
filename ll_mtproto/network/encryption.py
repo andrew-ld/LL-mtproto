@@ -4,17 +4,17 @@ import re
 import secrets
 from concurrent.futures.thread import ThreadPoolExecutor
 
-import Crypto.Cipher.AES
+import cryptg
 
 from ..tl.byteutils import (
-    xor,
-    long_hex,
     to_bytes,
     pack_binary_string,
     short_hex,
     sha1,
-    Bytedata, sha256,
+    Bytedata,
+    sha256,
 )
+
 from ..typed import ByteReader, Loop, PartialByteReader
 
 _rsa_public_key_RE = re.compile(
@@ -79,9 +79,9 @@ class PublicRSA:
 
 # AES encryption in IGE mode
 class AesIge:
-    iv1: bytes
-    iv2: bytes
-    plain_buffer: bytes
+    _key: bytes
+    _iv: bytes
+    _plain_buffer: bytes
 
     def __init__(self, key: bytes, iv: bytes):
         if len(key) != 32:
@@ -90,61 +90,15 @@ class AesIge:
         if len(iv) != 32:
             raise ValueError(f"AES init vector length must be 32 bytes, got {len(iv):d} bytes: {short_hex(key)}")
 
-        self.iv1, self.iv2 = iv[:16], iv[16:]
-        self._aes = Crypto.Cipher.AES.new(key, Crypto.Cipher.AES.MODE_ECB)
-        self.plain_buffer = b""
-
-    def decrypt_block(self, cipher_block_buffer: bytes) -> bytes:
-        plain_block_buffer = b""
-
-        for o in range(0, len(cipher_block_buffer), 16):
-            cipher_block = cipher_block_buffer[o: o + 16]
-            plain_block = xor(self.iv1, self._aes.decrypt(xor(self.iv2, cipher_block)))
-            self.iv1, self.iv2 = cipher_block, plain_block
-            plain_block_buffer += plain_block
-
-        return plain_block_buffer
-
-    def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: PartialByteReader) -> ByteReader:
-        async def decryptor(n: int) -> bytes:
-            while len(self.plain_buffer) < n:
-                encrypted_buffer = await reader()
-
-                if len(encrypted_buffer) % 16 != 0:
-                    raise ValueError(f"encrypted buffer length must be divisible by 16 bytes")
-
-                self.plain_buffer += await loop.run_in_executor(executor, self.decrypt_block, encrypted_buffer)
-
-            plain = self.plain_buffer[:n]
-            self.plain_buffer = self.plain_buffer[n:]
-            return plain
-
-        return decryptor
+        self._key = key
+        self._iv = iv
+        self._plain_buffer = b""
 
     def decrypt(self, cipher: bytes) -> bytes:
-        if len(cipher) % 16:
-            raise ValueError(f"cipher length must be divisible by 16 bytes\n{long_hex(cipher)}")
-
-        return b"".join(self.decrypt_block(plain_block) for plain_block in Bytedata(cipher).blocks(16))
-
-    def encrypt_block(self, plain_block: bytes) -> bytes:
-        if len(plain_block) != 16:
-            raise RuntimeError("plain block is wrong")
-
-        if len(self.iv1) != 16:
-            raise RuntimeError("iv1 block is wrong")
-
-        if len(self.iv2) != 16:
-            raise RuntimeError("iv2 block is wrong")
-
-        cipher_block = xor(self.iv2, self._aes.encrypt(xor(self.iv1, plain_block)))
-        self.iv1, self.iv2 = cipher_block, plain_block
-
-        return cipher_block
+        return cryptg.decrypt_ige(cipher, self._key, self._iv)
 
     def encrypt(self, plain: bytes) -> bytes:
-        padding = secrets.token_bytes((-len(plain)) % 16)
-        return b"".join(self.encrypt_block(plain_block) for plain_block in Bytedata(plain + padding).blocks(16))
+        return cryptg.encrypt_ige(plain + secrets.token_bytes((-len(plain)) % 16), self._key, self._iv)
 
     def encrypt_with_hash(self, plain: bytes) -> bytes:
         return self.encrypt(sha1(plain) + plain)
@@ -152,6 +106,22 @@ class AesIge:
     def decrypt_with_hash(self, cipher: bytes) -> tuple[bytes, bytes]:
         plain_with_hash = self.decrypt(cipher)
         return plain_with_hash[:20], plain_with_hash[20:]
+
+    def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: PartialByteReader) -> ByteReader:
+        async def decryptor(n: int) -> bytes:
+            while len(self._plain_buffer) < n:
+                encrypted_buffer = await reader()
+
+                if len(encrypted_buffer) % 16 != 0:
+                    raise ValueError(f"encrypted buffer length must be divisible by 16 bytes")
+
+                self._plain_buffer += await loop.run_in_executor(executor, self.decrypt, encrypted_buffer)
+
+            plain = self._plain_buffer[:n]
+            self._plain_buffer = self._plain_buffer[n:]
+            return plain
+
+        return decryptor
 
 
 def prepare_key(auth_key: bytes, msg_key: bytes, read: bool) -> AesIge:
