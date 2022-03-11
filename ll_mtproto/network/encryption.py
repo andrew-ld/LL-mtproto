@@ -82,7 +82,6 @@ class AesIge:
     iv1: bytes
     iv2: bytes
     plain_buffer: bytes
-    encrypted_buffer: bytes
 
     def __init__(self, key: bytes, iv: bytes):
         if len(key) != 32:
@@ -94,7 +93,6 @@ class AesIge:
         self.iv1, self.iv2 = iv[:16], iv[16:]
         self._aes = Crypto.Cipher.AES.new(key, Crypto.Cipher.AES.MODE_ECB)
         self.plain_buffer = b""
-        self.encrypted_buffer = b""
 
     def decrypt_block(self, cipher_block_buffer: bytes) -> bytes:
         plain_block_buffer = b""
@@ -110,9 +108,12 @@ class AesIge:
     def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: PartialByteReader) -> ByteReader:
         async def decryptor(n: int) -> bytes:
             while len(self.plain_buffer) < n:
-                self.encrypted_buffer += await reader()
-                self.plain_buffer += await loop.run_in_executor(executor, self.decrypt_block, self.encrypted_buffer)
-                self.encrypted_buffer = self.encrypted_buffer[-len(self.encrypted_buffer) % 16:]
+                encrypted_buffer = await reader()
+
+                if len(encrypted_buffer) % 16 != 0:
+                    raise ValueError(f"encrypted buffer length must be divisible by 16 bytes")
+
+                self.plain_buffer += await loop.run_in_executor(executor, self.decrypt_block, encrypted_buffer)
 
             plain = self.plain_buffer[:n]
             self.plain_buffer = self.plain_buffer[n:]
