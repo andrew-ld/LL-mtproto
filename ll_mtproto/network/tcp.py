@@ -96,3 +96,4 @@ class AbridgedTCP:
 
         self._writer = None
         self._reader = None
+        self._buffer = b""
