@@ -15,7 +15,7 @@ from ..tl.byteutils import (
     sha1,
     Bytedata, sha256,
 )
-from ..typed import ByteReader, Loop
+from ..typed import ByteReader, Loop, PartialByteReader
 
 _rsa_public_key_RE = re.compile(
     r"-----BEGIN RSA PUBLIC KEY-----(?P<key>.*)-----END RSA PUBLIC KEY-----", re.S
@@ -82,6 +82,7 @@ class AesIge:
     iv1: bytes
     iv2: bytes
     plain_buffer: bytes
+    encrypted_buffer: bytes
 
     def __init__(self, key: bytes, iv: bytes):
         if len(key) != 32:
@@ -93,16 +94,25 @@ class AesIge:
         self.iv1, self.iv2 = iv[:16], iv[16:]
         self._aes = Crypto.Cipher.AES.new(key, Crypto.Cipher.AES.MODE_ECB)
         self.plain_buffer = b""
+        self.encrypted_buffer = b""
 
-    def decrypt_block(self, cipher_block: bytes) -> bytes:
-        plain_block = xor(self.iv1, self._aes.decrypt(xor(self.iv2, cipher_block)))
-        self.iv1, self.iv2 = cipher_block, plain_block
-        return plain_block
+    def decrypt_block(self, cipher_block_buffer: bytes) -> bytes:
+        plain_block_buffer = b""
 
-    def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: ByteReader) -> ByteReader:
+        for o in range(0, len(cipher_block_buffer), 16):
+            cipher_block = cipher_block_buffer[o: o + 16]
+            plain_block = xor(self.iv1, self._aes.decrypt(xor(self.iv2, cipher_block)))
+            self.iv1, self.iv2 = cipher_block, plain_block
+            plain_block_buffer += plain_block
+
+        return plain_block_buffer
+
+    def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: PartialByteReader) -> ByteReader:
         async def decryptor(n: int) -> bytes:
             while len(self.plain_buffer) < n:
-                self.plain_buffer += await loop.run_in_executor(executor, self.decrypt_block, await reader(16))
+                self.encrypted_buffer += await reader()
+                self.plain_buffer += await loop.run_in_executor(executor, self.decrypt_block, self.encrypted_buffer)
+                self.encrypted_buffer = self.encrypted_buffer[-len(self.encrypted_buffer) % 16:]
 
             plain = self.plain_buffer[:n]
             self.plain_buffer = self.plain_buffer[n:]

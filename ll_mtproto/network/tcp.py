@@ -9,22 +9,22 @@ class AbridgedTCP:
     _host: str
     _port: int
     _connect_lock: asyncio.Lock
-    _buffer: bytes
     _reader: asyncio.StreamReader | None
     _writer: asyncio.StreamWriter | None
     _write_lock: asyncio.Lock
     _retry_wait: int
+    _buffer: bytes
 
     def __init__(self, host: str, port: int):
         self._loop = asyncio.get_event_loop()
         self._host = host
         self._port = port
         self._connect_lock = Lock()
-        self._buffer = b""
         self._reader = None
         self._writer = None
         self._write_lock = Lock()
         self._retry_wait = 1
+        self._buffer = b""
 
     async def _reconnect_if_needed(self):
         async with self._connect_lock:
@@ -66,15 +66,21 @@ class AbridgedTCP:
 
         return await self._reader.readexactly(packet_data_length * 4)
 
-    def clear_buffer(self):
-        self._buffer = b""
+    async def read(self) -> bytes:
+        if self._buffer:
+            result = self._buffer
+            self._buffer = b""
+        else:
+            result = await self._read_abridged_packet()
 
-    async def read(self, nbytes: int) -> bytes:
-        while len(self._buffer) < nbytes:
+        return result
+
+    async def readn(self, n: int) -> bytes:
+        while len(self._buffer) < n:
             self._buffer += await self._read_abridged_packet()
 
-        result = self._buffer[:nbytes]
-        self._buffer = self._buffer[nbytes:]
+        result = self._buffer[:n]
+        self._buffer = self._buffer[n:]
         return result
 
     async def write(self, data: bytes):

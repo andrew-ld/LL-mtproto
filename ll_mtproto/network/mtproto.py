@@ -98,7 +98,7 @@ class MTProto:
 
     async def _read_unencrypted_message(self) -> Structure:
         async with self._read_message_lock:
-            return await self._scheme.read(self._link.read, is_boxed=False, parameter_type="unencrypted_message")
+            return await self._scheme.read(self._link.readn, is_boxed=False, parameter_type="unencrypted_message")
 
     def _write_unencrypted_message(self, **kwargs) -> typing.Awaitable[None]:
         message = self._scheme.bare(
@@ -226,13 +226,12 @@ class MTProto:
         auth_key, auth_key_id = await self._get_auth_key()
 
         async with self._read_message_lock:
-            self._link.clear_buffer()
-            server_auth_key_id = await self._link.read(8)
+            server_auth_key_id = await self._link.readn(8)
 
             if server_auth_key_id != auth_key_id:
                 raise ValueError("Received a message with unknown auth_key_id!", server_auth_key_id)
 
-            msg_key = await self._link.read(16)
+            msg_key = await self._link.readn(16)
 
             aes: AesIge = await self._in_thread(encryption.prepare_key, auth_key, msg_key, False)
 
