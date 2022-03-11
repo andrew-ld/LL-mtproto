@@ -228,6 +228,9 @@ class MTProto:
         async with self._read_message_lock:
             server_auth_key_id = await self._link.readn(8)
 
+            if server_auth_key_id == b"l\xfe\xff\xffl\xfe\xff\xff":
+                raise ValueError("Received a message with corrupted authorization!")
+
             if server_auth_key_id != auth_key_id:
                 raise ValueError("Received a message with unknown auth_key_id!", server_auth_key_id)
 
