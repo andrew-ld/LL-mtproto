@@ -76,7 +76,7 @@ class Client:
 
         try:
             await write_future
-        except (OSError, asyncio.CancelledError):
+        except (OSError, asyncio.CancelledError, KeyboardInterrupt):
             pending_request_timeout.cancel()
             self._delete_pending_request(message_id)
 
@@ -103,6 +103,9 @@ class Client:
 
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
         await self._create_new_ping_request()
+
+    def _create_new_ping_request_sync(self):
+        self._loop.create_task(self._create_new_ping_request())
 
     async def _create_new_ping_request(self):
         new_random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
@@ -218,7 +221,7 @@ class Client:
         if pong.msg_id in self._pending_requests:
             self._pending_requests[pong.msg_id].response.set_result({})
 
-        self._pending_ping_request = self._loop.call_later(10, self._loop.create_task, self._create_new_ping_request())
+        self._pending_ping_request = self._loop.call_later(10, self._create_new_ping_request_sync)
 
     async def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
