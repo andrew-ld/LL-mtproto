@@ -60,7 +60,7 @@ class Client:
         return await self._rpc_call(pending_request)
 
     async def _rpc_call(self, pending_request: _PendingRequest) -> dict[str, any]:
-        if self._mtproto is None:
+        if self._mtproto is None or self._mtproto_loop_task.done():
             await self._start_mtproto_loop()
 
         await self._flush_msgids_to_ack()
