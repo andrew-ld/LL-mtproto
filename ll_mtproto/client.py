@@ -72,23 +72,17 @@ class Client:
         logging.log(logging.DEBUG, "sending message (%s) %d to mtproto", constructor, message_id)
 
         self._pending_requests[message_id] = pending_request
-        pending_request_timeout = self._loop.call_later(600, self._delete_pending_request, message_id)
 
         try:
-            await write_future
+            await asyncio.wait_for(write_future, 120)
         except (OSError, asyncio.CancelledError, KeyboardInterrupt):
-            pending_request_timeout.cancel()
             self._delete_pending_request(message_id)
 
         try:
-            return await pending_request.response
+            return await asyncio.wait_for(pending_request.response, 600)
         finally:
-            pending_request_timeout.cancel()
-
             self._seqno_increment += 1
-
-            if message_id in self._pending_requests:
-                del self._pending_requests[message_id]
+            self._delete_pending_request(message_id)
 
     async def _start_mtproto_loop(self):
         self._delete_all_pending_data()
@@ -119,7 +113,7 @@ class Client:
         message_id, write_future = self._mtproto.write(seqno, **request)
         self._pending_requests[message_id] = pending_request
 
-        await write_future
+        await asyncio.wait_for(write_future, 120)
 
     def _get_next_odd_seqno(self) -> int:
         self._last_seqno = ((self._last_seqno + 1) // 2) * 2 + 1
@@ -236,7 +230,7 @@ class Client:
 
         seqno = self._get_next_even_seqno()
         _, write_future = self._mtproto.write(seqno, _cons="msgs_ack", msg_ids=self._msgids_to_ack)
-        await write_future
+        await asyncio.wait_for(write_future, 120)
         self._msgids_to_ack = []
 
     def _update_last_seqno_from_incoming_message(self, message: Structure):
@@ -251,6 +245,7 @@ class Client:
 
         if body.bad_msg_id in self._pending_requests:
             bad_request = self._pending_requests[body.bad_msg_id]
+            del self._pending_requests[body.bad_msg_id]
             self._loop.create_task(self._rpc_call(bad_request))
 
         else:
@@ -264,6 +259,7 @@ class Client:
 
         if body.bad_msg_id in self._pending_requests:
             bad_request = self._pending_requests[body.bad_msg_id]
+            del self._pending_requests[body.bad_msg_id]
             self._loop.create_task(self._rpc_call(bad_request))
 
     def _process_rpc_result(self, body: Structure):
