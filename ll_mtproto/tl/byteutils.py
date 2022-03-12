@@ -1,8 +1,8 @@
 import base64
 import functools
-import zlib
 import hashlib
 import typing
+import zlib
 from typing import Literal
 
 from ..typed import ByteReader, InThread

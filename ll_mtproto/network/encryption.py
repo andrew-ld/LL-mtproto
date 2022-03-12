@@ -14,7 +14,6 @@ from ..tl.byteutils import (
     Bytedata,
     sha256,
 )
-
 from ..typed import ByteReader, Loop, PartialByteReader
 
 _rsa_public_key_RE = re.compile(
@@ -95,6 +94,9 @@ class AesIge:
         self._plain_buffer = b""
 
     def decrypt(self, cipher: bytes) -> bytes:
+        if len(cipher) % 16 != 0:
+            raise ValueError(f"Encrypted length must be divisible by 16 bytes")
+
         return cryptg.decrypt_ige(cipher, self._key, self._iv)
 
     def encrypt(self, plain: bytes) -> bytes:
@@ -110,12 +112,7 @@ class AesIge:
     def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: PartialByteReader) -> ByteReader:
         async def decryptor(n: int) -> bytes:
             while len(self._plain_buffer) < n:
-                encrypted_buffer = await reader()
-
-                if len(encrypted_buffer) % 16 != 0:
-                    raise ValueError(f"encrypted buffer length must be divisible by 16 bytes")
-
-                self._plain_buffer += await loop.run_in_executor(executor, self.decrypt, encrypted_buffer)
+                self._plain_buffer += await loop.run_in_executor(executor, self.decrypt, await reader())
 
             plain = self._plain_buffer[:n]
             self._plain_buffer = self._plain_buffer[n:]

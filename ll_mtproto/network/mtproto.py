@@ -100,7 +100,7 @@ class MTProto:
         async with self._read_message_lock:
             return await self._scheme.read(self._link.readn, is_boxed=False, parameter_type="unencrypted_message")
 
-    def _write_unencrypted_message(self, **kwargs) -> typing.Awaitable[None]:
+    async def _write_unencrypted_message(self, **kwargs):
         message = self._scheme.bare(
             _cons="unencrypted_message",
             auth_key_id=0,
@@ -108,7 +108,7 @@ class MTProto:
             body=self._scheme.boxed(**kwargs),
         )
 
-        return self._loop.create_task(self._link.write(message.get_flat_bytes()))
+        await self._link.write(message.get_flat_bytes())
 
     async def _get_auth_key(self) -> tuple[bytes, bytes]:
         async with self._auth_key.auth_key_lock:
@@ -255,7 +255,7 @@ class MTProto:
     def get_server_salt(self) -> int:
         return self._server_salt
 
-    def write(self, seq_no: int, **kwargs) -> int:
+    def write(self, seq_no: int, **kwargs) -> tuple[int, typing.Awaitable[None]]:
         message_id = self._get_message_id()
 
         message = self._scheme.bare(
@@ -265,8 +265,7 @@ class MTProto:
             body=self._scheme.boxed(**kwargs),
         )
 
-        self._loop.create_task(self._write(message))
-        return message_id
+        return message_id, self._write(message)
 
     async def _write(self, message: Value):
         auth_key, auth_key_id = await self._get_auth_key()
