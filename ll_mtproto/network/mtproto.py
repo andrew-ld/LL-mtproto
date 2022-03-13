@@ -248,7 +248,7 @@ class MTProto:
 
             message = await self._scheme.read(decrypter, is_boxed=False, parameter_type="message_inner_data")
 
-            sha256_hash.update(aes.remaining_plain_buffer())
+            await self._in_thread(sha256_hash.update, aes.remaining_plain_buffer())
             msg_key_computed = (await self._in_thread(sha256_hash.digest))[8:24]
 
             if msg_key_computed != msg_key:
