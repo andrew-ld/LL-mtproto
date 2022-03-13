@@ -1,5 +1,6 @@
 import binascii
 import functools
+import gzip
 import re
 import struct
 
@@ -478,6 +479,10 @@ class Constructor:
 
         elif parameter.type == "encrypted":
             data.append(argument)
+
+        elif parameter.type == "gzip":
+            argument.boxed = True
+            data.append(pack_binary_string(gzip.compress(argument.get_flat_bytes(), compresslevel=1)))
 
         elif parameter.is_vector:
             if parameter.is_boxed:
