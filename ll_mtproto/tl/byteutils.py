@@ -1,6 +1,7 @@
 import base64
 import functools
 import hashlib
+import io
 import typing
 import zlib
 from typing import Literal
@@ -89,6 +90,17 @@ async def unpack_binary_string_header(bytereader: ByteReader) -> tuple[int, int]
         padding_bytes = (3 - str_len) % 4
 
     return str_len, padding_bytes
+
+
+def async_stream_copy(bytereader: ByteReader) -> tuple[io.BytesIO, ByteReader]:
+    copy = io.BytesIO()
+
+    async def wrapper(num_bytes: int) -> bytes:
+        result = await bytereader(num_bytes)
+        copy.write(result)
+        return result
+
+    return copy, wrapper
 
 
 class _BinaryStreamState:

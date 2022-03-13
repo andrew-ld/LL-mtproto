@@ -7,12 +7,12 @@ import typing
 from concurrent.futures import ThreadPoolExecutor
 
 from . import encryption
-from .encryption import AesIge
+from .encryption import AesIgeAsyncStream
 from .tcp import AbridgedTCP
 from .. import constants
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, sha256
+from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_copy
 from ..tl.tl import Structure, Value
 from ..typed import InThread
 
@@ -224,6 +224,7 @@ class MTProto:
 
     async def read(self) -> Structure:
         auth_key, auth_key_id = await self._get_auth_key()
+        auth_key_part = auth_key[88 + 8:88 + 8 + 32]
 
         async with self._read_message_lock:
             server_auth_key_id = await self._link.readn(8)
@@ -232,17 +233,28 @@ class MTProto:
                 raise ValueError("Received a message with corrupted authorization!")
 
             if server_auth_key_id != auth_key_id:
-                raise ValueError("Received a message with unknown auth_key_id!", server_auth_key_id)
+                raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
 
             msg_key = await self._link.readn(16)
 
-            aes: AesIge = await self._in_thread(encryption.prepare_key, auth_key, msg_key, False)
+            aes = AesIgeAsyncStream(await self._in_thread(encryption.prepare_key, auth_key, msg_key, False))
 
             decrypter = aes.decrypt_async_stream(self._loop, self._executor, self._link.read)
+            decrypter_copy, decrypter = async_stream_copy(decrypter)
+
             message = await self._scheme.read(decrypter, is_boxed=False, parameter_type="message_inner_data")
 
+            msg_key_input = auth_key_part + decrypter_copy.getvalue() + aes.remaining_plain_buffer()
+            msg_key_computed = (await self._in_thread(sha256, msg_key_input))[8:24]
+
+            if msg_key_computed != msg_key:
+                raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
+
             if message.session_id != self._auth_key.session_id:
-                raise ValueError("Received a message with unknown session_id!", message.session_id)
+                raise ValueError("Received a message with unknown session id!", message.session_id)
+
+            if message.message.msg_id % 2 != 1:
+                raise ValueError("Received message from server to client need odd parity!", message.message.msg_id)
 
             if self._server_salt != message.salt:
                 logging.log(logging.ERROR, "received a message with unknown salt! %d", message.salt)

@@ -80,7 +80,6 @@ class PublicRSA:
 class AesIge:
     _key: bytes
     _iv: bytes
-    _plain_buffer: bytes
 
     def __init__(self, key: bytes, iv: bytes):
         if len(key) != 32:
@@ -91,7 +90,6 @@ class AesIge:
 
         self._key = key
         self._iv = iv
-        self._plain_buffer = b""
 
     def decrypt(self, cipher: bytes) -> bytes:
         if len(cipher) % 16 != 0:
@@ -109,16 +107,28 @@ class AesIge:
         plain_with_hash = self.decrypt(cipher)
         return plain_with_hash[:20], plain_with_hash[20:]
 
+
+class AesIgeAsyncStream:
+    _plain_buffer: bytes
+    _aes: AesIge
+
+    def __init__(self, aes: AesIge):
+        self._aes = aes
+        self._plain_buffer = b""
+
     def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: PartialByteReader) -> ByteReader:
         async def decryptor(n: int) -> bytes:
             while len(self._plain_buffer) < n:
-                self._plain_buffer += await loop.run_in_executor(executor, self.decrypt, await reader())
+                self._plain_buffer += await loop.run_in_executor(executor, self._aes.decrypt, await reader())
 
             plain = self._plain_buffer[:n]
             self._plain_buffer = self._plain_buffer[n:]
             return plain
 
         return decryptor
+
+    def remaining_plain_buffer(self) -> bytes:
+        return self._plain_buffer
 
 
 def prepare_key(auth_key: bytes, msg_key: bytes, read: bool) -> AesIge:
