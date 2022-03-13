@@ -1,12 +1,11 @@
 import base64
 import functools
 import hashlib
-import io
 import typing
 import zlib
 from typing import Literal
 
-from ..typed import ByteReader, InThread
+from ..typed import ByteReader, InThread, ByteConsumer
 
 
 def xor(a: bytes, b: bytes) -> bytes:
@@ -92,15 +91,13 @@ async def unpack_binary_string_header(bytereader: ByteReader) -> tuple[int, int]
     return str_len, padding_bytes
 
 
-def async_stream_copy(bytereader: ByteReader) -> tuple[io.BytesIO, ByteReader]:
-    copy = io.BytesIO()
-
+def async_stream_apply(bytereader: ByteReader, apply: ByteConsumer, in_thread: InThread) -> ByteReader:
     async def wrapper(num_bytes: int) -> bytes:
         result = await bytereader(num_bytes)
-        copy.write(result)
+        await in_thread(apply, result)
         return result
 
-    return copy, wrapper
+    return wrapper
 
 
 class _BinaryStreamState:

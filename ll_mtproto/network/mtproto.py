@@ -1,4 +1,5 @@
 import asyncio
+import hashlib
 import logging
 import os
 import secrets
@@ -12,7 +13,7 @@ from .tcp import AbridgedTCP
 from .. import constants
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_copy
+from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply
 from ..tl.tl import Structure, Value
 from ..typed import InThread
 
@@ -239,13 +240,16 @@ class MTProto:
 
             aes = AesIgeAsyncStream(await self._in_thread(encryption.prepare_key, auth_key, msg_key, False))
 
+            sha256_hash = hashlib.sha256()
+            await self._in_thread(sha256_hash.update, auth_key_part)
+
             decrypter = aes.decrypt_async_stream(self._loop, self._executor, self._link.read)
-            decrypter_copy, decrypter = async_stream_copy(decrypter)
+            decrypter = async_stream_apply(decrypter, sha256_hash.update, self._in_thread)
 
             message = await self._scheme.read(decrypter, is_boxed=False, parameter_type="message_inner_data")
 
-            msg_key_input = auth_key_part + decrypter_copy.getvalue() + aes.remaining_plain_buffer()
-            msg_key_computed = (await self._in_thread(sha256, msg_key_input))[8:24]
+            sha256_hash.update(aes.remaining_plain_buffer())
+            msg_key_computed = (await self._in_thread(sha256_hash.digest))[8:24]
 
             if msg_key_computed != msg_key:
                 raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
