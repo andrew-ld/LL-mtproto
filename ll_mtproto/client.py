@@ -59,7 +59,7 @@ class Client:
         pending_request = _PendingRequest(self._loop, message)
         return await self._rpc_call(pending_request)
 
-    async def _rpc_call(self, pending_request: _PendingRequest) -> dict[str, any]:
+    async def _rpc_call(self, pending_request: _PendingRequest, no_response: bool = False) -> dict[str, any] | None:
         if self._mtproto is None or self._mtproto_loop_task.done():
             await self._start_mtproto_loop()
 
@@ -78,11 +78,12 @@ class Client:
         except (OSError, asyncio.CancelledError, KeyboardInterrupt):
             self._delete_pending_request(message_id)
 
-        try:
+        self._seqno_increment += 1
+
+        if no_response:
+            self._loop.call_later(600, self._delete_pending_request, message_id)
+        else:
             return await asyncio.wait_for(pending_request.response, 600)
-        finally:
-            self._seqno_increment += 1
-            self._delete_pending_request(message_id)
 
     async def _start_mtproto_loop(self):
         self._delete_all_pending_data()
@@ -246,7 +247,7 @@ class Client:
         if body.bad_msg_id in self._pending_requests:
             bad_request = self._pending_requests[body.bad_msg_id]
             del self._pending_requests[body.bad_msg_id]
-            self._loop.create_task(self._rpc_call(bad_request))
+            await self._rpc_call(bad_request, no_response=True)
 
         else:
             logging.log(logging.DEBUG, "bad_msg_id %d not found", body.bad_msg_id)
@@ -260,13 +261,14 @@ class Client:
         if body.bad_msg_id in self._pending_requests:
             bad_request = self._pending_requests[body.bad_msg_id]
             del self._pending_requests[body.bad_msg_id]
-            self._loop.create_task(self._rpc_call(bad_request))
+            await self._rpc_call(bad_request, no_response=True)
 
     def _process_rpc_result(self, body: Structure):
         self._stable_seqno = True
 
         if body.req_msg_id in self._pending_requests:
             pending_request = self._pending_requests[body.req_msg_id]
+            del self._pending_requests[body.req_msg_id]
 
             if body.result == "gzip_packed":
                 result = body.result.packed_data
