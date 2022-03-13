@@ -1,4 +1,5 @@
 import asyncio
+import collections
 import hashlib
 import logging
 import os
@@ -69,6 +70,7 @@ class MTProto:
     _auth_key: AuthKey
     _executor: ThreadPoolExecutor
     _scheme: tl.Scheme
+    _last_msg_ids: collections.deque[int]
 
     def __init__(self, host: str, port: int, public_rsa_key: str, auth_key: AuthKey):
         self._loop = asyncio.get_event_loop()
@@ -81,6 +83,7 @@ class MTProto:
         self._last_message_id = 0
         self._executor = _get_executor()
         self._scheme = _get_scheme(self._in_thread)
+        self._last_msg_ids = collections.deque(maxlen=64)
 
         if self._auth_key.session_id is None:
             self._auth_key.session_id = secrets.randbits(64)
@@ -247,16 +250,16 @@ class MTProto:
 
             aes = AesIgeAsyncStream(await self._in_thread(encryption.prepare_key, auth_key, msg_key, False))
 
-            sha256_hash = hashlib.sha256()
-            await self._in_thread(sha256_hash.update, auth_key_part)
+            plain_sha256 = hashlib.sha256()
+            await self._in_thread(plain_sha256.update, auth_key_part)
 
             decrypter = aes.decrypt_async_stream(self._loop, self._executor, self._link.read)
-            decrypter = async_stream_apply(decrypter, sha256_hash.update, self._in_thread)
+            decrypter = async_stream_apply(decrypter, plain_sha256.update, self._in_thread)
 
             message = await self._scheme.read(decrypter, is_boxed=False, parameter_type="message_inner_data")
 
-            await self._in_thread(sha256_hash.update, aes.remaining_plain_buffer())
-            msg_key_computed = (await self._in_thread(sha256_hash.digest))[8:24]
+            await self._in_thread(plain_sha256.update, aes.remaining_plain_buffer())
+            msg_key_computed = (await self._in_thread(plain_sha256.digest))[8:24]
 
             if msg_key_computed != msg_key:
                 raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
@@ -266,6 +269,11 @@ class MTProto:
 
             if message.message.msg_id % 2 != 1:
                 raise ValueError("Received message from server to client need odd parity!", message.message.msg_id)
+
+            if not all(old_msg_id < message.message.msg_id for old_msg_id in self._last_msg_ids):
+                raise ValueError("Received duplicated/old message from server to client", message.message.msg_id)
+
+            self._last_msg_ids.append(message.message.msg_id)
 
             if self._server_salt != message.salt:
                 logging.log(logging.ERROR, "received a message with unknown salt! %d", message.salt)
