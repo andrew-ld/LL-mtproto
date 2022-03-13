@@ -14,10 +14,12 @@ from .tl.tl import Structure
 class _PendingRequest:
     response: asyncio.Future
     request: dict
+    cleaner: asyncio.TimerHandle | None
 
     def __init__(self, loop: asyncio.AbstractEventLoop, message: dict):
         self.response = loop.create_future()
         self.request = message
+        self.cleaner = None
 
 
 class Client:
@@ -71,6 +73,9 @@ class Client:
 
         logging.log(logging.DEBUG, "sending message (%s) %d to mtproto", constructor, message_id)
 
+        if no_response:
+            pending_request.cleaner = self._loop.call_later(600, self._delete_pending_request, message_id)
+
         self._pending_requests[message_id] = pending_request
 
         try:
@@ -80,9 +85,7 @@ class Client:
 
         self._seqno_increment += 1
 
-        if no_response:
-            self._loop.call_later(600, self._delete_pending_request, message_id)
-        else:
+        if not no_response:
             return await asyncio.wait_for(pending_request.response, 600)
 
     async def _start_mtproto_loop(self):
@@ -145,10 +148,14 @@ class Client:
 
     def _delete_pending_request(self, msg_id: int, remove: bool = True):
         if msg_id in self._pending_requests:
-            pending_response = self._pending_requests[msg_id].response
+            pending_request = self._pending_requests[msg_id]
 
-            if not pending_response.done():
-                pending_response.set_exception(InterruptedError())
+            if not pending_request.response.done():
+                pending_request.response.set_exception(InterruptedError())
+
+            if pending_request.cleaner is not None:
+                pending_request.cleaner.cancel()
+                pending_request.cleaner = None
 
             if remove:
                 del self._pending_requests[msg_id]
@@ -268,7 +275,6 @@ class Client:
 
         if body.req_msg_id in self._pending_requests:
             pending_request = self._pending_requests[body.req_msg_id]
-            del self._pending_requests[body.req_msg_id]
 
             if body.result == "gzip_packed":
                 result = body.result.packed_data
@@ -276,6 +282,7 @@ class Client:
                 result = body.result
 
             pending_request.response.set_result(result.get_dict())
+            self._delete_pending_request(body.req_msg_id)
 
     def disconnect(self):
         self._delete_all_pending_data()
