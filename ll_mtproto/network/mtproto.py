@@ -273,6 +273,11 @@ class MTProto:
             if not all(old_msg_id < message.message.msg_id for old_msg_id in self._last_msg_ids):
                 raise ValueError("Received duplicated/old message from server to client", message.message.msg_id)
 
+            message_id_difference = message.message.msg_id - self._get_message_id()
+
+            if message_id_difference > -(300 * (2 * 32)) or message_id_difference > (30 * (2 * 32)):
+                raise RuntimeError("Client time is not synchronised with telegram time!")
+
             self._last_msg_ids.append(message.message.msg_id)
 
             if self._server_salt != message.salt:
