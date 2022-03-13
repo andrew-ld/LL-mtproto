@@ -164,8 +164,15 @@ class MTProto:
         if params != "server_DH_params_ok" or params.nonce != nonce or params.server_nonce != server_nonce:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params)
 
-        tmp_aes_key = sha1(new_nonce + server_nonce) + sha1(server_nonce + new_nonce)[:12]
-        tmp_aes_iv = sha1(server_nonce + new_nonce)[12:] + sha1(new_nonce + new_nonce) + new_nonce[:4]
+        tmp_aes_key_1, tmp_aes_key_2, tmp_aes_iv_1, tmp_aes_iv_2 = await asyncio.gather(
+            self._in_thread(sha1, new_nonce + server_nonce),
+            self._in_thread(sha1, server_nonce + new_nonce),
+            self._in_thread(sha1, server_nonce + new_nonce),
+            self._in_thread(sha1, new_nonce + new_nonce)
+        )
+
+        tmp_aes_key = tmp_aes_key_1 + tmp_aes_key_2[:12]
+        tmp_aes_iv = tmp_aes_iv_1[12:] + tmp_aes_iv_2 + new_nonce[:4]
         tmp_aes = encryption.AesIge(tmp_aes_key, tmp_aes_iv)
 
         (answer_hash, answer), b = await asyncio.gather(
