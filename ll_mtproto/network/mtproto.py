@@ -209,7 +209,7 @@ class MTProto:
         self._auth_key.auth_key_id = (await self._in_thread(sha1, self._auth_key.auth_key))[-8:]
 
         if self._auth_key.session_id is None:
-            self._auth_key.session_id = secrets.randbits(64)
+            self._auth_key.session_id = await self._in_thread(secrets.randbits, 64)
 
         self._server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
 
