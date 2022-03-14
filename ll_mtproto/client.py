@@ -166,6 +166,7 @@ class Client:
                 message = await self._mtproto.read()
             except:
                 logging.log(logging.ERROR, "failure while read message from mtproto: %s", traceback.format_exc())
+                self._delete_all_pending_data()
                 break
 
             logging.log(logging.DEBUG, "received message %d from mtproto", message.msg_id)
