@@ -71,6 +71,7 @@ class MTProto:
     _executor: ThreadPoolExecutor
     _scheme: tl.Scheme
     _last_msg_ids: collections.deque[int]
+    _last_seqno: int
 
     def __init__(self, host: str, port: int, public_rsa_key: str, auth_key: AuthKey):
         self._loop = asyncio.get_event_loop()
@@ -84,9 +85,7 @@ class MTProto:
         self._executor = _get_executor()
         self._scheme = _get_scheme(self._in_thread)
         self._last_msg_ids = collections.deque(maxlen=64)
-
-        if self._auth_key.session_id is None:
-            self._auth_key.session_id = secrets.randbits(64)
+        self._last_seqno = -1
 
     async def _in_thread(self, *args, **kwargs):
         return await self._loop.run_in_executor(self._executor, *args, **kwargs)
@@ -209,6 +208,9 @@ class MTProto:
         self._auth_key.auth_key = auth_key
         self._auth_key.auth_key_id = (await self._in_thread(sha1, self._auth_key.auth_key))[-8:]
 
+        if self._auth_key.session_id is None:
+            self._auth_key.session_id = secrets.randbits(64)
+
         self._server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
 
         client_dh_inner_data = self._scheme.boxed(
@@ -270,18 +272,20 @@ class MTProto:
             if message.message.msg_id % 2 != 1:
                 raise ValueError("Received message from server to client need odd parity!", message.message.msg_id)
 
+            if message.message.seqno < self._last_seqno:
+                raise ValueError("Received old message from server to client", message.message.msg_id)
+
             if not all(old_msg_id < message.message.msg_id for old_msg_id in self._last_msg_ids):
                 raise ValueError("Received duplicated/old message from server to client", message.message.msg_id)
 
-            message_id_difference = message.message.msg_id - self._get_message_id()
-
-            if message_id_difference > -(300 * (2 * 32)) or message_id_difference > (30 * (2 * 32)):
+            if (message.message.msg_id - self._get_message_id()) not in range(-(300 * (2 ** 32)), (30 * (2 ** 32))):
                 raise RuntimeError("Client time is not synchronised with telegram time!")
-
-            self._last_msg_ids.append(message.message.msg_id)
 
             if self._server_salt != message.salt:
                 logging.log(logging.ERROR, "received a message with unknown salt! %d", message.salt)
+
+            self._last_msg_ids.append(message.message.msg_id)
+            self._last_seqno = message.message.seqno
 
             return message.message
 
