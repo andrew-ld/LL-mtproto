@@ -267,6 +267,8 @@ class Client:
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             await self._rpc_call(bad_request, no_response=True)
+        else:
+            logging.log(logging.DEBUG, "bad_msg_id %d not found", body.bad_msg_id)
 
     def _process_rpc_result(self, body: Structure):
         self._stable_seqno = True
