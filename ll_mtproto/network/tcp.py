@@ -1,5 +1,4 @@
 import asyncio
-from asyncio import Lock, open_connection
 
 
 class AbridgedTCP:
@@ -16,16 +15,16 @@ class AbridgedTCP:
         self._loop = asyncio.get_event_loop()
         self._host = host
         self._port = port
-        self._connect_lock = Lock()
+        self._connect_lock = asyncio.Lock()
         self._reader = None
         self._writer = None
-        self._write_lock = Lock()
+        self._write_lock = asyncio.Lock()
         self._read_buffer = bytearray()
 
     async def _reconnect_if_needed(self):
         async with self._connect_lock:
             if self._writer is None or self._reader is None:
-                self._reader, self._writer = await open_connection(self._host, self._port, limit=2 ** 24)
+                self._reader, self._writer = await asyncio.open_connection(self._host, self._port, limit=2 ** 24)
                 self._writer.write(b"\xef")
 
     async def _write_abridged_packet(self, data: bytes):
