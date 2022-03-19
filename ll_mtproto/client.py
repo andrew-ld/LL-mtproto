@@ -223,8 +223,8 @@ class Client:
 
         self._delete_pending_pong(pong.ping_id)
 
-        if pong.msg_id in self._pending_requests:
-            self._pending_requests[pong.msg_id].response.set_result({})
+        if pending_request := self._pending_requests.get(pong.msg_id, False):
+            pending_request.response.set_result({})
 
         self._pending_ping_request = self._loop.call_later(10, self._create_new_ping_request_sync)
 
@@ -273,16 +273,15 @@ class Client:
     def _process_rpc_result(self, body: Structure):
         self._stable_seqno = True
 
-        if body.req_msg_id in self._pending_requests:
-            pending_request = self._pending_requests[body.req_msg_id]
-
+        if pending_request := self._pending_requests.get(body.req_msg_id, False):
             if body.result == "gzip_packed":
                 result = body.result.packed_data
             else:
                 result = body.result
 
             pending_request.response.set_result(result.get_dict())
-            self._delete_pending_request(body.req_msg_id)
+
+        self._delete_pending_request(body.req_msg_id)
 
     def disconnect(self):
         self._delete_all_pending_data()
