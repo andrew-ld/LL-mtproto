@@ -224,7 +224,7 @@ class Client:
         self._delete_pending_pong(pong.ping_id)
 
         if pending_request := self._pending_requests.get(pong.msg_id, False):
-            pending_request.response.set_result({})
+            pending_request.response.set_result(pong.get_dict())
 
         self._pending_ping_request = self._loop.call_later(10, self._create_new_ping_request_sync)
 
