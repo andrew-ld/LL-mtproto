@@ -141,14 +141,19 @@ class Client:
 
     def _delete_pending_pong(self, ping_id: int, remove: bool = True):
         if ping_id in self._pending_pongs:
-            self._pending_pongs[ping_id].cancel()
-
             if remove:
-                del self._pending_pongs[ping_id]
+                pending_pong = self._pending_pongs.pop(ping_id)
+            else:
+                pending_pong = self._pending_pongs[ping_id]
+
+            pending_pong.cancel()
 
     def _delete_pending_request(self, msg_id: int, remove: bool = True):
         if msg_id in self._pending_requests:
-            pending_request = self._pending_requests[msg_id]
+            if remove:
+                pending_request = self._pending_requests.pop(msg_id)
+            else:
+                pending_request = self._pending_requests[msg_id]
 
             if not pending_request.response.done():
                 pending_request.response.set_exception(InterruptedError())
@@ -156,9 +161,6 @@ class Client:
             if pending_request.cleaner is not None:
                 pending_request.cleaner.cancel()
                 pending_request.cleaner = None
-
-            if remove:
-                del self._pending_requests[msg_id]
 
     async def _mtproto_loop(self):
         while self._mtproto:
@@ -252,11 +254,8 @@ class Client:
         self._mtproto.set_server_salt(body.new_server_salt)
         logging.log(logging.DEBUG, "updating salt: %d", body.new_server_salt)
 
-        if body.bad_msg_id in self._pending_requests:
-            bad_request = self._pending_requests[body.bad_msg_id]
-            del self._pending_requests[body.bad_msg_id]
+        if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             await self._rpc_call(bad_request, no_response=True)
-
         else:
             logging.log(logging.DEBUG, "bad_msg_id %d not found", body.bad_msg_id)
 
@@ -266,9 +265,7 @@ class Client:
 
         logging.log(logging.DEBUG, "updating seqno by %d to %d", self._seqno_increment, self._last_seqno)
 
-        if body.bad_msg_id in self._pending_requests:
-            bad_request = self._pending_requests[body.bad_msg_id]
-            del self._pending_requests[body.bad_msg_id]
+        if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             await self._rpc_call(bad_request, no_response=True)
 
     def _process_rpc_result(self, body: Structure):
