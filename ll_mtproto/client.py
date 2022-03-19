@@ -226,6 +226,9 @@ class Client:
         if pending_request := self._pending_requests.get(pong.msg_id, False):
             pending_request.response.set_result(pong.get_dict())
 
+        if pending_ping_request := self._pending_ping_request:
+            pending_ping_request.cancel()
+
         self._pending_ping_request = self._loop.call_later(10, self._create_new_ping_request_sync)
 
     async def _acknowledge_telegram_message(self, message: Structure):
