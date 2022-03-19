@@ -54,10 +54,10 @@ def pack_binary_string(data: bytes) -> bytes:
 class _GzipDecompressStreamState:
     __slots__ = ["buffer"]
 
-    buffer: bytes
+    buffer: bytearray
 
     def __init__(self):
-        self.buffer = b""
+        self.buffer = bytearray()
 
 
 def unpack_gzip_stream(bytedata: ByteReader, in_thread: InThread) -> ByteReader:
@@ -70,7 +70,7 @@ def unpack_gzip_stream(bytedata: ByteReader, in_thread: InThread) -> ByteReader:
 
         result = state.buffer[:num_bytes]
         state.buffer = state.buffer[num_bytes:]
-        return result
+        return bytes(result)
 
     return read
 

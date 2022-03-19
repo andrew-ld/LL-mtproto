@@ -109,12 +109,12 @@ class AesIge:
 
 
 class AesIgeAsyncStream:
-    _plain_buffer: bytes
+    _plain_buffer: bytearray
     _aes: AesIge
 
     def __init__(self, aes: AesIge):
         self._aes = aes
-        self._plain_buffer = b""
+        self._plain_buffer = bytearray()
 
     def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: PartialByteReader) -> ByteReader:
         async def decryptor(n: int) -> bytes:
@@ -123,12 +123,12 @@ class AesIgeAsyncStream:
 
             plain = self._plain_buffer[:n]
             self._plain_buffer = self._plain_buffer[n:]
-            return plain
+            return bytes(plain)
 
         return decryptor
 
     def remaining_plain_buffer(self) -> bytes:
-        return self._plain_buffer
+        return bytes(self._plain_buffer)
 
 
 def prepare_key(auth_key: bytes, msg_key: bytes, read: bool) -> AesIge:
