@@ -215,7 +215,7 @@ class Client:
         if body == "bad_server_salt":
             await self._process_bad_server_salt(body)
 
-        if body == "bad_msg_notification" and body.error_code == 32 and not self._stable_seqno:
+        if body == "bad_msg_notification" and body.error_code == 32:
             await self._process_bad_msg_notification_msg_seqno_too_low(body)
 
     def _process_pong(self, pong: Structure):
