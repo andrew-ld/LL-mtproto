@@ -83,7 +83,7 @@ class Client:
         except (OSError, asyncio.CancelledError, KeyboardInterrupt):
             self._delete_pending_request(message_id)
 
-        self._seqno_increment += 1
+        self._seqno_increment = 1
 
         if not no_response:
             return await asyncio.wait_for(pending_request.response, 600)
