@@ -16,6 +16,8 @@ from .byteutils import (
 )
 from ..typed import InThread, ByteReader
 
+__all__ = ("Scheme", "Value", "Structure", "Parameter", "Constructor",)
+
 
 @functools.lru_cache()
 def _compile_cons_number(definition: bytes) -> bytes:
@@ -73,6 +75,8 @@ _parameterRE = re.compile(
 
 # a collection of constructors
 class Scheme:
+    __slots__ = ("constructors", "types", "cons_numbers", "in_thread")
+
     constructors: dict[str, "Constructor"]
     types: dict[str, set]
     cons_numbers: dict[bytes, "Constructor"]
@@ -262,6 +266,8 @@ class Scheme:
 
 # a serialized TL Value that will be sent
 class Value:
+    __slots__ = ("cons", "boxed", "_flags", "_data")
+
     cons: "Constructor"
     boxed: bool
     _flags: set[int]
@@ -306,6 +312,8 @@ class Value:
 
 # a deserialized TL Value that was received
 class Structure:
+    __slots__ = ("_constructor_name", "_fields")
+
     _constructor_name: str
     _fields: dict
 
@@ -321,10 +329,10 @@ class Structure:
         return repr(self.get_dict())
 
     def __getattr__(self, name):
-        if name not in self._fields:
+        if (field := self._fields.get(name, KeyError)) is KeyError:
             raise AttributeError(f"Attribute `{name}` not found in `{self!r}`")
-
-        return self._fields[name]
+        else:
+            return field
 
     def get_dict(self):
         return Structure._get_dict(self)
@@ -355,6 +363,8 @@ class Structure:
 
 # a parameter in TL Constructor or TL Function
 class Parameter:
+    __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter")
+
     name: str
     type: str
     flag_number: int | None
@@ -387,8 +397,10 @@ class Parameter:
 
 # a TL Constructor or TL Function
 class Constructor:
+    __slots__ = ("scheme", "type", "name", "number", "has_flags", "flags_offset", "_parameters")
+
     scheme: Scheme
-    ptype: str
+    type: str
     name: str
     number: bytes
     has_flags: bool

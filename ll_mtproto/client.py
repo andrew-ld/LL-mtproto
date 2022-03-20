@@ -10,9 +10,13 @@ from .network import mtproto
 from .network.mtproto import AuthKey, MTProto
 from .tl.tl import Structure
 
+__all__ = ("_Update", "Client")
+
 
 class _PendingRequest:
-    response: asyncio.Future
+    __slots__ = ("response", "request", "cleaner")
+
+    response: asyncio.Future[Structure]
     request: dict
     cleaner: asyncio.TimerHandle | None
 
@@ -22,7 +26,38 @@ class _PendingRequest:
         self.cleaner = None
 
 
+class _Update:
+    __slots__ = ("users", "chats", "update")
+
+    users: list[Structure]
+    chats: list[Structure]
+    update: Structure
+
+    def __init__(self, users: list[Structure], chats: list[Structure], update: Structure):
+        self.users = users
+        self.chats = chats
+        self.update = update
+
+
 class Client:
+    __slots__ = (
+        "_seq_no",
+        "_mtproto",
+        "_loop",
+        "_msgids_to_ack",
+        "_last_time_acks_flushed",
+        "_last_seqno",
+        "_seqno_increment",
+        "_mtproto_loop_task",
+        "_pending_requests",
+        "_pending_pongs",
+        "_datacenter",
+        "_auth_key",
+        "_pending_ping_request",
+        "_stable_seqno",
+        "_updates_queue"
+    )
+
     _seq_no: int
     _mtproto: mtproto.MTProto | None
     _loop: asyncio.AbstractEventLoop
@@ -37,6 +72,7 @@ class Client:
     _datacenter: _TelegramDatacenterInfo
     _auth_key: AuthKey
     _pending_ping_request: asyncio.TimerHandle | None
+    _updates_queue: asyncio.Queue[_Update | None]
 
     def __init__(self, datacenter: TelegramDatacenter, auth_key: AuthKey):
         self._seq_no = -1
@@ -53,19 +89,23 @@ class Client:
         self._datacenter = typing.cast(_TelegramDatacenterInfo, datacenter.value)
         self._auth_key = auth_key
         self._pending_ping_request = None
+        self._updates_queue = asyncio.Queue()
 
-    async def rpc_call(self, message: dict[str, any]) -> dict[str, any]:
+    async def get_update(self) -> _Update | None:
+        await self._start_mtproto_loop_if_needed()
+        return await self._updates_queue.get()
+
+    async def rpc_call(self, message: dict[str, any]) -> Structure:
         if "_cons" not in message:
             raise RuntimeError("`_cons` attribute is required in message object")
 
         pending_request = _PendingRequest(self._loop, message)
         return await self._rpc_call(pending_request)
 
-    async def _rpc_call(self, pending_request: _PendingRequest, no_response: bool = False) -> dict[str, any] | None:
-        if self._mtproto is None or self._mtproto_loop_task.done():
-            await self._start_mtproto_loop()
-
+    async def _rpc_call(self, pending_request: _PendingRequest, no_response: bool = False) -> Structure | None:
+        await self._start_mtproto_loop_if_needed()
         await self._flush_msgids_to_ack()
+
         seqno = self._get_next_odd_seqno()
 
         message_id, write_future = self._mtproto.write(seqno, **pending_request.request)
@@ -74,14 +114,14 @@ class Client:
         logging.log(logging.DEBUG, "sending message (%s) %d to mtproto", constructor, message_id)
 
         if no_response:
-            pending_request.cleaner = self._loop.call_later(600, self._delete_pending_request, message_id)
+            pending_request.cleaner = self._loop.call_later(600, self._cancel_pending_request, message_id)
 
         self._pending_requests[message_id] = pending_request
 
         try:
             await asyncio.wait_for(write_future, 120)
         except (OSError, asyncio.CancelledError, KeyboardInterrupt):
-            self._delete_pending_request(message_id)
+            self._cancel_pending_request(message_id)
 
         self._seqno_increment = 1
 
@@ -89,7 +129,7 @@ class Client:
             return await asyncio.wait_for(pending_request.response, 600)
 
     async def _start_mtproto_loop(self):
-        self._delete_all_pending_data()
+        self._cancel_pending_futures()
 
         if self._mtproto is not None:
             self._mtproto_loop_task.cancel()
@@ -127,19 +167,19 @@ class Client:
         self._last_seqno = (self._last_seqno // 2 + 1) * 2
         return self._last_seqno
 
-    def _delete_all_pending_pongs(self):
+    def _cancel_pending_pongs(self):
         for pending_pong_id in self._pending_pongs.keys():
-            self._delete_pending_pong(pending_pong_id, False)
+            self._cancel_pending_pong(pending_pong_id, False)
 
         self._pending_pongs.clear()
 
-    def _delete_all_pending_requests(self):
+    def _cancel_pending_requests(self):
         for pending_request_id in self._pending_requests.keys():
-            self._delete_pending_request(pending_request_id, False)
+            self._cancel_pending_request(pending_request_id, False)
 
         self._pending_requests.clear()
 
-    def _delete_pending_pong(self, ping_id: int, remove: bool = True):
+    def _cancel_pending_pong(self, ping_id: int, remove: bool = True):
         if ping_id in self._pending_pongs:
             if remove:
                 pending_pong = self._pending_pongs.pop(ping_id)
@@ -148,7 +188,7 @@ class Client:
 
             pending_pong.cancel()
 
-    def _delete_pending_request(self, msg_id: int, remove: bool = True):
+    def _cancel_pending_request(self, msg_id: int, remove: bool = True):
         if msg_id in self._pending_requests:
             if remove:
                 pending_request = self._pending_requests.pop(msg_id)
@@ -168,7 +208,7 @@ class Client:
                 message = await self._mtproto.read()
             except:
                 logging.log(logging.ERROR, "failure while read message from mtproto: %s", traceback.format_exc())
-                self._delete_all_pending_data()
+                self._cancel_pending_futures()
                 break
 
             logging.log(logging.DEBUG, "received message %d from mtproto", message.msg_id)
@@ -179,14 +219,20 @@ class Client:
             except:
                 logging.log(logging.ERROR, "failure while process message from mtproto: %s", traceback.format_exc())
 
-    def _delete_all_pending_data(self):
-        self._delete_all_pending_pongs()
-        self._delete_all_pending_requests()
+    def _cancel_pending_futures(self):
+        self._updates_queue.put_nowait(None)
+
+        self._cancel_pending_pongs()
+        self._cancel_pending_requests()
 
         if self._pending_ping_request is not None:
             self._pending_ping_request.cancel()
 
         self._pending_ping_request = None
+
+    async def _start_mtproto_loop_if_needed(self):
+        if self._mtproto is None or self._mtproto_loop_task.done():
+            await self._start_mtproto_loop()
 
     async def _flush_msgids_to_ack_if_needed(self):
         if len(self._msgids_to_ack) >= 32 or (time.time() - self._last_time_acks_flushed) > 10:
@@ -209,22 +255,32 @@ class Client:
         if body == "rpc_result":
             self._process_rpc_result(body)
 
-        if body == "pong":
+        elif body == "pong":
             self._process_pong(body)
 
-        if body == "bad_server_salt":
+        elif body == "bad_server_salt":
             await self._process_bad_server_salt(body)
 
-        if body == "bad_msg_notification" and body.error_code == 32:
+        elif body == "bad_msg_notification" and body.error_code == 32:
             await self._process_bad_msg_notification_msg_seqno_too_low(body)
+
+        elif body == "updates":
+            await self._process_updates(body)
+
+    async def _process_updates(self, body: Structure):
+        users = body.users
+        chats = body.chats
+
+        for update in body.updates:
+            await self._updates_queue.put(_Update(users, chats, update))
 
     def _process_pong(self, pong: Structure):
         logging.log(logging.DEBUG, "pong message: %d", pong.ping_id)
 
-        self._delete_pending_pong(pong.ping_id)
+        self._cancel_pending_pong(pong.ping_id)
 
         if pending_request := self._pending_requests.get(pong.msg_id, False):
-            pending_request.response.set_result(pong.get_dict())
+            pending_request.response.set_result(pong)
 
         if pending_ping_request := self._pending_ping_request:
             pending_ping_request.cancel()
@@ -282,12 +338,12 @@ class Client:
             else:
                 result = body.result
 
-            pending_request.response.set_result(result.get_dict())
+            pending_request.response.set_result(result)
 
-        self._delete_pending_request(body.req_msg_id)
+        self._cancel_pending_request(body.req_msg_id)
 
     def disconnect(self):
-        self._delete_all_pending_data()
+        self._cancel_pending_futures()
 
         if self._mtproto is not None:
             self._mtproto_loop_task.cancel()

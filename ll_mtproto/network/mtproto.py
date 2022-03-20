@@ -21,6 +21,8 @@ from ..typed import InThread
 _singleton_executor: ThreadPoolExecutor | None = None
 _singleton_scheme: tl.Scheme | None = None
 
+__all__ = ("AuthKey", "MTProto")
+
 
 def _get_executor() -> ThreadPoolExecutor:
     global _singleton_executor
@@ -48,6 +50,8 @@ def _get_scheme(in_thread: InThread) -> tl.Scheme:
 
 
 class AuthKey:
+    __slots__ = ("auth_key", "auth_key_id", "auth_key_lock", "session_id")
+
     auth_key: None | bytes
     auth_key_id: None | bytes
     auth_key_lock: asyncio.Lock
@@ -61,12 +65,28 @@ class AuthKey:
 
 
 class MTProto:
+    __slots__ = (
+        "_loop",
+        "_link",
+        "_public_rsa_key",
+        "_read_message_lock",
+        "_server_salt",
+        "_last_message_id",
+        "_auth_key",
+        "_executor",
+        "_scheme",
+        "_last_msg_ids",
+        "_last_seqno",
+        "_client_salt"
+    )
+
     _loop: asyncio.AbstractEventLoop
     _link: AbridgedTCP
     _public_rsa_key: encryption.PublicRSA
     _read_message_lock: asyncio.Lock
     _server_salt: int
     _last_message_id: int
+    _client_salt: int
     _auth_key: AuthKey
     _executor: ThreadPoolExecutor
     _scheme: tl.Scheme

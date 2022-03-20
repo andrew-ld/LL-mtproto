@@ -16,6 +16,8 @@ from ..tl.byteutils import (
 )
 from ..typed import ByteReader, Loop, PartialByteReader
 
+__all__ = ("PublicRSA", "AesIge", "AesIgeAsyncStream", "prepare_key")
+
 _rsa_public_key_RE = re.compile(
     r"-----BEGIN RSA PUBLIC KEY-----(?P<key>.*)-----END RSA PUBLIC KEY-----", re.S
 )
@@ -23,6 +25,8 @@ _rsa_public_key_RE = re.compile(
 
 # reads a public RSA key from .pem file, encrypts strings with it
 class PublicRSA:
+    __slots__ = ("fingerprint", "n", "e")
+
     fingerprint: int
     n: int
     e: int
@@ -78,6 +82,8 @@ class PublicRSA:
 
 # AES encryption in IGE mode
 class AesIge:
+    __slots__ = ("_key", "_iv")
+
     _key: bytes
     _iv: bytes
 
@@ -109,6 +115,8 @@ class AesIge:
 
 
 class AesIgeAsyncStream:
+    __slots__ = ("_plain_buffer", "_aes")
+
     _plain_buffer: bytearray
     _aes: AesIge
 

@@ -1,7 +1,11 @@
 import asyncio
 
+__all__ = ("AbridgedTCP",)
+
 
 class AbridgedTCP:
+    __slots__ = ("_loop", "_host", "_port", "_connect_lock", "_reader", "_writer", "_write_lock", "_read_buffer")
+
     _loop: asyncio.AbstractEventLoop
     _host: str
     _port: int

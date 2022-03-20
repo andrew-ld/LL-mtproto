@@ -7,6 +7,28 @@ from typing import Literal
 
 from ..typed import ByteReader, InThread, ByteConsumer
 
+__all__ = (
+    "xor",
+    "base64encode",
+    "base64decode",
+    "sha1",
+    "sha256",
+    "to_bytes",
+    "pack_binary_string",
+    "unpack_gzip_stream",
+    "unpack_binary_string_header",
+    "async_stream_apply",
+    "unpack_binary_stream",
+    "unpack_binary_string_stream",
+    "unpack_long_binary_string_stream",
+    "unpack_binary_string",
+    "pack_long_binary_string",
+    "long_hex",
+    "short_hex",
+    "short_hex_int",
+    "Bytedata"
+)
+
 
 def xor(a: bytes, b: bytes) -> bytes:
     return bytes(ca ^ cb for ca, cb in zip(a, b))
@@ -52,7 +74,7 @@ def pack_binary_string(data: bytes) -> bytes:
 
 
 class _GzipDecompressStreamState:
-    __slots__ = ["buffer"]
+    __slots__ = ("buffer",)
 
     buffer: bytearray
 
@@ -101,7 +123,7 @@ def async_stream_apply(bytereader: ByteReader, apply: ByteConsumer, in_thread: I
 
 
 class _BinaryStreamState:
-    __slots__ = ["remaining", "padding"]
+    __slots__ = ("remaining", "padding")
 
     remaining: int
     padding: int
@@ -128,7 +150,7 @@ def unpack_binary_stream(bytereader: ByteReader, state: _BinaryStreamState) -> B
     return reader
 
 
-async def unpack_binary_string_stream(bytereader: ByteReader):
+async def unpack_binary_string_stream(bytereader: ByteReader) -> ByteReader:
     state = _BinaryStreamState(*await unpack_binary_string_header(bytereader))
     return unpack_binary_stream(bytereader, state)
 
@@ -195,10 +217,12 @@ def short_hex_int(x: int, byte_order: Literal["big", "little"] = "big", signed: 
 # .read for bytes
 # this is basically a simplified and possibly buggy but very cozy homebrew StringIO clone
 class Bytedata:
+    __slots__ = ("_byte_order", "_signed", "_offset", "_data")
+
     _byte_order: Literal["big", "little"]
     _signed: bool
     _offset: int
-    _date: bytes
+    _data: bytes
 
     def __init__(self, data: bytes, byte_order: Literal["big", "little"] = "big", signed: bool = False):
         self._byte_order = byte_order
