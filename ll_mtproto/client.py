@@ -251,7 +251,7 @@ class Client:
         self._last_seqno = max(self._last_seqno, message.seqno)
 
     async def _process_bad_server_salt(self, body: Structure):
-        if self._mtproto.get_server_salt != 0:
+        if self._mtproto.get_server_salt() != 0:
             self._stable_seqno = False
 
         self._mtproto.set_server_salt(body.new_server_salt)
