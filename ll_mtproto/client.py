@@ -280,6 +280,8 @@ class Client:
         if pending_request := self._pending_requests.get(pong.msg_id, False):
             pending_request.response.set_result(pong)
 
+        self._cancel_pending_request(pong.msg_id)
+
         if pending_ping_request := self._pending_ping_request:
             pending_ping_request.cancel()
 

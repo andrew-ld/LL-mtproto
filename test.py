@@ -78,8 +78,10 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         }
     }
 
+    session_b = Client(TelegramDatacenter.VESTA, auth_key)
+
     while get_file_request["offset"] < media.size:
-        await media_session.rpc_call(get_file_request)
+        await session_b.rpc_call(get_file_request)
         get_file_request["offset"] += get_file_request["limit"]
 
     media_session.disconnect()
