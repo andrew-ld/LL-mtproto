@@ -113,8 +113,10 @@ class Client:
 
         logging.log(logging.DEBUG, "sending message (%s) %d to mtproto", constructor, message_id)
 
-        if no_response:
-            pending_request.cleaner = self._loop.call_later(600, self._cancel_pending_request, message_id)
+        if cleaner := pending_request.cleaner:
+            cleaner.cancel()
+
+        pending_request.cleaner = self._loop.call_later(600, self._cancel_pending_request, message_id)
 
         self._pending_requests[message_id] = pending_request
 
@@ -193,12 +195,13 @@ class Client:
             else:
                 pending_request = self._pending_requests[msg_id]
 
-            if not pending_request.response.done():
-                pending_request.response.set_exception(InterruptedError())
+            if not (response := pending_request.response).done():
+                response.set_exception(InterruptedError())
 
-            if pending_request.cleaner is not None:
-                pending_request.cleaner.cancel()
-                pending_request.cleaner = None
+            if cleaner := pending_request.cleaner:
+                cleaner.cancel()
+
+            pending_request.cleaner = None
 
     async def _mtproto_loop(self):
         while self._mtproto:
