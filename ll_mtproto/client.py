@@ -123,8 +123,6 @@ class Client:
         except (OSError, asyncio.CancelledError, KeyboardInterrupt):
             self._cancel_pending_request(message_id)
 
-        self._seqno_increment = 1
-
         if not no_response:
             return await asyncio.wait_for(pending_request.response, 600)
 
@@ -331,6 +329,7 @@ class Client:
 
     def _process_rpc_result(self, body: Structure):
         self._stable_seqno = True
+        self._seqno_increment = 1
 
         if pending_request := self._pending_requests.get(body.req_msg_id, False):
             if body.result == "gzip_packed":
