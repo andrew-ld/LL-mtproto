@@ -104,7 +104,7 @@ class Client:
 
     async def _rpc_call(self, pending_request: _PendingRequest, no_response: bool = False) -> Structure | None:
         await self._start_mtproto_loop_if_needed()
-        await self._flush_msgids_to_ack()
+        await self._flush_msgids_to_ack_if_needed()
 
         seqno = self._get_next_odd_seqno()
 
