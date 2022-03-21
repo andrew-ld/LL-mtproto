@@ -116,7 +116,7 @@ class Client:
         if cleaner := pending_request.cleaner:
             cleaner.cancel()
 
-        pending_request.cleaner = self._loop.call_later(600, self._cancel_pending_request, message_id)
+        pending_request.cleaner = self._loop.call_later(120, self._cancel_pending_request, message_id)
 
         self._pending_requests[message_id] = pending_request
 
