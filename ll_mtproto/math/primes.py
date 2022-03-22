@@ -6,7 +6,6 @@ __all__ = ("factorize", "is_safe_dh_prime")
 
 # Pollard-Rho-Brent integer factorization
 # https://comeoncodeon.wordpress.com/2010/09/18/pollard-rho-brent-integer-factorization/
-# noinspection PyUnboundLocalVariable
 def _brent(n: int) -> int:
     if n % 2 == 0:
         return 2
@@ -18,6 +17,7 @@ def _brent(n: int) -> int:
     )
 
     g, r, q = 1, 1, 1
+    ys, x = None, None
 
     while g == 1:
         x = y
