@@ -25,6 +25,15 @@ class _PendingRequest:
         self.request = message
         self.cleaner = None
 
+    def finalize(self):
+        if not (response := self.response).done():
+            response.set_exception(InterruptedError())
+
+        if cleaner := self.cleaner:
+            cleaner.cancel()
+
+        self.cleaner = None
+
 
 class _Update:
     __slots__ = ("users", "chats", "update")
@@ -168,40 +177,24 @@ class Client:
         return self._last_seqno
 
     def _cancel_pending_pongs(self):
-        for pending_pong_id in self._pending_pongs.keys():
-            self._cancel_pending_pong(pending_pong_id, False)
+        for pending_pong in self._pending_pongs.values():
+            pending_pong.cancel()
 
         self._pending_pongs.clear()
 
     def _cancel_pending_requests(self):
-        for pending_request_id in self._pending_requests.keys():
-            self._cancel_pending_request(pending_request_id, False)
+        for pending_request in self._pending_requests.values():
+            pending_request.finalize()
 
         self._pending_requests.clear()
 
-    def _cancel_pending_pong(self, ping_id: int, remove: bool = True):
-        if ping_id in self._pending_pongs:
-            if remove:
-                pending_pong = self._pending_pongs.pop(ping_id)
-            else:
-                pending_pong = self._pending_pongs[ping_id]
-
+    def _cancel_pending_pong(self, ping_id: int):
+        if pending_pong := self._pending_pongs.pop(ping_id, False):
             pending_pong.cancel()
 
-    def _cancel_pending_request(self, msg_id: int, remove: bool = True):
-        if msg_id in self._pending_requests:
-            if remove:
-                pending_request = self._pending_requests.pop(msg_id)
-            else:
-                pending_request = self._pending_requests[msg_id]
-
-            if not (response := pending_request.response).done():
-                response.set_exception(InterruptedError())
-
-            if cleaner := pending_request.cleaner:
-                cleaner.cancel()
-
-            pending_request.cleaner = None
+    def _cancel_pending_request(self, msg_id: int):
+        if pending_request := self._pending_requests.pop(msg_id, False):
+            pending_request.finalize()
 
     async def _mtproto_loop(self):
         while self._mtproto:
@@ -268,6 +261,18 @@ class Client:
         elif body == "updates":
             await self._process_updates(body)
 
+        elif body == "new_session_created":
+            await self._process_new_session_created(body)
+
+    async def _process_new_session_created(self, body: Structure):
+        self._mtproto.set_server_salt(body.server_salt)
+
+        bad_requests = dict((i, r) for i, r in self._pending_requests.items() if i < body.first_msg_id)
+
+        for bad_msg_id, bad_request in bad_requests.items():
+            self._pending_requests.pop(bad_msg_id, None)
+            bad_request.finalize()
+
     async def _process_updates(self, body: Structure):
         users = body.users
         chats = body.chats
@@ -280,10 +285,9 @@ class Client:
 
         self._cancel_pending_pong(pong.ping_id)
 
-        if pending_request := self._pending_requests.get(pong.msg_id, False):
+        if pending_request := self._pending_requests.pop(pong.msg_id, False):
             pending_request.response.set_result(pong)
-
-        self._cancel_pending_request(pong.msg_id)
+            pending_request.finalize()
 
         if pending_ping_request := self._pending_ping_request:
             pending_ping_request.cancel()
@@ -336,15 +340,14 @@ class Client:
         self._stable_seqno = True
         self._seqno_increment = 1
 
-        if pending_request := self._pending_requests.get(body.req_msg_id, False):
+        if pending_request := self._pending_requests.pop(body.req_msg_id, False):
             if body.result == "gzip_packed":
                 result = body.result.packed_data
             else:
                 result = body.result
 
             pending_request.response.set_result(result)
-
-        self._cancel_pending_request(body.req_msg_id)
+            pending_request.finalize()
 
     def disconnect(self):
         self._cancel_pending_futures()
