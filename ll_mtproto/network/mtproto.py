@@ -14,7 +14,7 @@ from .tcp import AbridgedTCP
 from .. import constants
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply
+from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, Bytedata
 from ..tl.tl import Structure, Value
 from ..typed import InThread
 
@@ -202,13 +202,18 @@ class MTProto:
             self._in_thread(secrets.randbits, 2048),
         )
 
-        params2 = await self._scheme.read_from_string(answer)
+        answer_stream = Bytedata(answer)
+        answer_stream_hash = hashlib.sha1()
+        answer_stream = async_stream_apply(answer_stream.cororead, answer_stream_hash.update, self._in_thread)
+
+        params2 = await self._scheme.read(answer_stream)
+        answer_hash_computed = await self._in_thread(answer_stream_hash.digest)
+
+        if answer_hash != answer_hash_computed:
+            raise RuntimeError("Diffie–Hellman exchange failed: answer hash mismatch!", answer_hash)
 
         if params2 != "server_DH_inner_data":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
-
-        if sha1(self._scheme.serialize(boxed=True, **params2.get_dict()).get_flat_bytes()) != answer_hash:
-            raise RuntimeError("Diffie–Hellman exchange failed: answer_hash mismatch!", answer_hash)
 
         dh_prime = int.from_bytes(params2.dh_prime, "big")
         g = params2.g
