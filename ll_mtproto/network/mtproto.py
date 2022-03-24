@@ -285,6 +285,9 @@ class MTProto:
 
             message = await self._scheme.read(decrypter, is_boxed=False, parameter_type="message_inner_data")
 
+            if len(aes.remaining_plain_buffer()) not in range(12, 1024):
+                raise ValueError("Received a message wrong padding length!")
+
             await self._in_thread(plain_sha256.update, aes.remaining_plain_buffer())
             msg_key_computed = (await self._in_thread(plain_sha256.digest))[8:24]
 
