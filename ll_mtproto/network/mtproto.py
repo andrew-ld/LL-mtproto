@@ -280,7 +280,7 @@ class MTProto:
             plain_sha256 = hashlib.sha256()
             await self._in_thread(plain_sha256.update, auth_key_part)
 
-            decrypter = aes.decrypt_async_stream(self._loop, self._executor, self._link.read)
+            decrypter = aes.decrypt_async_stream(self._in_thread, self._link.read)
             decrypter = async_stream_apply(decrypter, plain_sha256.update, self._in_thread)
 
             message = await self._scheme.read(decrypter, is_boxed=False, parameter_type="message_inner_data")

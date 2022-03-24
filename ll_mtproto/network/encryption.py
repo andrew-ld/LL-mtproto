@@ -2,7 +2,6 @@ import base64
 import hashlib
 import re
 import secrets
-from concurrent.futures.thread import ThreadPoolExecutor
 
 import cryptg
 
@@ -14,7 +13,7 @@ from ..tl.byteutils import (
     Bytedata,
     sha256,
 )
-from ..typed import ByteReader, Loop, PartialByteReader
+from ..typed import ByteReader, PartialByteReader, InThread
 
 __all__ = ("PublicRSA", "AesIge", "AesIgeAsyncStream", "prepare_key")
 
@@ -124,10 +123,10 @@ class AesIgeAsyncStream:
         self._aes = aes
         self._plain_buffer = bytearray()
 
-    def decrypt_async_stream(self, loop: Loop, executor: ThreadPoolExecutor, reader: PartialByteReader) -> ByteReader:
+    def decrypt_async_stream(self, in_thread: InThread, reader: PartialByteReader) -> ByteReader:
         async def decryptor(n: int) -> bytes:
             while len(self._plain_buffer) < n:
-                self._plain_buffer += await loop.run_in_executor(executor, self._aes.decrypt, await reader())
+                self._plain_buffer += await in_thread(self._aes.decrypt, await reader())
 
             plain = self._plain_buffer[:n]
             self._plain_buffer = self._plain_buffer[n:]
