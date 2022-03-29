@@ -199,9 +199,9 @@ class Client:
             pending_request.finalize()
 
     async def _mtproto_loop(self):
-        while self._mtproto:
+        while mtproto_link := self._mtproto:
             try:
-                message = await self._mtproto.read()
+                message = await mtproto_link.read()
             except:
                 logging.log(logging.ERROR, "failure while read message from mtproto: %s", traceback.format_exc())
                 self._cancel_pending_futures()
