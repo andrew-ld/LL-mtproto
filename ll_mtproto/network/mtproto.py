@@ -6,6 +6,8 @@ import os
 import secrets
 import time
 import typing
+import hmac
+
 from concurrent.futures import ThreadPoolExecutor
 
 from . import encryption
@@ -183,8 +185,14 @@ class MTProto:
 
         params = (await self._read_unencrypted_message()).body
 
-        if params != "server_DH_params_ok" or params.nonce != nonce or params.server_nonce != server_nonce:
+        if params != "server_DH_params_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params)
+
+        if not hmac.compare_digest(params.nonce, nonce):
+            raise RuntimeError("Diffie–Hellman exchange failed: params nonce mismatch")
+
+        if not hmac.compare_digest(params.server_nonce, server_nonce):
+            raise RuntimeError("Diffie–Hellman exchange failed: params server nonce mismatch")
 
         tmp_aes_key_1, tmp_aes_key_2, tmp_aes_iv_1, tmp_aes_iv_2 = await asyncio.gather(
             self._in_thread(sha1, new_nonce + server_nonce),
@@ -209,14 +217,17 @@ class MTProto:
         params2 = await self._scheme.read(answer_stream)
         answer_hash_computed = await self._in_thread(answer_stream_hash.digest)
 
-        if answer_hash != answer_hash_computed:
+        if not hmac.compare_digest(answer_hash, answer_hash_computed):
             raise RuntimeError("Diffie–Hellman exchange failed: answer hash mismatch!", answer_hash)
 
         if params2 != "server_DH_inner_data":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
 
-        if params2.nonce != nonce or params2.server_nonce != server_nonce:
-            raise RuntimeError("Diffie–Hellman exchange failed: server nonce mismatch")
+        if not hmac.compare_digest(params2.nonce, nonce):
+            raise RuntimeError("Diffie–Hellman exchange failed: params2 nonce mismatch")
+
+        if not hmac.compare_digest(params2.server_nonce, server_nonce):
+            raise RuntimeError("Diffie–Hellman exchange failed: params2 server nonce mismatch")
 
         dh_prime = int.from_bytes(params2.dh_prime, "big")
         g = params2.g
@@ -315,7 +326,7 @@ class MTProto:
             await self._in_thread(plain_sha256.update, aes.remaining_plain_buffer())
             msg_key_computed = (await self._in_thread(plain_sha256.digest))[8:24]
 
-            if msg_key_computed != msg_key:
+            if not hmac.compare_digest(msg_key, msg_key_computed):
                 raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
 
             if message.session_id != self._auth_key.session_id:
