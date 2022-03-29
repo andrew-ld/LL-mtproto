@@ -273,7 +273,7 @@ class Client:
 
         for bad_msg_id, bad_request in bad_requests.items():
             self._pending_requests.pop(bad_msg_id, None)
-            bad_request.finalize()
+            await self._rpc_call(bad_request, no_response=True)
 
     async def _process_updates(self, body: Structure):
         users = body.users
