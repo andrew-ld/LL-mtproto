@@ -84,8 +84,8 @@ class AbridgedTCP:
                 data = data[chunk_len:]
 
     def stop(self):
-        if self._writer is not None:
-            self._writer.close()
+        if writer := self._writer:
+            writer.close()
 
         self._writer = None
         self._reader = None

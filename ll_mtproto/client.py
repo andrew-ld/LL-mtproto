@@ -140,9 +140,11 @@ class Client:
     async def _start_mtproto_loop(self):
         self._cancel_pending_futures()
 
-        if self._mtproto is not None:
-            self._mtproto_loop_task.cancel()
-            self._mtproto.stop()
+        if mtproto_loop := self._mtproto_loop_task:
+            mtproto_loop.cancel()
+
+        if mtproto_link := self._mtproto:
+            mtproto_link.stop()
 
         logging.log(logging.DEBUG, "connecting to Telegram at %s", self._datacenter)
 
@@ -219,8 +221,8 @@ class Client:
         self._cancel_pending_pongs()
         self._cancel_pending_requests()
 
-        if self._pending_ping_request is not None:
-            self._pending_ping_request.cancel()
+        if pending_ping_request := self._pending_ping_request:
+            pending_ping_request.cancel()
 
         self._pending_ping_request = None
 
@@ -352,9 +354,11 @@ class Client:
     def disconnect(self):
         self._cancel_pending_futures()
 
-        if self._mtproto is not None:
-            self._mtproto_loop_task.cancel()
-            self._mtproto.stop()
+        if mtproto_loop := self._mtproto_loop_task:
+            mtproto_loop.cancel()
+
+        if mtproto_link := self._mtproto:
+            mtproto_link.stop()
 
         self._mtproto = None
         self._mtproto_loop_task = None
