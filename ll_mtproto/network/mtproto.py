@@ -219,8 +219,23 @@ class MTProto:
         g = params2.g
         g_a = int.from_bytes(params2.g_a, "big")
 
-        if params2.nonce != nonce or params2.server_nonce != server_nonce or not primes.is_safe_dh_prime(g, dh_prime):
-            raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
+        if not primes.is_safe_dh_prime(g, dh_prime):
+            raise RuntimeError("Diffie–Hellman exchange failed: unknown dh_prime")
+
+        if g_a <= 1:
+            raise RuntimeError("Diffie–Hellman exchange failed: g_a <= 1")
+
+        if g_a >= (dh_prime - 1):
+            raise RuntimeError("Diffie–Hellman exchange failed: g_a >= (dh_prime - 1)")
+
+        if g_a < 2 ** (2048 - 64):
+            raise RuntimeError("Diffie–Hellman exchange failed: g_a < 2 ** (2048 - 64)")
+
+        if g_a > dh_prime - (2 ** (2048 - 64)):
+            raise RuntimeError("Diffie–Hellman exchange failed: g_a > dh_prime - (2 ** (2048 - 64))")
+
+        if params2.nonce != nonce or params2.server_nonce != server_nonce:
+            raise RuntimeError("Diffie–Hellman exchange failed: server nonce mismatch")
 
         g_b, auth_key = map(
             to_bytes,
