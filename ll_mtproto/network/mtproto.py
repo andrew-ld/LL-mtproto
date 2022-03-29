@@ -215,6 +215,9 @@ class MTProto:
         if params2 != "server_DH_inner_data":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
 
+        if params2.nonce != nonce or params2.server_nonce != server_nonce:
+            raise RuntimeError("Diffie–Hellman exchange failed: server nonce mismatch")
+
         dh_prime = int.from_bytes(params2.dh_prime, "big")
         g = params2.g
         g_a = int.from_bytes(params2.g_a, "big")
@@ -234,18 +237,24 @@ class MTProto:
         if g_a > dh_prime - (2 ** (2048 - 64)):
             raise RuntimeError("Diffie–Hellman exchange failed: g_a > dh_prime - (2 ** (2048 - 64))")
 
-        if params2.nonce != nonce or params2.server_nonce != server_nonce:
-            raise RuntimeError("Diffie–Hellman exchange failed: server nonce mismatch")
-
-        g_b, auth_key = map(
-            to_bytes,
-            await asyncio.gather(
-                self._in_thread(pow, g, b, dh_prime),
-                self._in_thread(pow, g_a, b, dh_prime),
-            ),
+        g_b, auth_key = await asyncio.gather(
+            self._in_thread(pow, g, b, dh_prime),
+            self._in_thread(pow, g_a, b, dh_prime),
         )
 
-        self._auth_key.auth_key = auth_key
+        if g_b <= 1:
+            raise RuntimeError("Diffie–Hellman exchange failed: g_b <= 1")
+
+        if g_b >= (dh_prime - 1):
+            raise RuntimeError("Diffie–Hellman exchange failed: g_b >= (dh_prime - 1)")
+
+        if g_b < 2 ** (2048 - 64):
+            raise RuntimeError("Diffie–Hellman exchange failed: g_b < 2 ** (2048 - 64)")
+
+        if g_b > dh_prime - (2 ** (2048 - 64)):
+            raise RuntimeError("Diffie–Hellman exchange failed: g_b > dh_prime - (2 ** (2048 - 64))")
+
+        self._auth_key.auth_key = to_bytes(auth_key)
         self._auth_key.auth_key_id = (await self._in_thread(sha1, self._auth_key.auth_key))[-8:]
 
         if self._auth_key.session_id is None:
@@ -258,7 +267,7 @@ class MTProto:
             nonce=nonce,
             server_nonce=server_nonce,
             retry_id=0,
-            g_b=g_b,
+            g_b=to_bytes(g_b),
         ).get_flat_bytes()
 
         tmp_aes = encryption.AesIge(tmp_aes_key, tmp_aes_iv)
