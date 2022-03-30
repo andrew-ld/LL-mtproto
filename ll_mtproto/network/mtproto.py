@@ -149,6 +149,9 @@ class MTProto:
 
         res_pq = (await self._read_unencrypted_message()).body
 
+        if res_pq != "resPQ":
+            raise RuntimeError("Diffie–Hellman exchange failed: `%r`", res_pq)
+
         if self._public_rsa_key.fingerprint not in res_pq.server_public_key_fingerprints:
             raise ValueError("Our certificate is not supported by the server")
 
@@ -180,7 +183,7 @@ class MTProto:
             p=p_string,
             q=q_string,
             public_key_fingerprint=self._public_rsa_key.fingerprint,
-            encrypted_data=self._public_rsa_key.encrypt_with_hash(p_q_inner_data),
+            encrypted_data=await self._in_thread(self._public_rsa_key.encrypt_with_hash, p_q_inner_data),
         )
 
         params = (await self._read_unencrypted_message()).body
