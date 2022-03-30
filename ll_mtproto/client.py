@@ -162,18 +162,12 @@ class Client:
         self._loop.create_task(self._create_new_ping_request())
 
     async def _create_new_ping_request(self):
-        new_random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
-        seqno = self._get_next_odd_seqno()
+        random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
 
-        request = dict(_cons="ping", ping_id=new_random_ping_id)
-        pending_request = _PendingRequest(self._loop, request)
+        pending_request = _PendingRequest(self._loop, dict(_cons="ping", ping_id=random_ping_id))
+        self._pending_pongs[random_ping_id] = self._loop.call_later(10, self.disconnect)
 
-        self._pending_pongs[new_random_ping_id] = self._loop.call_later(10, self.disconnect)
-
-        message_id, write_future = self._mtproto.write(seqno, **request)
-        self._pending_requests[message_id] = pending_request
-
-        await asyncio.wait_for(write_future, 120)
+        await self._rpc_call(pending_request, no_response=True)
 
     def _get_next_odd_seqno(self) -> int:
         self._last_seqno = ((self._last_seqno + 1) // 2) * 2 + 1
