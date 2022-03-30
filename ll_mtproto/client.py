@@ -5,7 +5,8 @@ import time
 import traceback
 import typing
 
-from .constants import TelegramDatacenter, _TelegramDatacenterInfo
+from . import RpcError
+from .constants import TelegramDatacenter, TelegramDatacenterInfo
 from .network import mtproto
 from .network.mtproto import AuthKey, MTProto
 from .tl.tl import Structure
@@ -14,16 +15,18 @@ __all__ = ("_Update", "Client")
 
 
 class _PendingRequest:
-    __slots__ = ("response", "request", "cleaner")
+    __slots__ = ("response", "request", "cleaner", "retries")
 
     response: asyncio.Future[Structure]
     request: dict
     cleaner: asyncio.TimerHandle | None
+    retries: int
 
     def __init__(self, loop: asyncio.AbstractEventLoop, message: dict):
         self.response = loop.create_future()
         self.request = message
         self.cleaner = None
+        self.retries = 0
 
     def finalize(self):
         if not (response := self.response).done():
@@ -78,7 +81,7 @@ class Client:
     _mtproto_loop_task: asyncio.Task | None
     _pending_requests: dict[int, _PendingRequest]
     _pending_pongs: dict[int, asyncio.TimerHandle]
-    _datacenter: _TelegramDatacenterInfo
+    _datacenter: TelegramDatacenterInfo
     _auth_key: AuthKey
     _pending_ping_request: asyncio.TimerHandle | None
     _updates_queue: asyncio.Queue[_Update | None]
@@ -95,7 +98,7 @@ class Client:
         self._mtproto_loop_task = None
         self._pending_requests = dict()
         self._pending_pongs = dict()
-        self._datacenter = typing.cast(_TelegramDatacenterInfo, datacenter.value)
+        self._datacenter = typing.cast(TelegramDatacenterInfo, datacenter.value)
         self._auth_key = auth_key
         self._pending_ping_request = None
         self._updates_queue = asyncio.Queue()
@@ -112,6 +115,8 @@ class Client:
         return await self._rpc_call(pending_request)
 
     async def _rpc_call(self, pending_request: _PendingRequest, no_response: bool = False) -> Structure | None:
+        pending_request.retries += 1
+
         await self._start_mtproto_loop_if_needed()
         await self._flush_msgids_to_ack_if_needed()
 
@@ -120,7 +125,7 @@ class Client:
         message_id, write_future = self._mtproto.write(seqno, **pending_request.request)
         constructor = pending_request.request["_cons"]
 
-        logging.log(logging.DEBUG, "sending message (%s) %d to mtproto", constructor, message_id)
+        logging.debug("sending message (%s) %d to mtproto", constructor, message_id)
 
         if cleaner := pending_request.cleaner:
             cleaner.cancel()
@@ -146,7 +151,7 @@ class Client:
         if mtproto_link := self._mtproto:
             mtproto_link.stop()
 
-        logging.log(logging.DEBUG, "connecting to Telegram at %s", self._datacenter)
+        logging.debug("connecting to Telegram at %s", self._datacenter)
 
         self._mtproto = MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa, self._auth_key)
 
@@ -203,17 +208,17 @@ class Client:
             try:
                 message = await mtproto_link.read()
             except:
-                logging.log(logging.ERROR, "failure while read message from mtproto: %s", traceback.format_exc())
+                logging.error("failure while read message from mtproto: %s", traceback.format_exc())
                 self._cancel_pending_futures()
                 break
 
-            logging.log(logging.DEBUG, "received message %d from mtproto", message.msg_id)
+            logging.debug("received message %d from mtproto", message.msg_id)
 
             try:
                 await self._process_telegram_message(message)
                 await self._flush_msgids_to_ack_if_needed()
             except:
-                logging.log(logging.ERROR, "failure while process message from mtproto: %s", traceback.format_exc())
+                logging.error("failure while process message from mtproto: %s", traceback.format_exc())
 
     def _cancel_pending_futures(self):
         self._updates_queue.put_nowait(None)
@@ -249,7 +254,10 @@ class Client:
 
     async def _process_telegram_message_body(self, body: Structure):
         if body == "rpc_result":
-            self._process_rpc_result(body)
+            await self._process_rpc_result(body)
+
+        elif body == "updates":
+            await self._process_updates(body)
 
         elif body == "pong":
             self._process_pong(body)
@@ -259,9 +267,6 @@ class Client:
 
         elif body == "bad_msg_notification" and body.error_code == 32:
             await self._process_bad_msg_notification_msg_seqno_too_low(body)
-
-        elif body == "updates":
-            await self._process_updates(body)
 
         elif body == "new_session_created":
             await self._process_new_session_created(body)
@@ -283,7 +288,7 @@ class Client:
             await self._updates_queue.put(_Update(users, chats, update))
 
     def _process_pong(self, pong: Structure):
-        logging.log(logging.DEBUG, "pong message: %d", pong.ping_id)
+        logging.debug("pong message: %d", pong.ping_id)
 
         self._cancel_pending_pong(pong.ping_id)
 
@@ -320,25 +325,25 @@ class Client:
             self._stable_seqno = False
 
         self._mtproto.set_server_salt(body.new_server_salt)
-        logging.log(logging.DEBUG, "updating salt: %d", body.new_server_salt)
+        logging.debug("updating salt: %d", body.new_server_salt)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             await self._rpc_call(bad_request, no_response=True)
         else:
-            logging.log(logging.DEBUG, "bad_msg_id %d not found", body.bad_msg_id)
+            logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
     async def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure):
         self._seqno_increment = min(2 ** 31 - 1, self._seqno_increment << 1)
         self._last_seqno += self._seqno_increment
 
-        logging.log(logging.DEBUG, "updating seqno by %d to %d", self._seqno_increment, self._last_seqno)
+        logging.debug("updating seqno by %d to %d", self._seqno_increment, self._last_seqno)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             await self._rpc_call(bad_request, no_response=True)
         else:
-            logging.log(logging.DEBUG, "bad_msg_id %d not found", body.bad_msg_id)
+            logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    def _process_rpc_result(self, body: Structure):
+    async def _process_rpc_result(self, body: Structure):
         self._stable_seqno = True
         self._seqno_increment = 1
 
@@ -348,8 +353,17 @@ class Client:
             else:
                 result = body.result
 
-            pending_request.response.set_result(result)
-            pending_request.finalize()
+            if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
+                logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
+                await self._rpc_call(pending_request, no_response=True)
+
+            elif result == "rpc_error":
+                pending_request.response.set_exception(RpcError(result.error_code, result.error_message))
+                pending_request.finalize()
+
+            else:
+                pending_request.response.set_result(result)
+                pending_request.finalize()
 
     def disconnect(self):
         self._cancel_pending_futures()
@@ -365,4 +379,4 @@ class Client:
 
     def __del__(self):
         if self._mtproto is not None:
-            logging.log(logging.CRITICAL, "client %d not disconnected", id(self))
+            logging.critical("client %d not disconnected", id(self))

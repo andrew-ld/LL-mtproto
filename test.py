@@ -23,7 +23,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     await session.rpc_call({
         "_cons": "invokeWithLayer",
-        "layer": TelegramSchema.SCHEME_LAYER,
+        "layer": TelegramSchema.SCHEMA_LAYER,
         "_wrapped": {
             "_cons": "initConnection",
             "api_id": api_id,

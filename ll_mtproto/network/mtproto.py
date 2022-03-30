@@ -41,11 +41,11 @@ def _get_scheme(in_thread: InThread) -> tl.Scheme:
     if _singleton_scheme is None:
         _singleton_scheme = tl.Scheme(
             in_thread,
-            open(constants.TelegramSchema.AUTH_SCHEME, "r").read()
+            open(constants.TelegramSchema.AUTH_SCHEMA, "r").read()
             + "\n"
-            + open(constants.TelegramSchema.APPLICATION_SCHEME, "r").read()
+            + open(constants.TelegramSchema.APPLICATION_SCHEMA, "r").read()
             + "\n"
-            + open(constants.TelegramSchema.SERVICE_SCHEME, "r").read(),
+            + open(constants.TelegramSchema.SERVICE_SCHEMA, "r").read(),
         )
 
     return _singleton_scheme
@@ -348,7 +348,7 @@ class MTProto:
                 raise RuntimeError("Client time is not synchronised with telegram time!")
 
             if self._server_salt != message.salt:
-                logging.log(logging.ERROR, "received a message with unknown salt! %d", message.salt)
+                logging.error("received a message with unknown salt! %d", message.salt)
 
             self._last_msg_ids.append(message.message.msg_id)
             self._last_seqno = message.message.seqno
@@ -399,4 +399,4 @@ class MTProto:
 
     def stop(self):
         self._link.stop()
-        logging.log(logging.DEBUG, "disconnected from Telegram")
+        logging.debug("disconnected from Telegram")
