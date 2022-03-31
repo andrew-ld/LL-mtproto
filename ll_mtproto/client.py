@@ -36,6 +36,7 @@ class _PendingRequest:
             cleaner.cancel()
 
         self.cleaner = None
+        self.response.exception()
 
 
 class _Update:
