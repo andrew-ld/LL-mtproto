@@ -72,7 +72,7 @@ class Client:
     )
 
     _seq_no: int
-    _mtproto: mtproto.MTProto | None
+    _mtproto: mtproto.MTProto
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
     _last_time_acks_flushed: float
@@ -90,7 +90,6 @@ class Client:
 
     def __init__(self, datacenter: TelegramDatacenter, auth_key: AuthKey, no_updates: bool = False):
         self._seq_no = -1
-        self._mtproto = None
         self._loop = asyncio.get_event_loop()
         self._msgids_to_ack = []
         self._last_time_acks_flushed = time.time()
@@ -105,6 +104,7 @@ class Client:
         self._pending_ping_request = None
         self._updates_queue = asyncio.Queue()
         self._no_updates = no_updates
+        self._mtproto = MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa, self._auth_key)
 
     async def get_update(self) -> _Update | None:
         await self._start_mtproto_loop_if_needed()
@@ -155,8 +155,6 @@ class Client:
             mtproto_link.stop()
 
         logging.debug("connecting to Telegram at %s", self._datacenter)
-
-        self._mtproto = MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa, self._auth_key)
 
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
         await self._create_new_ping_request()
@@ -229,7 +227,10 @@ class Client:
         self._pending_ping_request = None
 
     async def _start_mtproto_loop_if_needed(self):
-        if self._mtproto is None or self._mtproto_loop_task.done():
+        if mtproto_loop_task := self._mtproto_loop_task:
+            if mtproto_loop_task.done():
+                await self._start_mtproto_loop()
+        else:
             await self._start_mtproto_loop()
 
     async def _flush_msgids_to_ack_if_needed(self):
@@ -371,7 +372,6 @@ class Client:
         if mtproto_link := self._mtproto:
             mtproto_link.stop()
 
-        self._mtproto = None
         self._mtproto_loop_task = None
 
     def __del__(self):
