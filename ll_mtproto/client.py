@@ -375,5 +375,5 @@ class Client:
         self._mtproto_loop_task = None
 
     def __del__(self):
-        if self._mtproto is not None:
+        if self._mtproto_loop_task is not None:
             logging.critical("client %d not disconnected", id(self))
