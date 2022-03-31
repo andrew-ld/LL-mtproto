@@ -66,7 +66,7 @@ class Client:
         "_pending_pongs",
         "_datacenter",
         "_auth_key",
-        "_pending_ping_request",
+        "_pending_ping",
         "_stable_seqno",
         "_updates_queue",
         "_no_updates"
@@ -85,7 +85,7 @@ class Client:
     _pending_pongs: dict[int, asyncio.TimerHandle]
     _datacenter: TelegramDatacenterInfo
     _auth_key: AuthKey
-    _pending_ping_request: asyncio.TimerHandle | None
+    _pending_ping: asyncio.TimerHandle | None
     _updates_queue: asyncio.Queue[_Update | None]
     _no_updates: bool
 
@@ -102,7 +102,7 @@ class Client:
         self._pending_pongs = dict()
         self._datacenter = typing.cast(TelegramDatacenterInfo, datacenter.value)
         self._auth_key = auth_key
-        self._pending_ping_request = None
+        self._pending_ping = None
         self._updates_queue = asyncio.Queue()
         self._no_updates = no_updates
         self._mtproto = MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa, self._auth_key)
@@ -160,9 +160,6 @@ class Client:
 
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
         await self._create_new_ping_request()
-
-    def _create_new_ping_request_sync(self):
-        self._loop.create_task(self._create_new_ping_request())
 
     async def _create_new_ping_request(self):
         random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
@@ -223,10 +220,10 @@ class Client:
         self._cancel_pending_pongs()
         self._cancel_pending_requests()
 
-        if pending_ping_request := self._pending_ping_request:
+        if pending_ping_request := self._pending_ping:
             pending_ping_request.cancel()
 
-        self._pending_ping_request = None
+        self._pending_ping = None
 
     async def _start_mtproto_loop_if_needed(self):
         if mtproto_loop_task := self._mtproto_loop_task:
@@ -296,10 +293,10 @@ class Client:
             pending_request.response.set_result(pong)
             pending_request.finalize()
 
-        if pending_ping_request := self._pending_ping_request:
+        if pending_ping_request := self._pending_ping:
             pending_ping_request.cancel()
 
-        self._pending_ping_request = self._loop.call_later(10, self._create_new_ping_request_sync)
+        self._pending_ping = self._loop.call_later(10, lambda: self._loop.create_task(self._create_new_ping_request()))
 
     async def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
