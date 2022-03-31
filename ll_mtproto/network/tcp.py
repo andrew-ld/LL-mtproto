@@ -28,7 +28,7 @@ class AbridgedTCP:
     async def _reconnect_if_needed(self):
         async with self._connect_lock:
             if self._writer is None or self._reader is None:
-                self._reader, self._writer = await asyncio.open_connection(self._host, self._port, limit=2 ** 24)
+                self._reader, self._writer = await asyncio.open_connection(self._host, self._port)
                 self._writer.write(b"\xef")
 
     async def _write_abridged_packet(self, data: bytes):
