@@ -67,7 +67,8 @@ class Client:
         "_auth_key",
         "_pending_ping_request",
         "_stable_seqno",
-        "_updates_queue"
+        "_updates_queue",
+        "_no_updates"
     )
 
     _seq_no: int
@@ -85,8 +86,9 @@ class Client:
     _auth_key: AuthKey
     _pending_ping_request: asyncio.TimerHandle | None
     _updates_queue: asyncio.Queue[_Update | None]
+    _no_updates: bool
 
-    def __init__(self, datacenter: TelegramDatacenter, auth_key: AuthKey):
+    def __init__(self, datacenter: TelegramDatacenter, auth_key: AuthKey, no_updates: bool = False):
         self._seq_no = -1
         self._mtproto = None
         self._loop = asyncio.get_event_loop()
@@ -102,6 +104,7 @@ class Client:
         self._auth_key = auth_key
         self._pending_ping_request = None
         self._updates_queue = asyncio.Queue()
+        self._no_updates = no_updates
 
     async def get_update(self) -> _Update | None:
         await self._start_mtproto_loop_if_needed()
@@ -250,7 +253,7 @@ class Client:
         if body == "rpc_result":
             await self._process_rpc_result(body)
 
-        elif body == "updates":
+        elif body == "updates" and not self._no_updates:
             await self._process_updates(body)
 
         elif body == "pong":
