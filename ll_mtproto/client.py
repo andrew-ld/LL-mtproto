@@ -143,6 +143,7 @@ class Client:
             self._cancel_pending_request(message_id)
 
         if not no_response:
+            await self._start_mtproto_loop_if_needed()
             return await asyncio.wait_for(pending_request.response, 600)
 
     async def _start_mtproto_loop(self):
