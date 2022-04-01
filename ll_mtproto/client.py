@@ -308,10 +308,13 @@ class Client:
         if not self._msgids_to_ack or not self._stable_seqno:
             return
 
+        msgids_to_ack = self._msgids_to_ack[:1024]
         seqno = self._get_next_even_seqno()
-        _, write_future = self._mtproto.write(seqno, _cons="msgs_ack", msg_ids=self._msgids_to_ack)
+
+        _, write_future = self._mtproto.write(seqno, _cons="msgs_ack", msg_ids=msgids_to_ack)
         await asyncio.wait_for(write_future, 120)
-        self._msgids_to_ack = []
+
+        any(map(self._msgids_to_ack.remove, msgids_to_ack))
 
     def _update_last_seqno_from_incoming_message(self, message: Structure):
         self._last_seqno = max(self._last_seqno, message.seqno)
