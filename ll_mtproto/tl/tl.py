@@ -55,20 +55,20 @@ _schemeRE = re.compile(
     r"|(?P<typessection>---types---)"
     r"|(?P<functionssection>---functions---)"
     r"|(?P<vector>vector#1cb5c415 {t:Type} # \[ t ] = Vector t;)"
-    r"|(?P<cons>(?P<name>[a-zA-Z0-9._]+)(#(?P<number>[a-f0-9]{1,8}))?"
+    r"|(?P<cons>(?P<name>[a-zA-Z\d._]+)(#(?P<number>[a-f\d]{1,8}))?"
     r"(?P<xtype> {X:Type})?"
     r"(?P<parameters>.*?)"
-    r"(?(xtype) query:!X = X| = (?P<type>[a-zA-Z0-9._<>]+));)"
+    r"(?(xtype) query:!X = X| = (?P<type>[a-zA-Z\d._<>]+));)"
     r"$"
 )
 
 _parameterRE = re.compile(
-    r"^(?P<name>[a-zA-Z0-9_]+):"
+    r"^(?P<name>\w+):"
     r"(flags.(?P<flag_number>\d+)\?)?"
     r"(?P<type>"
     r"(?P<vector>((?P<bare_vector>vector)|(?P<boxed_vector>Vector))<)?"
-    r"(?P<element_type>((?P<namespace>[a-zA-Z0-9._]*)\.)?"
-    r"((?P<bare>[a-z][a-zA-Z0-9._]*)|(?P<boxed>[A-Z][a-zA-Z0-9._]*)))"
+    r"(?P<element_type>((?P<namespace>[a-zA-Z\d._]*)\.)?"
+    r"((?P<bare>[a-z][a-zA-Z\d._]*)|(?P<boxed>[A-Z][a-zA-Z\d._]*)))"
     r"(?(vector)>)?)$"
 )
 
@@ -312,24 +312,24 @@ class Value:
 
 # a deserialized TL Value that was received
 class Structure:
-    __slots__ = ("_constructor_name", "_fields")
+    __slots__ = ("constructor_name", "fields")
 
-    _constructor_name: str
-    _fields: dict
+    constructor_name: str
+    fields: dict
 
     def __init__(self, constructor_name: str):
-        self._constructor_name = constructor_name
-        self._fields = dict()
+        self.constructor_name = constructor_name
+        self.fields = dict()
 
     def __eq__(self, other):
         if isinstance(other, str):
-            return self._constructor_name == other
+            return self.constructor_name == other
 
     def __repr__(self):
         return repr(self.get_dict())
 
     def __getattr__(self, name):
-        if (field := self._fields.get(name, KeyError)) is KeyError:
+        if (field := self.fields.get(name, ...)) is ...:
             raise AttributeError(f"Attribute `{name}` not found in `{self!r}`")
         else:
             return field
@@ -340,12 +340,12 @@ class Structure:
     @staticmethod
     def _get_dict(anything: any):
         if isinstance(anything, Structure):
-            ret = dict(_cons=anything._constructor_name)
+            ret = dict(_cons=anything.constructor_name)
 
             ret.update(
                 {
                     key: Structure._get_dict(value)
-                    for key, value in anything._fields.items()
+                    for key, value in anything.fields.items()
                 }
             )
 
@@ -405,6 +405,7 @@ class Constructor:
     number: bytes
     has_flags: bool
     flags_offset: int | None
+    _parameters: list[Parameter]
 
     def __init__(
             self,
@@ -413,7 +414,7 @@ class Constructor:
             name: str,
             number: bytes,
             has_flags: bool,
-            parameters,
+            parameters: list[Parameter],
             flags_offset: int | None
     ):
         self.scheme = scheme
@@ -593,9 +594,9 @@ class Constructor:
         result = Structure(self.name)
 
         if self.has_flags:
-            for parameter in self._parameters[0:self.flags_offset]:
+            for parameter in self._parameters[:self.flags_offset]:
                 argument = await self._deserialize_argument(bytedata, parameter)
-                result._fields[parameter.name] = argument
+                result.fields[parameter.name] = argument
 
             flags = unpack_flags(int.from_bytes(await bytedata(4), "little", signed=False))
 
@@ -605,11 +606,19 @@ class Constructor:
                 if p.flag_number is None or p.flag_number in flags
             ]
 
+            result.fields.update(
+                {
+                    (p.name, None)
+                    for p in self._parameters
+                    if p.flag_number is not None and p.flag_number not in flags
+                }
+            )
+
         else:
             parameters = self._parameters
 
         for parameter in parameters:
             argument = await self._deserialize_argument(bytedata, parameter)
-            result._fields[parameter.name] = argument
+            result.fields[parameter.name] = argument
 
         return result

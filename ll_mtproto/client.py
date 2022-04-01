@@ -69,7 +69,8 @@ class Client:
         "_pending_ping",
         "_stable_seqno",
         "_updates_queue",
-        "_no_updates"
+        "_no_updates",
+        "_pending_future_salt"
     )
 
     _seq_no: int
@@ -88,6 +89,7 @@ class Client:
     _pending_ping: asyncio.TimerHandle | None
     _updates_queue: asyncio.Queue[_Update | None]
     _no_updates: bool
+    _pending_future_salt: asyncio.TimerHandle | None
 
     def __init__(self, datacenter: TelegramDatacenter, auth_key: AuthKey, no_updates: bool = False):
         self._seq_no = -1
@@ -105,6 +107,7 @@ class Client:
         self._pending_ping = None
         self._updates_queue = asyncio.Queue()
         self._no_updates = no_updates
+        self._pending_future_salt = None
         self._mtproto = MTProto(self._datacenter.address, self._datacenter.port, self._datacenter.rsa, self._auth_key)
 
     async def get_update(self) -> _Update | None:
@@ -158,9 +161,14 @@ class Client:
         logging.debug("connecting to Telegram at %s", self._datacenter)
 
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
-        await self._create_new_ping_request()
+        await self._create_ping_request()
+        await self._create_future_salt_request()
 
-    async def _create_new_ping_request(self):
+    async def _create_future_salt_request(self):
+        pending_request = _PendingRequest(self._loop, dict(_cons="get_future_salts", num=2))
+        await self._rpc_call(pending_request, no_response=True)
+
+    async def _create_ping_request(self):
         random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
 
         pending_request = _PendingRequest(self._loop, dict(_cons="ping", ping_id=random_ping_id))
@@ -219,6 +227,11 @@ class Client:
         self._cancel_pending_pongs()
         self._cancel_pending_requests()
 
+        if pending_future_salt := self._pending_future_salt:
+            pending_future_salt.cancel()
+
+        self._pending_future_salt = None
+
         if pending_ping_request := self._pending_ping:
             pending_ping_request.cancel()
 
@@ -255,9 +268,6 @@ class Client:
         elif body == "updates" and not self._no_updates:
             await self._process_updates(body)
 
-        elif body == "pong":
-            self._process_pong(body)
-
         elif body == "bad_server_salt":
             await self._process_bad_server_salt(body)
 
@@ -267,8 +277,33 @@ class Client:
         elif body == "new_session_created":
             await self._process_new_session_created(body)
 
+        elif body == "pong":
+            self._process_pong(body)
+
+        elif body == "future_salts":
+            self._process_future_salts(body)
+
+    def _process_future_salts(self, body: Structure):
+        if pending_request := self._pending_requests.pop(body.req_msg_id, False):
+            pending_request.response.set_result(body)
+            pending_request.finalize()
+
+        if pending_future_salt := self._pending_future_salt:
+            pending_future_salt.cancel()
+
+        if valid_salt := next((salt for salt in body.salts if salt.valid_since < body.now), False):
+            self._auth_key.server_salt = valid_salt.salt
+
+            salt_expire = max(valid_salt.valid_until - body.now + 1, 1)
+
+            self._pending_future_salt = self._loop.call_later(
+                salt_expire,
+                lambda: self._loop.create_task(self._create_future_salt_request()))
+
+            logging.info("scheduling get_future_salts, current salt is valid for %i seconds", salt_expire)
+
     async def _process_new_session_created(self, body: Structure):
-        self._mtproto.set_server_salt(body.server_salt)
+        self._auth_key.server_salt = body.server_salt
 
         bad_requests = dict((i, r) for i, r in self._pending_requests.items() if i < body.first_msg_id)
 
@@ -295,7 +330,7 @@ class Client:
         if pending_ping_request := self._pending_ping:
             pending_ping_request.cancel()
 
-        self._pending_ping = self._loop.call_later(10, lambda: self._loop.create_task(self._create_new_ping_request()))
+        self._pending_ping = self._loop.call_later(10, lambda: self._loop.create_task(self._create_ping_request()))
 
     async def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
@@ -320,10 +355,10 @@ class Client:
         self._last_seqno = max(self._last_seqno, message.seqno)
 
     async def _process_bad_server_salt(self, body: Structure):
-        if self._mtproto.get_server_salt() != 0:
+        if self._auth_key.server_salt:
             self._stable_seqno = False
 
-        self._mtproto.set_server_salt(body.new_server_salt)
+        self._auth_key.server_salt = body.new_server_salt
         logging.debug("updating salt: %d", body.new_server_salt)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):

@@ -52,17 +52,25 @@ def _get_scheme(in_thread: InThread) -> tl.Scheme:
 
 
 class AuthKey:
-    __slots__ = ("auth_key", "auth_key_id", "auth_key_lock", "session_id")
+    __slots__ = ("auth_key", "auth_key_id", "auth_key_lock", "session_id", "server_salt")
 
     auth_key: None | bytes
     auth_key_id: None | bytes
     auth_key_lock: asyncio.Lock
     session_id: None | int
+    server_salt: None | int
 
-    def __init__(self, auth_key: None | bytes = None, auth_key_id: None | bytes = None, session_id: None | int = None):
+    def __init__(
+        self,
+        auth_key: None | bytes = None,
+        auth_key_id: None | bytes = None,
+        session_id: None | int = None,
+        server_salt: None | int = None
+    ):
         self.auth_key = auth_key
         self.auth_key_id = auth_key_id
         self.session_id = session_id
+        self.server_salt = server_salt
         self.auth_key_lock = asyncio.Lock()
 
 
@@ -72,7 +80,6 @@ class MTProto:
         "_link",
         "_public_rsa_key",
         "_read_message_lock",
-        "_server_salt",
         "_last_message_id",
         "_auth_key",
         "_executor",
@@ -86,7 +93,6 @@ class MTProto:
     _link: AbridgedTCP
     _public_rsa_key: encryption.PublicRSA
     _read_message_lock: asyncio.Lock
-    _server_salt: int
     _last_message_id: int
     _client_salt: int
     _auth_key: AuthKey
@@ -102,7 +108,6 @@ class MTProto:
         self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
         self._client_salt = int.from_bytes(secrets.token_bytes(4), "little", signed=True)
-        self._server_salt = 0
         self._last_message_id = 0
         self._executor = _get_executor()
         self._scheme = _get_scheme(self._in_thread)
@@ -270,11 +275,8 @@ class MTProto:
 
         self._auth_key.auth_key = to_bytes(auth_key)
         self._auth_key.auth_key_id = (await self._in_thread(sha1, self._auth_key.auth_key))[-8:]
-
-        if self._auth_key.session_id is None:
-            self._auth_key.session_id = await self._in_thread(secrets.randbits, 64)
-
-        self._server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
+        self._auth_key.server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
+        self._auth_key.session_id = await self._in_thread(secrets.randbits, 64)
 
         client_dh_inner_data = self._scheme.boxed(
             _cons="client_DH_inner_data",
@@ -347,19 +349,13 @@ class MTProto:
             if (message.message.msg_id - self._get_message_id()) not in range(-(300 * (2 ** 32)), (30 * (2 ** 32))):
                 raise RuntimeError("Client time is not synchronised with telegram time!")
 
-            if self._server_salt != message.salt:
+            if message.salt != self._auth_key.server_salt:
                 logging.error("received a message with unknown salt! %d", message.salt)
 
             self._last_msg_ids.append(message.message.msg_id)
             self._last_seqno = message.message.seqno
 
             return message.message
-
-    def set_server_salt(self, salt: int):
-        self._server_salt = salt
-
-    def get_server_salt(self) -> int:
-        return self._server_salt
 
     def write(self, seq_no: int, **kwargs) -> tuple[int, typing.Awaitable[None]]:
         message_id = self._get_message_id()
@@ -378,7 +374,7 @@ class MTProto:
 
         message_inner_data = self._scheme.bare(
             _cons="message_inner_data",
-            salt=self._server_salt,
+            salt=self._auth_key.server_salt,
             session_id=self._auth_key.session_id,
             message=message,
         ).get_flat_bytes()
