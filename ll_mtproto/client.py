@@ -300,7 +300,7 @@ class Client:
                 salt_expire,
                 lambda: self._loop.create_task(self._create_future_salt_request()))
 
-            logging.info("scheduling get_future_salts, current salt is valid for %i seconds", salt_expire)
+            logging.debug("scheduling get_future_salts, current salt is valid for %i seconds", salt_expire)
 
     async def _process_new_session_created(self, body: Structure):
         self._auth_key.server_salt = body.server_salt
