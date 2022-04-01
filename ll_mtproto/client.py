@@ -122,7 +122,6 @@ class Client:
         pending_request.retries += 1
 
         await self._start_mtproto_loop_if_needed()
-        await self._flush_msgids_to_ack_if_needed()
 
         seqno = self._get_next_odd_seqno()
 
