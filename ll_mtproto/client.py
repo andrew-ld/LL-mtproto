@@ -294,7 +294,7 @@ class Client:
         if valid_salt := next((salt for salt in body.salts if salt.valid_since <= body.now), False):
             self._auth_key.server_salt = valid_salt.salt
 
-            salt_expire = max(valid_salt.valid_until - body.now + 1, 1)
+            salt_expire = min(max(valid_salt.valid_until - body.now + 1, 1), 1801)
 
             self._pending_future_salt = self._loop.call_later(
                 salt_expire,
