@@ -212,7 +212,6 @@ class Client:
                 break
             except:
                 logging.error("failure while read message from mtproto: %s", traceback.format_exc())
-                self._cancel_pending_futures()
                 break
 
             logging.debug("received message %d from mtproto", message.msg_id)
@@ -224,6 +223,8 @@ class Client:
                 break
             except:
                 logging.error("failure while process message from mtproto: %s", traceback.format_exc())
+
+        self._cancel_pending_futures()
 
     def _cancel_pending_futures(self):
         self._updates_queue.put_nowait(None)
