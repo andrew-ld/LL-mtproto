@@ -208,7 +208,7 @@ class Client:
         while mtproto_link := self._mtproto:
             try:
                 message = await mtproto_link.read()
-            except (KeyboardInterrupt, asyncio.CancelledError):
+            except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
                 break
             except:
                 logging.error("failure while read message from mtproto: %s", traceback.format_exc())
