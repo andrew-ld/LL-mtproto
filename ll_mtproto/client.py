@@ -30,7 +30,7 @@ class _PendingRequest:
 
     def finalize(self):
         if not (response := self.response).done():
-            response.set_exception(InterruptedError())
+            response.set_exception(asyncio.CancelledError())
 
         if cleaner := self.cleaner:
             cleaner.cancel()
