@@ -208,6 +208,8 @@ class Client:
         while mtproto_link := self._mtproto:
             try:
                 message = await mtproto_link.read()
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                break
             except:
                 logging.error("failure while read message from mtproto: %s", traceback.format_exc())
                 self._cancel_pending_futures()
@@ -218,6 +220,8 @@ class Client:
             try:
                 await self._process_telegram_message(message)
                 await self._flush_msgids_to_ack_if_needed()
+            except (KeyboardInterrupt, asyncio.CancelledError):
+                break
             except:
                 logging.error("failure while process message from mtproto: %s", traceback.format_exc())
 

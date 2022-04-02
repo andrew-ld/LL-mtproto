@@ -19,7 +19,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     auth_key = AuthKey()
     session = Client(TelegramDatacenter.VESTA, auth_key)
 
-    asyncio.get_event_loop().create_task(get_updates(session))
+    get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
 
     await session.rpc_call({
         "_cons": "invokeWithLayer",
@@ -84,6 +84,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     media_session.disconnect()
     session.disconnect()
+    get_updates_task.cancel()
 
 
 if __name__ == "__main__":
