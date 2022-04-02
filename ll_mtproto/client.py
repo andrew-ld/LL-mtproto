@@ -54,12 +54,10 @@ class _Update:
 
 class Client:
     __slots__ = (
-        "_seq_no",
         "_mtproto",
         "_loop",
         "_msgids_to_ack",
         "_last_time_acks_flushed",
-        "_last_seqno",
         "_seqno_increment",
         "_mtproto_loop_task",
         "_pending_requests",
@@ -73,12 +71,10 @@ class Client:
         "_pending_future_salt"
     )
 
-    _seq_no: int
     _mtproto: mtproto.MTProto
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
     _last_time_acks_flushed: float
-    _last_seqno: int
     _stable_seqno: bool
     _seqno_increment: int
     _mtproto_loop_task: asyncio.Task | None
@@ -92,11 +88,9 @@ class Client:
     _pending_future_salt: asyncio.TimerHandle | None
 
     def __init__(self, datacenter: TelegramDatacenter, auth_key: AuthKey, no_updates: bool = False):
-        self._seq_no = -1
         self._loop = asyncio.get_event_loop()
         self._msgids_to_ack = []
         self._last_time_acks_flushed = time.time()
-        self._last_seqno = 0
         self._stable_seqno = False
         self._seqno_increment = 1
         self._mtproto_loop_task = None
@@ -178,12 +172,12 @@ class Client:
         await self._rpc_call(pending_request, wait_result=False)
 
     def _get_next_odd_seqno(self) -> int:
-        self._last_seqno = ((self._last_seqno + 1) // 2) * 2 + 1
-        return self._last_seqno
+        self._auth_key.seq_no = ((self._auth_key.seq_no + 1) // 2) * 2 + 1
+        return self._auth_key.seq_no
 
     def _get_next_even_seqno(self) -> int:
-        self._last_seqno = (self._last_seqno // 2 + 1) * 2
-        return self._last_seqno
+        self._auth_key.seq_no = (self._auth_key.seq_no // 2 + 1) * 2
+        return self._auth_key.seq_no
 
     def _cancel_pending_pongs(self):
         for pending_pong in self._pending_pongs.values():
@@ -358,7 +352,7 @@ class Client:
         any(map(self._msgids_to_ack.remove, msgids_to_ack))
 
     def _update_last_seqno_from_incoming_message(self, message: Structure):
-        self._last_seqno = max(self._last_seqno, message.seqno)
+        self._auth_key.seq_no = max(self._auth_key.seq_no, message.seqno)
 
     async def _process_bad_server_salt(self, body: Structure):
         if self._auth_key.server_salt:
@@ -374,9 +368,9 @@ class Client:
 
     async def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure):
         self._seqno_increment = min(2 ** 31 - 1, self._seqno_increment << 1)
-        self._last_seqno += self._seqno_increment
+        self._auth_key.seq_no += self._seqno_increment
 
-        logging.debug("updating seqno by %d to %d", self._seqno_increment, self._last_seqno)
+        logging.debug("updating seqno by %d to %d", self._seqno_increment, self._auth_key.seq_no)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             await self._rpc_call(bad_request, wait_result=False)

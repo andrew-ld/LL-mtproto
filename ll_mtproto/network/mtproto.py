@@ -52,25 +52,28 @@ def _get_scheme(in_thread: InThread) -> tl.Scheme:
 
 
 class AuthKey:
-    __slots__ = ("auth_key", "auth_key_id", "auth_key_lock", "session_id", "server_salt")
+    __slots__ = ("auth_key", "auth_key_id", "auth_key_lock", "session_id", "server_salt", "seq_no")
 
     auth_key: None | bytes
     auth_key_id: None | bytes
     auth_key_lock: asyncio.Lock
     session_id: None | int
     server_salt: None | int
+    seq_no: int
 
     def __init__(
         self,
         auth_key: None | bytes = None,
         auth_key_id: None | bytes = None,
         session_id: None | int = None,
-        server_salt: None | int = None
+        server_salt: None | int = None,
+        seq_no: None | int = None
     ):
         self.auth_key = auth_key
         self.auth_key_id = auth_key_id
         self.session_id = session_id
         self.server_salt = server_salt
+        self.seq_no = seq_no or -1
         self.auth_key_lock = asyncio.Lock()
 
 
