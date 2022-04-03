@@ -114,6 +114,7 @@ class Client:
 
     async def rpc_call_multi(self, payloads: typing.Iterable[dict[str, any]]) -> tuple[Structure | BaseException]:
         messages = []
+        messages_ids = []
         responses = []
 
         await self._start_mtproto_loop_if_needed()
@@ -125,6 +126,7 @@ class Client:
             self._pending_requests[request_message_id] = request
 
             messages.append(request_message)
+            messages_ids.append(request_message_id)
             responses.append(request.response)
 
         container_message = dict(_cons="msg_container", messages=messages)
@@ -144,6 +146,7 @@ class Client:
             pending_container_request.finalize()
 
         if container_request_exception:
+            any(map(self._cancel_pending_request, messages_ids))
             raise container_request_exception from container_request_exception
 
         results = await asyncio.gather(*responses, return_exceptions=True)
