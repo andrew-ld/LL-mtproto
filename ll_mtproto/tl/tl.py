@@ -373,13 +373,13 @@ class Parameter:
     element_parameter: "Parameter | None"
 
     def __init__(
-            self,
-            pname: str,
-            ptype: str,
-            is_boxed: bool,
-            flag_number: int = None,
-            is_vector: bool = False,
-            element_parameter: "Parameter | None" = None
+        self,
+        pname: str,
+        ptype: str,
+        is_boxed: bool,
+        flag_number: int = None,
+        is_vector: bool = False,
+        element_parameter: "Parameter | None" = None
     ):
         self.name = pname
         self.type = ptype
@@ -408,14 +408,14 @@ class Constructor:
     _parameters: list[Parameter]
 
     def __init__(
-            self,
-            scheme: Scheme,
-            ptype: str,
-            name: str,
-            number: bytes,
-            has_flags: bool,
-            parameters: list[Parameter],
-            flags_offset: int | None
+        self,
+        scheme: Scheme,
+        ptype: str,
+        name: str,
+        number: bytes,
+        has_flags: bool,
+        parameters: list[Parameter],
+        flags_offset: int | None
     ):
         self.scheme = scheme
         self.name = name

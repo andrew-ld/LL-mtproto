@@ -13,20 +13,24 @@ from .tl.tl import Structure
 
 __all__ = ("_Update", "Client")
 
+_SeqNoGenerator = typing.Callable[[], int]
+
 
 class _PendingRequest:
-    __slots__ = ("response", "request", "cleaner", "retries")
+    __slots__ = ("response", "request", "cleaner", "retries", "next_seq_no")
 
     response: asyncio.Future[Structure]
     request: dict
     cleaner: asyncio.TimerHandle | None
     retries: int
+    next_seq_no: _SeqNoGenerator
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, message: dict):
+    def __init__(self, loop: asyncio.AbstractEventLoop, message: dict, seq_no_func: _SeqNoGenerator):
         self.response = loop.create_future()
         self.request = message
         self.cleaner = None
         self.retries = 0
+        self.next_seq_no = seq_no_func
 
     def finalize(self):
         if not (response := self.response).done():
@@ -108,22 +112,44 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call(self, message: dict[str, any]) -> Structure:
-        if "_cons" not in message:
-            raise RuntimeError("`_cons` attribute is required in message object")
+    async def rpc_call_multi(self, payloads: list[dict[str, any]]) -> tuple[Structure | BaseException]:
+        messages = []
+        responses = []
 
-        pending_request = _PendingRequest(self._loop, message)
-        return await self._rpc_call(pending_request, wait_result=True)
+        await self._start_mtproto_loop_if_needed()
 
-    async def _rpc_call(self, request: _PendingRequest, *, wait_result: bool) -> Structure | None:
+        for payload in payloads:
+            request = _PendingRequest(self._loop, payload, self._get_next_odd_seqno)
+            request_message, request_message_id = self._mtproto.make_message(request.next_seq_no(), **payload)
+
+            self._pending_requests[request_message_id] = request
+
+            messages.append(request_message)
+            responses.append(request.response)
+
+        container_message = dict(_cons="msg_container", messages=messages)
+        container_request = _PendingRequest(self._loop, container_message, self._get_next_even_seqno)
+        container_message_id = await self._rpc_call(container_request, wait_result=True)
+
+        results = await asyncio.gather(*responses, return_exceptions=True)
+
+        self._pending_requests.pop(container_message_id, None)
+        container_request.finalize()
+
+        return typing.cast(tuple[Structure | BaseException], results)
+
+    async def rpc_call(self, payload: dict[str, any]) -> Structure:
+        pending_request = _PendingRequest(self._loop, payload, self._get_next_odd_seqno)
+        await self._rpc_call(pending_request, wait_result=True)
+        return await pending_request.response
+
+    async def _rpc_call(self, request: _PendingRequest, *, wait_result: bool) -> int:
         request.retries += 1
 
         if wait_result:
             await self._start_mtproto_loop_if_needed()
 
-        seqno = self._get_next_odd_seqno()
-
-        message_id, write_future = await self._mtproto.write(seqno, **request.request)
+        message, message_id = self._mtproto.make_message(request.next_seq_no(), **request.request)
 
         logging.debug("sending message (%s) %d to mtproto", request.request["_cons"], message_id)
 
@@ -135,13 +161,14 @@ class Client:
         self._pending_requests[message_id] = request
 
         try:
-            await asyncio.wait_for(write_future, 120)
+            await asyncio.wait_for(self._mtproto.write(message), 120)
         except (OSError, KeyboardInterrupt):
             self._cancel_pending_request(message_id)
 
         if wait_result:
             await self._start_mtproto_loop_if_needed()
-            return await asyncio.wait_for(request.response, 600)
+
+        return message_id
 
     async def _start_mtproto_loop(self):
         self._cancel_pending_futures()
@@ -159,16 +186,18 @@ class Client:
         await self._create_future_salt_request()
 
     async def _create_future_salt_request(self):
-        pending_request = _PendingRequest(self._loop, dict(_cons="get_future_salts", num=2))
-        await self._rpc_call(pending_request, wait_result=False)
+        get_future_salts_message = dict(_cons="get_future_salts", num=2)
+        get_future_salts_request = _PendingRequest(self._loop, get_future_salts_message, self._get_next_odd_seqno)
+        await self._rpc_call(get_future_salts_request, wait_result=False)
 
     async def _create_ping_request(self):
         random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
-
-        pending_request = _PendingRequest(self._loop, dict(_cons="ping", ping_id=random_ping_id))
         self._pending_pongs[random_ping_id] = self._loop.call_later(10, self.disconnect)
 
-        await self._rpc_call(pending_request, wait_result=False)
+        ping_message = dict(_cons="ping", ping_id=random_ping_id)
+        ping_request = _PendingRequest(self._loop, ping_message, self._get_next_odd_seqno)
+
+        await self._rpc_call(ping_request, wait_result=False)
 
     def _get_next_odd_seqno(self) -> int:
         self._auth_key.seq_no = ((self._auth_key.seq_no + 1) // 2) * 2 + 1
@@ -273,6 +302,9 @@ class Client:
         elif body == "bad_msg_notification" and body.error_code == 32:
             await self._process_bad_msg_notification_msg_seqno_too_low(body)
 
+        elif body == "bad_msg_notification":
+            self._process_bad_msg_notification_reject_message(body)
+
         elif body == "new_session_created":
             await self._process_new_session_created(body)
 
@@ -343,10 +375,13 @@ class Client:
             return
 
         msgids_to_ack = self._msgids_to_ack[:1024]
-        seqno = self._get_next_even_seqno()
 
-        _, write_future = await self._mtproto.write(seqno, _cons="msgs_ack", msg_ids=msgids_to_ack)
-        await asyncio.wait_for(write_future, 120)
+        msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=msgids_to_ack)
+        msgids_to_ack_request = _PendingRequest(self._loop, msgids_to_ack_message, self._get_next_odd_seqno)
+        msgids_to_ack_message_id = await self._rpc_call(msgids_to_ack_request, wait_result=False)
+
+        self._pending_requests.pop(msgids_to_ack_message_id, None)
+        msgids_to_ack_request.finalize()
 
         any(map(self._msgids_to_ack.remove, msgids_to_ack))
 
@@ -362,6 +397,12 @@ class Client:
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             await self._rpc_call(bad_request, wait_result=False)
+        else:
+            logging.debug("bad_msg_id %d not found", body.bad_msg_id)
+
+    def _process_bad_msg_notification_reject_message(self, body: Structure):
+        if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
+            bad_request.response.set_exception(RpcError(body.error_code, b"BAD_MSG_NOTIFICATION"))
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 

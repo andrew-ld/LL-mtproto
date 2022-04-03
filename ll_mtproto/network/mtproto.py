@@ -353,7 +353,7 @@ class MTProto:
 
             return message.message
 
-    async def write(self, seq_no: int, **kwargs) -> tuple[int, typing.Awaitable[None]]:
+    def make_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
         message_id = self._get_message_id()
 
         message = self._scheme.bare(
@@ -363,6 +363,9 @@ class MTProto:
             body=self._scheme.boxed(**kwargs),
         )
 
+        return message, message_id
+
+    async def write(self, message: tl.Value):
         auth_key, auth_key_id = await self._get_auth_key()
 
         message_inner_data = self._scheme.bare(
@@ -384,7 +387,7 @@ class MTProto:
             encrypted_data=encrypted_message,
         ).get_flat_bytes()
 
-        return message_id, self._link.write(full_message)
+        await self._link.write(full_message)
 
     def stop(self):
         self._link.stop()
