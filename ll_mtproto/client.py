@@ -403,6 +403,7 @@ class Client:
     def _process_bad_msg_notification_reject_message(self, body: Structure):
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             bad_request.response.set_exception(RpcError(body.error_code, b"BAD_MSG_NOTIFICATION"))
+            bad_request.finalize()
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
