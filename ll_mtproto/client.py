@@ -112,7 +112,7 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call_multi(self, payloads: list[dict[str, any]]) -> tuple[Structure | BaseException]:
+    async def rpc_call_multi(self, payloads: typing.Iterable[dict[str, any]]) -> tuple[Structure | BaseException]:
         messages = []
         responses = []
 
@@ -131,10 +131,22 @@ class Client:
         container_request = _PendingRequest(self._loop, container_message, self._get_next_even_seqno)
         container_message_id = await self._rpc_call(container_request, wait_result=True)
 
-        results = await asyncio.gather(*responses, return_exceptions=True)
+        await asyncio.wait((*responses, container_request.response), return_when=asyncio.FIRST_COMPLETED)
+
+        container_request_exception: False | BaseException
+
+        if (container_request_response := container_request.response).done():
+            container_request_exception = container_request_response.exception()
+        else:
+            container_request_exception = False
 
         if pending_container_request := self._pending_requests.pop(container_message_id, False):
             pending_container_request.finalize()
+
+        if container_request_exception:
+            raise container_request_exception from container_request_exception
+
+        results = await asyncio.gather(*responses, return_exceptions=True)
 
         return typing.cast(tuple[Structure | BaseException], results)
 
