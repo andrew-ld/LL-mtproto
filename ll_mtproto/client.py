@@ -20,12 +20,12 @@ class _PendingRequest:
     __slots__ = ("response", "request", "cleaner", "retries", "next_seq_no")
 
     response: asyncio.Future[Structure]
-    request: dict
+    request: dict[str, any]
     cleaner: asyncio.TimerHandle | None
     retries: int
     next_seq_no: _SeqNoGenerator
 
-    def __init__(self, loop: asyncio.AbstractEventLoop, message: dict, seq_no_func: _SeqNoGenerator):
+    def __init__(self, loop: asyncio.AbstractEventLoop, message: dict[str, any], seq_no_func: _SeqNoGenerator):
         self.response = loop.create_future()
         self.request = message
         self.cleaner = None
