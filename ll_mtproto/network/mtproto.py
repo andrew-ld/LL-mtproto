@@ -90,7 +90,6 @@ class MTProto:
         "_executor",
         "_scheme",
         "_last_msg_ids",
-        "_client_salt",
     )
 
     _loop: asyncio.AbstractEventLoop
@@ -98,7 +97,6 @@ class MTProto:
     _public_rsa_key: encryption.PublicRSA
     _read_message_lock: asyncio.Lock
     _last_message_id: int
-    _client_salt: int
     _auth_key: AuthKey
     _executor: ThreadPoolExecutor
     _scheme: tl.Scheme
@@ -110,7 +108,6 @@ class MTProto:
         self._public_rsa_key = encryption.PublicRSA(public_rsa_key)
         self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
-        self._client_salt = int.from_bytes(secrets.token_bytes(4), "little", signed=True)
         self._last_message_id = 0
         self._executor = _get_executor()
         self._scheme = _get_scheme(self._in_thread)
