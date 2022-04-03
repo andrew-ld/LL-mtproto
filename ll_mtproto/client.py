@@ -329,6 +329,18 @@ class Client:
         elif body == "future_salts":
             self._process_future_salts(body)
 
+        elif body == "msg_detailed_info":
+            self._process_msg_detailed_info(body)
+
+        elif body == "msg_new_detailed_info":
+            self._process_msg_new_detailed_info(body)
+
+    def _process_msg_new_detailed_info(self, body: Structure):
+        self._msgids_to_ack.append(body.answer_msg_id)
+
+    def _process_msg_detailed_info(self, body: Structure):
+        self._msgids_to_ack.append(body.answer_msg_id)
+
     def _process_future_salts(self, body: Structure):
         if pending_request := self._pending_requests.pop(body.req_msg_id, False):
             pending_request.response.set_result(body)
