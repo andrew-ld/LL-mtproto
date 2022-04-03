@@ -133,8 +133,8 @@ class Client:
 
         results = await asyncio.gather(*responses, return_exceptions=True)
 
-        self._pending_requests.pop(container_message_id, None)
-        container_request.finalize()
+        if pending_container_request := self._pending_requests.pop(container_message_id, False):
+            pending_container_request.finalize()
 
         return typing.cast(tuple[Structure | BaseException], results)
 
@@ -380,8 +380,8 @@ class Client:
         msgids_to_ack_request = _PendingRequest(self._loop, msgids_to_ack_message, self._get_next_odd_seqno)
         msgids_to_ack_message_id = await self._rpc_call(msgids_to_ack_request, wait_result=False)
 
-        self._pending_requests.pop(msgids_to_ack_message_id, None)
-        msgids_to_ack_request.finalize()
+        if pending_msgids_to_ack_request := self._pending_requests.pop(msgids_to_ack_message_id, False):
+            pending_msgids_to_ack_request.finalize()
 
         any(map(self._msgids_to_ack.remove, msgids_to_ack))
 
