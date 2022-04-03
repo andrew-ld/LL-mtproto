@@ -123,10 +123,9 @@ class Client:
 
         seqno = self._get_next_odd_seqno()
 
-        message_id, write_future = self._mtproto.write(seqno, **request.request)
-        constructor = request.request["_cons"]
+        message_id, write_future = await self._mtproto.write(seqno, **request.request)
 
-        logging.debug("sending message (%s) %d to mtproto", constructor, message_id)
+        logging.debug("sending message (%s) %d to mtproto", request.request["_cons"], message_id)
 
         if cleaner := request.cleaner:
             cleaner.cancel()
@@ -346,7 +345,7 @@ class Client:
         msgids_to_ack = self._msgids_to_ack[:1024]
         seqno = self._get_next_even_seqno()
 
-        _, write_future = self._mtproto.write(seqno, _cons="msgs_ack", msg_ids=msgids_to_ack)
+        _, write_future = await self._mtproto.write(seqno, _cons="msgs_ack", msg_ids=msgids_to_ack)
         await asyncio.wait_for(write_future, 120)
 
         any(map(self._msgids_to_ack.remove, msgids_to_ack))

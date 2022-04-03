@@ -1,13 +1,12 @@
 import asyncio
 import collections
 import hashlib
+import hmac
 import logging
 import os
 import secrets
 import time
 import typing
-import hmac
-
 from concurrent.futures import ThreadPoolExecutor
 
 from . import encryption
@@ -17,7 +16,7 @@ from .. import constants
 from ..math import primes
 from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, Bytedata
-from ..tl.tl import Structure, Value
+from ..tl.tl import Structure
 from ..typed import InThread
 
 _singleton_executor: ThreadPoolExecutor | None = None
@@ -76,6 +75,9 @@ class AuthKey:
         self.seq_no = seq_no or -1
         self.auth_key_lock = asyncio.Lock()
 
+    def clone(self) -> "AuthKey":
+        return AuthKey(self.auth_key, self.auth_key_id, secrets.randbits(64), self.server_salt)
+
 
 class MTProto:
     __slots__ = (
@@ -88,8 +90,7 @@ class MTProto:
         "_executor",
         "_scheme",
         "_last_msg_ids",
-        "_last_seqno",
-        "_client_salt"
+        "_client_salt",
     )
 
     _loop: asyncio.AbstractEventLoop
@@ -102,7 +103,6 @@ class MTProto:
     _executor: ThreadPoolExecutor
     _scheme: tl.Scheme
     _last_msg_ids: collections.deque[int]
-    _last_seqno: int
 
     def __init__(self, host: str, port: int, public_rsa_key: str, auth_key: AuthKey):
         self._loop = asyncio.get_event_loop()
@@ -115,7 +115,6 @@ class MTProto:
         self._executor = _get_executor()
         self._scheme = _get_scheme(self._in_thread)
         self._last_msg_ids = collections.deque(maxlen=64)
-        self._last_seqno = -1
 
     async def _in_thread(self, *args, **kwargs):
         return await self._loop.run_in_executor(self._executor, *args, **kwargs)
@@ -337,30 +336,26 @@ class MTProto:
             if not hmac.compare_digest(msg_key, msg_key_computed):
                 raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
 
-            if message.session_id != self._auth_key.session_id:
-                raise ValueError("Received a message with unknown session id!", message.session_id)
+            if (msg_session_id := message.session_id) != self._auth_key.session_id:
+                raise ValueError("Received a message with unknown session id!", msg_session_id)
 
-            if message.message.msg_id % 2 != 1:
-                raise ValueError("Received message from server to client need odd parity!", message.message.msg_id)
+            if (msg_msg_id := message.message.msg_id) % 2 != 1:
+                raise ValueError("Received message from server to client need odd parity!", msg_msg_id)
 
-            if message.message.seqno < self._last_seqno:
-                raise ValueError("Received old message from server to client", message.message.msg_id)
-
-            if not all(old_msg_id < message.message.msg_id for old_msg_id in self._last_msg_ids):
-                raise ValueError("Received duplicated/old message from server to client", message.message.msg_id)
+            if (msg_msg_id := message.message.msg_id) in self._last_msg_ids:
+                raise ValueError("Received duplicated message from server to client", msg_msg_id)
+            else:
+                self._last_msg_ids.append(msg_msg_id)
 
             if (message.message.msg_id - self._get_message_id()) not in range(-(300 * (2 ** 32)), (30 * (2 ** 32))):
                 raise RuntimeError("Client time is not synchronised with telegram time!")
 
-            if message.salt != self._auth_key.server_salt:
-                logging.error("received a message with unknown salt! %d", message.salt)
-
-            self._last_msg_ids.append(message.message.msg_id)
-            self._last_seqno = message.message.seqno
+            if (msg_salt := message.salt) != self._auth_key.server_salt:
+                logging.error("received a message with unknown salt! %d", msg_salt)
 
             return message.message
 
-    def write(self, seq_no: int, **kwargs) -> tuple[int, typing.Awaitable[None]]:
+    async def write(self, seq_no: int, **kwargs) -> tuple[int, typing.Awaitable[None]]:
         message_id = self._get_message_id()
 
         message = self._scheme.bare(
@@ -370,9 +365,6 @@ class MTProto:
             body=self._scheme.boxed(**kwargs),
         )
 
-        return message_id, self._write(message)
-
-    async def _write(self, message: Value):
         auth_key, auth_key_id = await self._get_auth_key()
 
         message_inner_data = self._scheme.bare(
@@ -394,7 +386,7 @@ class MTProto:
             encrypted_data=encrypted_message,
         ).get_flat_bytes()
 
-        await self._link.write(full_message)
+        return message_id, self._link.write(full_message)
 
     def stop(self):
         self._link.stop()

@@ -58,12 +58,15 @@ async def test(api_id: int, api_hash: str, bot_token: str):
             "channel_id": peer.peer.channel_id,
             "access_hash": peer.chats[0].access_hash
         },
-        "id": [{"_cons": "inputMessageID", "id": 4}]
+        "id": [{"_cons": "inputMessageID", "id": 5}]
     })
 
     media = messages.messages[0].media.document
 
-    media_session = Client(TelegramDatacenter.VESTA_MEDIA, auth_key)
+    media_sessions = []
+
+    for _ in range(8):
+        media_sessions.append(Client(TelegramDatacenter.VESTA_MEDIA, auth_key.clone(), no_updates=True))
 
     get_file_request = {
         "_cons": "upload.getFile",
@@ -78,13 +81,24 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         }
     }
 
+    requests = []
+
     while get_file_request["offset"] < media.size:
-        await media_session.rpc_call(get_file_request)
+        requests.append(media_sessions[min(len(requests) - 1, 0)].rpc_call(get_file_request))
         get_file_request["offset"] += get_file_request["limit"]
 
-    media_session.disconnect()
-    session.disconnect()
+        if len(requests) == len(media_sessions):
+            await asyncio.gather(*requests, return_exceptions=True)
+            requests.clear()
+
+    if requests:
+        await asyncio.gather(*requests, return_exceptions=True)
+
+    for media_session in media_sessions:
+        media_session.disconnect()
+
     get_updates_task.cancel()
+    session.disconnect()
 
 
 if __name__ == "__main__":
