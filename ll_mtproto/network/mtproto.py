@@ -3,6 +3,7 @@ import collections
 import hashlib
 import hmac
 import logging
+import multiprocessing
 import os
 import secrets
 import time
@@ -29,7 +30,7 @@ def _get_executor() -> ThreadPoolExecutor:
     global _singleton_executor
 
     if _singleton_executor is None:
-        _singleton_executor = ThreadPoolExecutor(max_workers=3)
+        _singleton_executor = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
 
     return _singleton_executor
 
