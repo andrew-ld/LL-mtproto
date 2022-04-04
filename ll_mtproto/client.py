@@ -336,10 +336,12 @@ class Client:
             self._process_msg_new_detailed_info(body)
 
     def _process_msg_new_detailed_info(self, body: Structure):
-        self._msgids_to_ack.append(body.answer_msg_id)
+        if pending_request := self._pending_requests.pop(body.answer_msg_id, False):
+            pending_request.finalize()
 
     def _process_msg_detailed_info(self, body: Structure):
-        self._msgids_to_ack.append(body.answer_msg_id)
+        self._process_msg_new_detailed_info(body)
+        self._msgids_to_ack.append(body.msg_id)
 
     def _process_future_salts(self, body: Structure):
         if pending_request := self._pending_requests.pop(body.req_msg_id, False):
