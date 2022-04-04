@@ -406,7 +406,7 @@ class Client:
         msgids_to_ack = self._msgids_to_ack[:1024]
 
         msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=msgids_to_ack)
-        msgids_to_ack_request = _PendingRequest(self._loop, msgids_to_ack_message, self._get_next_odd_seqno)
+        msgids_to_ack_request = _PendingRequest(self._loop, msgids_to_ack_message, self._get_next_even_seqno)
         msgids_to_ack_message_id = await self._rpc_call(msgids_to_ack_request, wait_result=False)
 
         if pending_msgids_to_ack_request := self._pending_requests.pop(msgids_to_ack_message_id, False):
