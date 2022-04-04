@@ -7,13 +7,12 @@ import multiprocessing
 import os
 import secrets
 import time
-import typing
 from concurrent.futures import ThreadPoolExecutor
 
 from . import encryption
 from .encryption import AesIgeAsyncStream
 from .tcp import AbridgedTCP
-from .. import constants
+from ..constants import TelegramSchema
 from ..math import primes
 from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, Bytedata
@@ -39,14 +38,7 @@ def _get_scheme(in_thread: InThread) -> tl.Scheme:
     global _singleton_scheme
 
     if _singleton_scheme is None:
-        _singleton_scheme = tl.Scheme(
-            in_thread,
-            open(constants.TelegramSchema.AUTH_SCHEMA, "r").read()
-            + "\n"
-            + open(constants.TelegramSchema.APPLICATION_SCHEMA, "r").read()
-            + "\n"
-            + open(constants.TelegramSchema.SERVICE_SCHEMA, "r").read(),
-        )
+        _singleton_scheme = tl.Scheme(in_thread, TelegramSchema.MERGED_SCHEMA)
 
     return _singleton_scheme
 
