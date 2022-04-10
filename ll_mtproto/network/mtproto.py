@@ -43,6 +43,14 @@ def _get_scheme(in_thread: InThread) -> tl.Scheme:
     return _singleton_scheme
 
 
+def _get_auth_key_id(auth_key: bytes) -> bytes:
+    return sha1(auth_key)[-8:]
+
+
+def _new_session_id() -> int:
+    return secrets.randbits(64)
+
+
 class AuthKey:
     __slots__ = ("auth_key", "auth_key_id", "auth_key_lock", "session_id", "server_salt", "seq_no")
 
@@ -69,7 +77,20 @@ class AuthKey:
         self.auth_key_lock = asyncio.Lock()
 
     def clone(self) -> "AuthKey":
-        return AuthKey(self.auth_key, self.auth_key_id, secrets.randbits(64), self.server_salt)
+        return AuthKey(self.auth_key, self.auth_key_id, _new_session_id(), self.server_salt)
+
+    def __getstate__(self) -> bytes:
+        return self.auth_key
+
+    def __setstate__(self, state: bytes):
+        self.auth_key = state
+        self.auth_key_id = _get_auth_key_id(self.auth_key)
+
+        self.session_id = _new_session_id()
+        self.auth_key_lock = asyncio.Lock()
+
+        self.server_salt = 0xdeef
+        self.seq_no = -1
 
 
 class MTProto:
@@ -266,9 +287,9 @@ class MTProto:
             raise RuntimeError("Diffie–Hellman exchange failed: g_b > dh_prime - (2 ** (2048 - 64))")
 
         self._auth_key.auth_key = to_bytes(auth_key)
-        self._auth_key.auth_key_id = (await self._in_thread(sha1, self._auth_key.auth_key))[-8:]
+        self._auth_key.auth_key_id = (await self._in_thread(_get_auth_key_id, self._auth_key.auth_key))
         self._auth_key.server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
-        self._auth_key.session_id = await self._in_thread(secrets.randbits, 64)
+        self._auth_key.session_id = await self._in_thread(_new_session_id)
 
         client_dh_inner_data = self._scheme.boxed(
             _cons="client_DH_inner_data",
