@@ -79,18 +79,22 @@ class AuthKey:
     def clone(self) -> "AuthKey":
         return AuthKey(self.auth_key, self.auth_key_id, _new_session_id(), self.server_salt)
 
-    def __getstate__(self) -> bytes:
-        return self.auth_key
+    def __getstate__(self) -> tuple[bytes | None, int | None]:
+        return self.auth_key, self.server_salt
 
-    def __setstate__(self, state: bytes):
-        self.auth_key = state
-        self.auth_key_id = _get_auth_key_id(self.auth_key)
-
-        self.session_id = _new_session_id()
+    def __setstate__(self, state: tuple[bytes | None, int | None] | bytes):
         self.auth_key_lock = asyncio.Lock()
 
-        self.server_salt = 0xdeef
+        self.session_id = _new_session_id()
         self.seq_no = -1
+
+        if isinstance(state, bytes):
+            self.auth_key = state
+            self.server_salt = secrets.randbits(8)
+        else:
+            self.auth_key, self.server_salt = state
+
+        self.auth_key_id = _get_auth_key_id(self.auth_key) if self.auth_key else None
 
 
 class MTProto:
