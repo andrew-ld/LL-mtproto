@@ -135,6 +135,9 @@ class Client:
             messages_ids.append(request_message_id)
             responses.append(request.response)
 
+        if not messages:
+            raise ValueError("this method expects the `payloads` iterator to return at least one element")
+
         container_message = dict(_cons="msg_container", messages=messages)
         container_request = _PendingRequest(self._loop, container_message, self._get_next_even_seqno)
         container_message_id = await self._rpc_call(container_request, wait_result=True)
