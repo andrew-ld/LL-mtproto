@@ -219,19 +219,26 @@ class Scheme:
 
         return True, "Ok"
 
-    async def deserialize(self, bytereader: ByteReader, parameter: "Parameter") -> "Structure":
+    async def deserialize(self, bytereader: ByteReader, parameter: "Parameter"):
         if parameter.is_boxed:
             if parameter.type is not None and parameter.type not in self.types:
                 raise ValueError(f"Unknown type `{parameter.type}`")
 
             cons_number = await bytereader(4)
+
+            if cons_number == _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
+                return [
+                    await self.deserialize(bytereader, parameter)
+                    for _ in range(int.from_bytes(await bytereader(4), "little", signed=False))
+                ]
+
             if cons_number not in self.cons_numbers:
                 raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
 
             cons = self.cons_numbers[cons_number]
+
             if parameter.type is not None and cons not in self.types[parameter.type]:
                 raise ValueError(f"type mismatch, constructor `{cons.name}` not in type `{parameter.type}`")
-
         else:
             if parameter.type not in self.constructors:
                 raise ValueError(f"Unknown constructor in parameter `{parameter!r}`")
