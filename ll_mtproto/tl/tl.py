@@ -187,11 +187,7 @@ class Scheme:
 
         self.constructors[cons.name] = cons
         self.cons_numbers[cons.number] = cons
-
-        if cons.type not in self.types:
-            self.types[cons.type] = set()
-
-        self.types[cons.type].add(cons)
+        self.types.setdefault(cons.type, set()).add(cons)
 
     def typecheck(self, parameter: "Parameter", argument: "Value") -> tuple[bool, str]:
         if not isinstance(argument, Value):
@@ -232,29 +228,28 @@ class Scheme:
                     for _ in range(int.from_bytes(await bytereader(4), "little", signed=False))
                 ]
 
-            if cons_number not in self.cons_numbers:
-                raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
+            cons = self.cons_numbers.get(cons_number, False)
 
-            cons = self.cons_numbers[cons_number]
+            if not cons:
+                raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
 
             if parameter.type is not None and cons not in self.types[parameter.type]:
                 raise ValueError(f"type mismatch, constructor `{cons.name}` not in type `{parameter.type}`")
         else:
-            if parameter.type not in self.constructors:
-                raise ValueError(f"Unknown constructor in parameter `{parameter!r}`")
+            cons = self.constructors.get(parameter.type, False)
 
-            cons = self.constructors[parameter.type]
+            if not cons:
+                raise ValueError(f"Unknown constructor in parameter `{parameter!r}`")
 
         return await cons.deserialize_bare_data(bytereader)
 
     def serialize(self, boxed: bool, **kwargs) -> "Value":
         cons_name = kwargs["_cons"]
 
-        if cons_name not in self.constructors:
+        if cons := self.constructors.get(cons_name, False):
+            return cons.serialize(boxed=boxed, **kwargs)
+        else:
             raise NotImplementedError(f"Constructor `{cons_name}` not present in scheme.")
-
-        cons = self.constructors[cons_name]
-        return cons.serialize(boxed=boxed, **kwargs)
 
     def bare(self, **kwargs) -> "Value":
         return self.serialize(boxed=False, **kwargs)
