@@ -344,6 +344,14 @@ class Client:
         elif body == "msg_new_detailed_info":
             self._process_msg_new_detailed_info(body)
 
+        elif body == "msgs_state_info":
+            self._process_msgs_state_info(body)
+
+    def _process_msgs_state_info(self, body: Structure):
+        if pending_request := self._pending_requests.pop(body.req_msg_id, False):
+            pending_request.response.set_result(body)
+            pending_request.finalize()
+
     def _process_msg_new_detailed_info(self, body: Structure):
         if pending_request := self._pending_requests.pop(body.answer_msg_id, False):
             pending_request.finalize()
