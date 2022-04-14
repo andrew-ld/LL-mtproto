@@ -14,7 +14,7 @@ from .byteutils import (
     unpack_binary_string_stream,
     unpack_long_binary_string_stream,
 )
-from ..typed import InThread, ByteReader
+from ..typed import InThread, ByteReader, TlMessageBody
 
 __all__ = ("Scheme", "Value", "Structure", "Parameter", "Constructor",)
 
@@ -215,7 +215,7 @@ class Scheme:
 
         return True, "Ok"
 
-    async def deserialize(self, bytereader: ByteReader, parameter: "Parameter"):
+    async def deserialize(self, bytereader: ByteReader, parameter: "Parameter") -> TlMessageBody:
         if parameter.is_boxed:
             if parameter.type is not None and parameter.type not in self.types:
                 raise ValueError(f"Unknown type `{parameter.type}`")

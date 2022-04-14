@@ -10,9 +10,10 @@ from . import RpcError
 from .constants import TelegramDatacenter, DatacenterInfo
 from .network import mtproto
 from .network.mtproto import AuthKey, MTProto
-from .tl.tl import Structure
+from .typed import TlMessageBody, Structure
 
 __all__ = ("_Update", "Client")
+
 
 _SeqNoGenerator = typing.Callable[[], int]
 
@@ -20,7 +21,7 @@ _SeqNoGenerator = typing.Callable[[], int]
 class _PendingRequest:
     __slots__ = ("response", "request", "cleaner", "retries", "next_seq_no")
 
-    response: asyncio.Future[Structure]
+    response: asyncio.Future[TlMessageBody]
     request: dict[str, any]
     cleaner: asyncio.TimerHandle | None
     retries: int
@@ -118,7 +119,7 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call_multi(self, payloads: typing.Iterable[dict[str, any]]) -> tuple[Structure | BaseException]:
+    async def rpc_call_multi(self, payloads: typing.Iterable[dict[str, any]]) -> tuple[TlMessageBody | BaseException]:
         messages = []
         messages_ids = []
         responses = []
@@ -160,9 +161,9 @@ class Client:
 
         results = await asyncio.gather(*responses, return_exceptions=True)
 
-        return typing.cast(tuple[Structure | BaseException], results)
+        return typing.cast(tuple[TlMessageBody | BaseException], results)
 
-    async def rpc_call(self, payload: dict[str, any]) -> Structure:
+    async def rpc_call(self, payload: dict[str, any]) -> TlMessageBody:
         pending_request = _PendingRequest(self._loop, payload, self._get_next_odd_seqno)
         await self._rpc_call(pending_request, wait_result=True)
         return await pending_request.response
@@ -313,7 +314,7 @@ class Client:
             await self._process_telegram_message_body(body)
             await self._acknowledge_telegram_message(message)
 
-    async def _process_telegram_message_body(self, body: Structure):
+    async def _process_telegram_message_body(self, body: TlMessageBody):
         if body == "rpc_result":
             await self._process_rpc_result(body)
 
@@ -347,20 +348,20 @@ class Client:
         elif body == "msgs_state_info":
             self._process_msgs_state_info(body)
 
-    def _process_msgs_state_info(self, body: Structure):
+    def _process_msgs_state_info(self, body: TlMessageBody):
         if pending_request := self._pending_requests.pop(body.req_msg_id, False):
             pending_request.response.set_result(body)
             pending_request.finalize()
 
-    def _process_msg_new_detailed_info(self, body: Structure):
+    def _process_msg_new_detailed_info(self, body: TlMessageBody):
         if pending_request := self._pending_requests.pop(body.answer_msg_id, False):
             pending_request.finalize()
 
-    def _process_msg_detailed_info(self, body: Structure):
+    def _process_msg_detailed_info(self, body: TlMessageBody):
         self._process_msg_new_detailed_info(body)
         self._msgids_to_ack.append(body.msg_id)
 
-    def _process_future_salts(self, body: Structure):
+    def _process_future_salts(self, body: TlMessageBody):
         if pending_request := self._pending_requests.pop(body.req_msg_id, False):
             pending_request.response.set_result(body)
             pending_request.finalize()
@@ -379,7 +380,7 @@ class Client:
 
             logging.debug("scheduling get_future_salts, current salt is valid for %i seconds", salt_expire)
 
-    async def _process_new_session_created(self, body: Structure):
+    async def _process_new_session_created(self, body: TlMessageBody):
         self._auth_key.server_salt = body.server_salt
 
         bad_requests = dict((i, r) for i, r in self._pending_requests.items() if i < body.first_msg_id)
@@ -388,14 +389,14 @@ class Client:
             self._pending_requests.pop(bad_msg_id, None)
             await self._rpc_call(bad_request, wait_result=False)
 
-    async def _process_updates(self, body: Structure):
+    async def _process_updates(self, body: TlMessageBody):
         users = body.users
         chats = body.chats
 
         for update in body.updates:
             await self._updates_queue.put(_Update(users, chats, update))
 
-    def _process_pong(self, pong: Structure):
+    def _process_pong(self, pong: TlMessageBody):
         logging.debug("pong message: %d", pong.ping_id)
 
         self._cancel_pending_pong(pong.ping_id)
@@ -434,7 +435,7 @@ class Client:
     def _update_last_seqno_from_incoming_message(self, message: Structure):
         self._auth_key.seq_no = max(self._auth_key.seq_no, message.seqno)
 
-    async def _process_bad_server_salt(self, body: Structure):
+    async def _process_bad_server_salt(self, body: TlMessageBody):
         if self._auth_key.server_salt:
             self._stable_seqno = False
 
@@ -446,14 +447,14 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    def _process_bad_msg_notification_reject_message(self, body: Structure):
+    def _process_bad_msg_notification_reject_message(self, body: TlMessageBody):
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             bad_request.response.set_exception(RpcError(body.error_code, b"BAD_MSG_NOTIFICATION"))
             bad_request.finalize()
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure):
+    async def _process_bad_msg_notification_msg_seqno_too_low(self, body: TlMessageBody):
         self._seqno_increment = min(2 ** 31 - 1, self._seqno_increment << 1)
         self._auth_key.seq_no += self._seqno_increment
 
@@ -464,7 +465,7 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_rpc_result(self, body: Structure):
+    async def _process_rpc_result(self, body: TlMessageBody):
         self._stable_seqno = True
         self._seqno_increment = 1
 
