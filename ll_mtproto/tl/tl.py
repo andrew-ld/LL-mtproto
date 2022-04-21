@@ -289,9 +289,6 @@ class Value:
         if not self.cons.has_flags:
             raise TypeError(f"Conditional data added to plain constructor `{self.cons!r}`")
 
-        if flag_number in self._flags:
-            raise ValueError(f"Data with flag `{flag_number:d}` is already present in constructor `{self.cons}`")
-
         self._flags.add(flag_number)
 
     def append(self, data: bytes):
