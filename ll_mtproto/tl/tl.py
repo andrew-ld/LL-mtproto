@@ -431,6 +431,12 @@ class Constructor:
         if isinstance(argument, str):
             argument = argument.encode("utf-8")
 
+        if argument is False:
+            argument = {"_cons": "boolFalse"}
+
+        if argument is True:
+            argument = {"_cons": "boolTrue"}
+
         if isinstance(argument, dict):
             argument = self.scheme.serialize(boxed=parameter.is_boxed, **argument)
 
