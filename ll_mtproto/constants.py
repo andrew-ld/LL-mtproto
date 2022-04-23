@@ -17,7 +17,7 @@ class TelegramSchema:
 
     MERGED_SCHEMA = "\n".join((AUTH_SCHEMA, APPLICATION_SCHEMA, SERVICE_SCHEMA))
 
-    SCHEMA_LAYER = 136
+    SCHEMA_LAYER = 139
 
 
 class DatacenterInfo:
