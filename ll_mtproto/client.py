@@ -408,7 +408,7 @@ class Client:
         if pending_ping_request := self._pending_ping:
             pending_ping_request.cancel()
 
-        self._pending_ping = self._loop.call_later(10, lambda: self._loop.create_task(self._create_ping_request()))
+        self._pending_ping = self._loop.call_later(30, lambda: self._loop.create_task(self._create_ping_request()))
 
     async def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
