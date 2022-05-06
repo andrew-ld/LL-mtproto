@@ -128,7 +128,7 @@ class Client:
 
         for payload in payloads:
             request = _PendingRequest(self._loop, payload, self._get_next_odd_seqno)
-            request_message, request_message_id = self._mtproto.make_message(request.next_seq_no(), **payload)
+            request_message, request_message_id = self._mtproto.box_message(request.next_seq_no(), **payload)
 
             self._pending_requests[request_message_id] = request
 
@@ -174,7 +174,7 @@ class Client:
         if wait_result:
             await self._start_mtproto_loop_if_needed()
 
-        message, message_id = self._mtproto.make_message(request.next_seq_no(), **request.request)
+        message, message_id = self._mtproto.box_message(request.next_seq_no(), **request.request)
 
         logging.debug("sending message (%s) %d to mtproto", request.request["_cons"], message_id)
 
@@ -262,7 +262,7 @@ class Client:
                 logging.error("failure while read message from mtproto: %s", traceback.format_exc())
                 break
 
-            logging.debug("received message %d from mtproto", message.msg_id)
+            logging.debug("received message (%s) %d from mtproto", message.body.constructor_name, message.msg_id)
 
             try:
                 await self._process_telegram_message(message)

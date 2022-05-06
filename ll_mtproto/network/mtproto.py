@@ -373,7 +373,7 @@ class MTProto:
 
             return message.message
 
-    def make_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
+    def box_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
         message_id = self._get_message_id()
 
         message = self._scheme.bare(
