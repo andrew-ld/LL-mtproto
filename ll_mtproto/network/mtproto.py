@@ -251,7 +251,7 @@ class MTProto:
             answer_hash_performer.update(result)
             return result
 
-        params2 = await self._in_thread(self._scheme.read, lambda x: answer_reader_hasher(x))
+        params2 = await self._in_thread(self._scheme.read, answer_reader_hasher)
         answer_hash_computed = await self._in_thread(answer_hash_performer.digest)
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):
