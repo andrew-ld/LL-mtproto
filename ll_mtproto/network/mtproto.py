@@ -243,7 +243,19 @@ class MTProto:
             self._in_thread(secrets.randbits, 2048),
         )
 
-        params2 = self._scheme.read(to_reader(answer))
+        answer_reader = to_reader(answer)
+        answer_hash_performer = hashlib.sha1()
+
+        def answer_reader_hasher(nbytes: int) -> bytes:
+            result = answer_reader(nbytes)
+            answer_hash_performer.update(result)
+            return result
+
+        params2 = await self._in_thread(self._scheme.read, lambda x: answer_reader_hasher(x))
+        answer_hash_computed = await self._in_thread(answer_hash_performer.digest)
+
+        if not hmac.compare_digest(answer_hash_computed, answer_hash):
+            raise RuntimeError("Diffie–Hellman exchange failed: params2 hash mismatch")
 
         if params2 != "server_DH_inner_data":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
