@@ -7,7 +7,6 @@ import multiprocessing
 import os
 import secrets
 import time
-import typing
 from concurrent.futures import ThreadPoolExecutor
 
 from . import encryption
@@ -18,7 +17,7 @@ from ..math import primes
 from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader
 from ..tl.tl import Structure
-from ..typed import InThread, ByteReader
+from ..typed import InThread
 
 _singleton_executor: ThreadPoolExecutor | None = None
 _singleton_scheme: tl.Scheme | None = None
@@ -144,17 +143,17 @@ class MTProto:
         self._last_message_id = message_id
         return message_id
 
-    async def _read_message_body(self, bytereader: ByteReader) -> Structure:
-        body_len = int.from_bytes(await bytereader(4), signed=False, byteorder="little")
-        body_reader = to_reader(await bytereader(body_len))
-        return await self._in_thread(self._scheme.read, body_reader)
-
     async def _read_unencrypted_message(self) -> Structure:
         async with self._read_message_lock:
-            unencrypted_message_reader = to_reader(await self._link.readn(8 + 8))
-            message = self._scheme.read(unencrypted_message_reader, False, "unencrypted_message_from_server")
-            message.fields["body"] = await self._read_message_body(self._link.readn)
-            return message
+            unencrypted_message_header_envelope = await self._link.readn(8 + 8)
+
+            body_len_envelope = await self._link.readn(4)
+            body_len = int.from_bytes(body_len_envelope, signed=False, byteorder="little")
+            body_envelope = await self._link.readn(body_len)
+
+            full_message = unencrypted_message_header_envelope + body_len_envelope + body_envelope
+
+            return await self._in_thread(self._scheme.read, to_reader(full_message), False, "unencrypted_message")
 
     async def _write_unencrypted_message(self, **kwargs):
         message = self._scheme.bare(
@@ -346,7 +345,9 @@ class MTProto:
 
             message_inner_data_reader = to_reader(await decrypter(8 + 8 + 8 + 4))
             message = self._scheme.read(message_inner_data_reader, False, "message_inner_data_from_server")
-            message.message.fields["body"] = await self._read_message_body(decrypter)
+
+            message_body_len = int.from_bytes(await decrypter(4), signed=False, byteorder="little")
+            message_body_envelope = await decrypter(message_body_len)
 
             if len(aes.remaining_plain_buffer()) not in range(12, 1024):
                 raise ValueError("Received a message with wrong padding length!")
@@ -373,6 +374,8 @@ class MTProto:
 
             if (msg_salt := message.salt) != self._auth_key.server_salt:
                 logging.error("received a message with unknown salt! %d", msg_salt)
+
+            message.message.fields["body"] = await self._in_thread(self._scheme.read, to_reader(message_body_envelope))
 
             return message.message
 
