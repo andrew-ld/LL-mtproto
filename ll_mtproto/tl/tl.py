@@ -578,6 +578,9 @@ class Constructor:
         elif parameter.type == "object":
             return await self.scheme.read(await unpack_long_binary_string_stream(bytereader))
 
+        elif parameter.type == "bytesobject":
+            return await bytereader(int.from_bytes(await bytereader(4), "little", signed=False))
+
         elif parameter.is_vector:
             if parameter.is_boxed:
                 vcons = await bytereader(4)

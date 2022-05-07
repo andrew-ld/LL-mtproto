@@ -7,6 +7,7 @@ import multiprocessing
 import os
 import secrets
 import time
+import typing
 from concurrent.futures import ThreadPoolExecutor
 
 from . import encryption
@@ -343,7 +344,7 @@ class MTProto:
             decrypter = aes.decrypt_async_stream(self._in_thread, self._link.read)
             decrypter = async_stream_apply(decrypter, plain_sha256.update, self._in_thread)
 
-            message = await self._scheme.read(decrypter, is_boxed=False, parameter_type="message_inner_data")
+            message = await self._scheme.read(decrypter, False, "message_inner_data_from_server")
 
             if len(aes.remaining_plain_buffer()) not in range(12, 1024):
                 raise ValueError("Received a message with wrong padding length!")
@@ -370,6 +371,11 @@ class MTProto:
 
             if (msg_salt := message.salt) != self._auth_key.server_salt:
                 logging.error("received a message with unknown salt! %d", msg_salt)
+
+            bytes_body = typing.cast(bytes, message.message.body)
+
+            # TODO: deserialize on other thread
+            message.message.fields["body"] = await self._scheme.read_from_string(bytes_body)
 
             return message.message
 
