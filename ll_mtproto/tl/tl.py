@@ -35,13 +35,13 @@ def _pack_flags(flags: set[int]) -> bytes:
 
 
 @functools.lru_cache()
-def unpack_flags(n: int) -> list[int]:
+def unpack_flags(n: int) -> set[int]:
     i = 0
-    flags = []
+    flags = set()
 
     while n > 0:
         if n % 2 == 1:
-            flags.append(i)
+            flags.add(i)
 
         i += 1
         n >>= 1
@@ -597,21 +597,21 @@ class Constructor:
 
     async def deserialize_bare_data(self, bytedata: ByteReader) -> Structure:
         result = Structure(self.name)
+        fields = result.fields
 
         if self.has_flags:
             for parameter in self._parameters[:self.flags_offset]:
-                argument = await self._deserialize_argument(bytedata, parameter)
-                result.fields[parameter.name] = argument
+                fields[parameter.name] = await self._deserialize_argument(bytedata, parameter)
 
             flags = unpack_flags(int.from_bytes(await bytedata(4), "little", signed=False))
 
-            parameters = [
+            parameters = (
                 p
                 for p in self._parameters[self.flags_offset:]
                 if p.flag_number is None or p.flag_number in flags
-            ]
+            )
 
-            result.fields.update(
+            fields.update(
                 {
                     (p.name, None)
                     for p in self._parameters
@@ -623,7 +623,6 @@ class Constructor:
             parameters = self._parameters
 
         for parameter in parameters:
-            argument = await self._deserialize_argument(bytedata, parameter)
-            result.fields[parameter.name] = argument
+            fields[parameter.name] = await self._deserialize_argument(bytedata, parameter)
 
         return result
