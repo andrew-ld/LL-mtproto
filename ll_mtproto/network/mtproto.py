@@ -16,9 +16,9 @@ from .tcp import AbridgedTCP
 from ..constants import TelegramSchema
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, Bytedata
+from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader
 from ..tl.tl import Structure
-from ..typed import InThread
+from ..typed import InThread, ByteReader
 
 _singleton_executor: ThreadPoolExecutor | None = None
 _singleton_scheme: tl.Scheme | None = None
@@ -144,9 +144,17 @@ class MTProto:
         self._last_message_id = message_id
         return message_id
 
+    async def _read_message_body(self, bytereader: ByteReader) -> Structure:
+        body_len = int.from_bytes(await bytereader(4), signed=False, byteorder="little")
+        body_reader = to_reader(await bytereader(body_len))
+        return await self._in_thread(self._scheme.read, body_reader)
+
     async def _read_unencrypted_message(self) -> Structure:
         async with self._read_message_lock:
-            return await self._scheme.read(self._link.readn, is_boxed=False, parameter_type="unencrypted_message")
+            unencrypted_message_reader = to_reader(await self._link.readn(8 + 8))
+            message = self._scheme.read(unencrypted_message_reader, False, "unencrypted_message_from_server")
+            message.fields["body"] = await self._read_message_body(self._link.readn)
+            return message
 
     async def _write_unencrypted_message(self, **kwargs):
         message = self._scheme.bare(
@@ -236,15 +244,7 @@ class MTProto:
             self._in_thread(secrets.randbits, 2048),
         )
 
-        answer_stream = Bytedata(answer)
-        answer_stream_hash = hashlib.sha1()
-        answer_stream = async_stream_apply(answer_stream.cororead, answer_stream_hash.update, self._in_thread)
-
-        params2 = await self._scheme.read(answer_stream)
-        answer_hash_computed = await self._in_thread(answer_stream_hash.digest)
-
-        if not hmac.compare_digest(answer_hash, answer_hash_computed):
-            raise RuntimeError("Diffie–Hellman exchange failed: answer hash mismatch!", answer_hash)
+        params2 = self._scheme.read(to_reader(answer))
 
         if params2 != "server_DH_inner_data":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
@@ -344,7 +344,9 @@ class MTProto:
             decrypter = aes.decrypt_async_stream(self._in_thread, self._link.read)
             decrypter = async_stream_apply(decrypter, plain_sha256.update, self._in_thread)
 
-            message = await self._scheme.read(decrypter, False, "message_inner_data_from_server")
+            message_inner_data_reader = to_reader(await decrypter(8 + 8 + 8 + 4))
+            message = self._scheme.read(message_inner_data_reader, False, "message_inner_data_from_server")
+            message.message.fields["body"] = await self._read_message_body(decrypter)
 
             if len(aes.remaining_plain_buffer()) not in range(12, 1024):
                 raise ValueError("Received a message with wrong padding length!")
@@ -371,11 +373,6 @@ class MTProto:
 
             if (msg_salt := message.salt) != self._auth_key.server_salt:
                 logging.error("received a message with unknown salt! %d", msg_salt)
-
-            bytes_body = typing.cast(bytes, message.message.body)
-
-            # TODO: deserialize on other thread
-            message.message.fields["body"] = await self._scheme.read_from_string(bytes_body)
 
             return message.message
 
