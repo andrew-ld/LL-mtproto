@@ -13,7 +13,7 @@ from .byteutils import (
     unpack_binary_string_stream,
     unpack_long_binary_string_stream,
 )
-from ..typed import InThread, TlMessageBody, SyncByteReader
+from ..typed import TlMessageBody, SyncByteReader
 
 __all__ = ("Scheme", "Value", "Structure", "Parameter", "Constructor",)
 
@@ -74,19 +74,17 @@ _parameterRE = re.compile(
 
 # a collection of constructors
 class Scheme:
-    __slots__ = ("constructors", "types", "cons_numbers", "in_thread")
+    __slots__ = ("constructors", "types", "cons_numbers")
 
     constructors: dict[str, "Constructor"]
     types: dict[str, set]
     cons_numbers: dict[bytes, "Constructor"]
-    in_thread: InThread
 
-    def __init__(self, in_thread: InThread, scheme_data: str):
+    def __init__(self, scheme_data: str):
         self.constructors = dict()
         self.types = dict()
         self.cons_numbers = dict()
         self._parse_file(scheme_data)
-        self.in_thread = in_thread
 
     def __repr__(self):
         return "\n".join(repr(cons) for cons in self.constructors.values())

@@ -16,7 +16,6 @@ from ..math import primes
 from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader
 from ..tl.tl import Structure
-from ..typed import InThread
 
 _singleton_executor: ThreadPoolExecutor | None = None
 _singleton_scheme: tl.Scheme | None = None
@@ -33,11 +32,11 @@ def _get_executor() -> ThreadPoolExecutor:
     return _singleton_executor
 
 
-def _get_scheme(in_thread: InThread) -> tl.Scheme:
+def _get_scheme() -> tl.Scheme:
     global _singleton_scheme
 
     if _singleton_scheme is None:
-        _singleton_scheme = tl.Scheme(in_thread, TelegramSchema.MERGED_SCHEMA)
+        _singleton_scheme = tl.Scheme(TelegramSchema.MERGED_SCHEMA)
 
     return _singleton_scheme
 
@@ -127,7 +126,7 @@ class MTProto:
         self._read_message_lock = asyncio.Lock()
         self._last_message_id = 0
         self._executor = _get_executor()
-        self._scheme = _get_scheme(self._in_thread)
+        self._scheme = _get_scheme()
         self._last_msg_ids = collections.deque(maxlen=64)
 
     async def _in_thread(self, *args, **kwargs):
