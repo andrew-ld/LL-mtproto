@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import logging
 import multiprocessing
-import os
 import secrets
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -411,21 +410,23 @@ class MTProto:
             salt=self._auth_key.server_salt,
             session_id=self._auth_key.session_id,
             message=message,
-        ).get_flat_bytes()
+        )
 
-        padding = os.urandom(-(len(message_inner_data) + 12) % 16 + 12)
-        msg_key = (await self._in_thread(sha256, auth_key[88:88 + 32] + message_inner_data + padding))[8:24]
+        message_inner_data_envelope = await self._in_thread(message_inner_data.get_flat_bytes)
+
+        padding = b"\0" * (-(len(message_inner_data_envelope) + 12) % 16 + 12)
+        msg_key = (await self._in_thread(sha256, auth_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
         aes = await self._in_thread(encryption.prepare_key, auth_key, msg_key, True)
-        encrypted_message = await self._in_thread(aes.encrypt, message_inner_data + padding)
+        encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
 
         full_message = self._scheme.bare(
             _cons="encrypted_message",
             auth_key_id=int.from_bytes(auth_key_id, "little", signed=False),
             msg_key=msg_key,
             encrypted_data=encrypted_message,
-        ).get_flat_bytes()
+        )
 
-        await self._link.write(full_message)
+        await self._link.write(full_message.get_flat_bytes())
 
     def stop(self):
         self._link.stop()
