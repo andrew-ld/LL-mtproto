@@ -1,58 +1,10 @@
-import math
-import random
-
 __all__ = ("factorize", "is_safe_dh_prime")
 
-
-# Pollard-Rho-Brent integer factorization
-# https://comeoncodeon.wordpress.com/2010/09/18/pollard-rho-brent-integer-factorization/
-def _brent(n: int) -> int:
-    if n % 2 == 0:
-        return 2
-
-    y, c, m = (
-        random.randint(1, n - 1),
-        random.randint(1, n - 1),
-        random.randint(1, n - 1),
-    )
-
-    g, r, q = 1, 1, 1
-    ys, x = None, None
-
-    while g == 1:
-        x = y
-        k = 0
-
-        for i in range(r):
-            y = ((y * y) % n + c) % n
-
-        while k < r and g == 1:
-            ys = y
-
-            for i in range(min(m, r - k)):
-                y = ((y * y) % n + c) % n
-                q = q * (abs(x - y)) % n
-
-            g = math.gcd(q, n)
-            k = k + m
-
-        r = r * 2
-
-    if g == n:
-        while True:
-            ys = ((ys * ys) % n + c) % n
-            g = math.gcd(abs(x - ys), n)
-
-            if g > 1:
-                break
-
-    return g
+import cryptg
 
 
 def factorize(pq: int) -> tuple[int, int]:
-    p = _brent(pq)
-    q = pq // p
-    return min(p, q), max(p, q)
+    return cryptg.factorize_pq_pair(pq)
 
 
 _C7_prime = int(
