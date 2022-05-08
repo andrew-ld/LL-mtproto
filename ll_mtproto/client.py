@@ -14,7 +14,6 @@ from .typed import TlMessageBody, Structure
 
 __all__ = ("_Update", "Client")
 
-
 _SeqNoGenerator = typing.Callable[[], int]
 
 

@@ -6,9 +6,7 @@ if typing.TYPE_CHECKING:
 else:
     Structure = None
 
-
 __all__ = ("InThread", "ByteReader", "PartialByteReader", "Loop", "ByteConsumer", "RpcError", "TlMessageBody")
-
 
 InThread = typing.Callable[..., typing.Awaitable[any]]
 ByteReader = typing.Callable[[int], typing.Awaitable[bytes]]

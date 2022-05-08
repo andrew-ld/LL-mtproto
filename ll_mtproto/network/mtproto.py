@@ -60,12 +60,12 @@ class AuthKey:
     seq_no: int
 
     def __init__(
-        self,
-        auth_key: None | bytes = None,
-        auth_key_id: None | bytes = None,
-        session_id: None | int = None,
-        server_salt: None | int = None,
-        seq_no: None | int = None
+            self,
+            auth_key: None | bytes = None,
+            auth_key_id: None | bytes = None,
+            session_id: None | int = None,
+            server_salt: None | int = None,
+            seq_no: None | int = None
     ):
         self.auth_key = auth_key
         self.auth_key_id = auth_key_id
@@ -385,7 +385,7 @@ class MTProto:
             if (msg_salt := message.salt) != self._auth_key.server_salt:
                 logging.error("received a message with unknown salt! %d", msg_salt)
 
-            message.message.fields["body"] = await self._in_thread(self._scheme.read, to_reader(message_body_envelope))
+            message.message._fields["body"] = await self._in_thread(self._scheme.read, to_reader(message_body_envelope))
 
             return message.message
 

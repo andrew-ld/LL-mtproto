@@ -186,31 +186,29 @@ class Scheme:
         self.cons_numbers[cons.number] = cons
         self.types.setdefault(cons.type, set()).add(cons)
 
-    def typecheck(self, parameter: "Parameter", argument: "Value") -> tuple[bool, str]:
+    def typecheck(self, parameter: "Parameter", argument: "Value"):
         if not isinstance(argument, Value):
-            return False, "not an object for nonbasic type"
+            raise TypeError("not an object for nonbasic type")
 
         if parameter.is_boxed:
             if parameter.type not in self.types:
-                return False, "unknown type"
+                raise TypeError("unknown type")
 
             if argument.cons not in self.types[parameter.type]:
-                return False, "type mismatch"
+                raise TypeError("type mismatch")
 
             if not argument.boxed:
-                return False, "expected boxed, found bare"
+                raise TypeError("expected boxed, found bare")
 
         else:
             if parameter.type not in self.constructors:
-                return False, "unknown constructor"
+                raise TypeError("expected boxed, found bare")
 
             if argument.cons != self.constructors[parameter.type]:
-                return False, "wrong constructor"
+                raise TypeError("wrong constructor")
 
             if argument.boxed:
-                return False, "expected bare, found boxed"
-
-        return True, "Ok"
+                raise TypeError("expected bare, found boxed")
 
     def deserialize(self, bytereader: SyncByteReader, parameter: "Parameter") -> TlMessageBody:
         if parameter.is_boxed:
@@ -304,14 +302,16 @@ class Value:
 
 # a deserialized TL Value that was received
 class Structure:
-    __slots__ = ("constructor_name", "fields")
+    __slots__ = ("constructor_name", "_fields")
 
     constructor_name: str
-    fields: dict
+    _fields: dict
+
+    __sentinel = object()
 
     def __init__(self, constructor_name: str):
         self.constructor_name = constructor_name
-        self.fields = dict()
+        self._fields = dict()
 
     def __eq__(self, other):
         if isinstance(other, str):
@@ -321,8 +321,8 @@ class Structure:
         return repr(self.get_dict())
 
     def __getattr__(self, name):
-        if (field := self.fields.get(name, ...)) is ...:
-            raise AttributeError(f"Attribute `{name}` not found in `{self!r}`")
+        if (field := self._fields.get(name, self.__sentinel)) is self.__sentinel:
+            raise KeyError(f"key `{name}` not found in `{self!r}`")
         else:
             return field
 
@@ -337,7 +337,7 @@ class Structure:
             ret.update(
                 {
                     key: Structure._get_dict(value)
-                    for key, value in anything.fields.items()
+                    for key, value in anything._fields.items()
                 }
             )
 
@@ -365,13 +365,13 @@ class Parameter:
     element_parameter: "Parameter | None"
 
     def __init__(
-        self,
-        pname: str,
-        ptype: str,
-        is_boxed: bool,
-        flag_number: int = None,
-        is_vector: bool = False,
-        element_parameter: "Parameter | None" = None
+            self,
+            pname: str,
+            ptype: str,
+            is_boxed: bool,
+            flag_number: int = None,
+            is_vector: bool = False,
+            element_parameter: "Parameter | None" = None
     ):
         self.name = pname
         self.type = ptype
@@ -400,14 +400,14 @@ class Constructor:
     _parameters: list[Parameter]
 
     def __init__(
-        self,
-        scheme: Scheme,
-        ptype: str,
-        name: str,
-        number: bytes,
-        has_flags: bool,
-        parameters: list[Parameter],
-        flags_offset: int | None
+            self,
+            scheme: Scheme,
+            ptype: str,
+            name: str,
+            number: bytes,
+            has_flags: bool,
+            parameters: list[Parameter],
+            flags_offset: int | None
     ):
         self.scheme = scheme
         self.name = name
@@ -430,72 +430,58 @@ class Constructor:
         if argument is True:
             argument = {"_cons": "boolTrue"}
 
+        if isinstance(argument, str):
+            argument = argument.encode("utf-8")
+
         if isinstance(argument, dict):
             argument = self.scheme.serialize(boxed=parameter.is_boxed, **argument)
 
-        if parameter.type == "int":
-            data.append(int(argument).to_bytes(4, "little", signed=True))
+        match parameter.type:
+            case "int":
+                return data.append(int(argument).to_bytes(4, "little", signed=True))
 
-        elif parameter.type == "uint":
-            data.append(int(argument).to_bytes(4, "little", signed=False))
+            case "uint":
+                return data.append(int(argument).to_bytes(4, "little", signed=False))
 
-        elif parameter.type == "long":
-            data.append(int(argument).to_bytes(8, "little", signed=True))
+            case "long":
+                return data.append(int(argument).to_bytes(8, "little", signed=True))
 
-        elif parameter.type == "ulong":
-            data.append(int(argument).to_bytes(8, "little", signed=False))
+            case "ulong":
+                return data.append(int(argument).to_bytes(8, "little", signed=False))
 
-        elif parameter.type == "int128":
-            # it's more convenient to handle long ints as bytes
-            if len(argument) != 16:
-                raise ValueError(f"Expected 16 bytes, got {len(argument):d} bytes")
+            case "int128":
+                return data.append(argument)
 
-            data.append(argument)
+            case "sha1":
+                return data.append(argument)
 
-        elif parameter.type == "sha1":
-            # it's more convenient to handle long ints as bytes
-            if len(argument) != 20:
-                raise ValueError(f"Expected 20 bytes, got {len(argument):d} bytes")
+            case "int256":
+                return data.append(argument)
 
-            data.append(argument)
+            case "double":
+                return data.append(struct.pack(b"<d", float(argument)))
 
-        elif parameter.type == "int256":
-            # it's more convenient to handle long ints as bytes
-            if len(argument) != 32:
-                raise ValueError(f"Expected 32 bytes, got {len(argument):d} bytes")
+            case "string":
+                return data.append(pack_binary_string(argument))
 
-            data.append(argument)
+            case "bytes":
+                return data.append(pack_binary_string(argument))
 
-        elif parameter.type == "double":
-            data.append(struct.pack(b"<d", float(argument)))
+            case "object":
+                return data.append(pack_long_binary_string(argument.get_flat_bytes()))
 
-        elif parameter.type == "string":
-            if isinstance(argument, str):
-                argument = argument.encode("utf-8")
+            case "rawobject":
+                argument.boxed = True
+                return data.append(argument)
 
-            if not isinstance(argument, bytes):
-                raise TypeError(f"Wrong argument `{argument!r}` for parameter `{parameter!r}` in `{self.name}`")
+            case "encrypted":
+                return data.append(argument)
 
-            data.append(pack_binary_string(argument))
+            case "gzip":
+                argument.boxed = True
+                return data.append(pack_binary_string(gzip.compress(argument.get_flat_bytes(), compresslevel=1)))
 
-        elif parameter.type == "bytes":
-            data.append(pack_binary_string(argument))
-
-        elif parameter.type == "object":
-            data.append(pack_long_binary_string(argument.get_flat_bytes()))
-
-        elif parameter.type == "rawobject":
-            argument.boxed = True
-            data.append(argument)
-
-        elif parameter.type == "encrypted":
-            data.append(argument)
-
-        elif parameter.type == "gzip":
-            argument.boxed = True
-            data.append(pack_binary_string(gzip.compress(argument.get_flat_bytes(), compresslevel=1)))
-
-        elif parameter.is_vector:
+        if parameter.is_vector:
             if parameter.is_boxed:
                 data.append(_compile_cons_number(b"vector t:Type # [ t ] = Vector t"))
 
@@ -505,11 +491,7 @@ class Constructor:
                 self._serialize_argument(data, parameter.element_parameter, element_argument)
 
         else:
-            typecheck, error = self.scheme.typecheck(parameter, argument)
-
-            if not typecheck:
-                raise TypeError(f"Bad argument `{argument!r}` for parameter `{parameter!r}` in `{self.name}`, {error}")
-
+            self.scheme.typecheck(parameter, argument)
             data.append(argument)
 
         if parameter.flag_number is not None:
@@ -530,51 +512,52 @@ class Constructor:
         return data
 
     def _deserialize_argument(self, bytereader: SyncByteReader, parameter: Parameter) -> any:
-        if parameter.type == "int":
-            return int.from_bytes(bytereader(4), "little", signed=True)
+        match parameter.type:
+            case "int":
+                return int.from_bytes(bytereader(4), "little", signed=True)
 
-        elif parameter.type == "uint":
-            return int.from_bytes(bytereader(4), "little", signed=False)
+            case "uint":
+                return int.from_bytes(bytereader(4), "little", signed=False)
 
-        elif parameter.type == "long":
-            return int.from_bytes(bytereader(8), "little", signed=True)
+            case "long":
+                return int.from_bytes(bytereader(8), "little", signed=True)
 
-        elif parameter.type == "ulong":
-            return int.from_bytes(bytereader(8), "little", signed=False)
+            case "ulong":
+                return int.from_bytes(bytereader(8), "little", signed=False)
 
-        elif parameter.type == "int128":
-            return bytereader(16)
+            case "int128":
+                return bytereader(16)
 
-        elif parameter.type == "sha1":
-            return bytereader(20)
+            case "sha1":
+                return bytereader(20)
 
-        elif parameter.type == "int256":
-            return bytereader(32)
+            case "int256":
+                return bytereader(32)
 
-        elif parameter.type == "double":
-            return struct.unpack(b"<d", bytereader(8))
+            case "double":
+                return struct.unpack(b"<d", bytereader(8))
 
-        elif parameter.type == "string":
-            return unpack_binary_string(bytereader)
+            case "string":
+                return unpack_binary_string(bytereader)
 
-        elif parameter.type == "bytes":
-            return unpack_binary_string(bytereader)
+            case "bytes":
+                return unpack_binary_string(bytereader)
 
-        elif parameter.type == "gzip":
-            string_stream = unpack_binary_string_stream(bytereader)
-            gzip_stream = unpack_gzip_stream(string_stream)
-            return self.scheme.read(gzip_stream)
+            case "gzip":
+                string_stream = unpack_binary_string_stream(bytereader)
+                gzip_stream = unpack_gzip_stream(string_stream)
+                return self.scheme.read(gzip_stream)
 
-        elif parameter.type == "rawobject":
-            return self.scheme.read(bytereader)
+            case "rawobject":
+                return self.scheme.read(bytereader)
 
-        elif parameter.type == "object":
-            return self.scheme.read(unpack_long_binary_string_stream(bytereader))
+            case "object":
+                return self.scheme.read(unpack_long_binary_string_stream(bytereader))
 
-        elif parameter.type == "bytesobject":
-            return bytereader(int.from_bytes(bytereader(4), "little", signed=False))
+            case "bytesobject":
+                return bytereader(int.from_bytes(bytereader(4), "little", signed=False))
 
-        elif parameter.is_vector:
+        if parameter.is_vector:
             if parameter.is_boxed:
                 vcons = bytereader(4)
 
@@ -587,13 +570,12 @@ class Constructor:
                 self._deserialize_argument(bytereader, parameter.element_parameter)
                 for _ in range(vector_len)
             ]
-
         else:
             return self.scheme.deserialize(bytereader, parameter)
 
     def deserialize_bare_data(self, bytedata: SyncByteReader) -> Structure:
         result = Structure(self.name)
-        fields = result.fields
+        fields = result._fields
 
         if self.has_flags:
             for parameter in self._parameters[:self.flags_offset]:
