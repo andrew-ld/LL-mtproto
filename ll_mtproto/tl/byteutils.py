@@ -1,11 +1,12 @@
 import base64
 import functools
 import hashlib
+import io
 import typing
 import zlib
 from typing import Literal
 
-from ..typed import ByteReader, InThread, ByteConsumer
+from ..typed import ByteReader, InThread, ByteConsumer, SyncByteReader
 
 __all__ = (
     "xor",
@@ -82,13 +83,13 @@ class _GzipDecompressStreamState:
         self.buffer = bytearray()
 
 
-def unpack_gzip_stream(bytedata: ByteReader, in_thread: InThread) -> ByteReader:
+def unpack_gzip_stream(bytedata: SyncByteReader) -> SyncByteReader:
     decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
     state = _GzipDecompressStreamState()
 
-    async def read(num_bytes: int) -> bytes:
+    def read(num_bytes: int) -> bytes:
         while len(state.buffer) < num_bytes:
-            state.buffer += await in_thread(decompressor.decompress, await bytedata(4096))
+            state.buffer += decompressor.decompress(bytedata(4096))
 
         result = state.buffer[:num_bytes]
         state.buffer = state.buffer[num_bytes:]
@@ -97,14 +98,18 @@ def unpack_gzip_stream(bytedata: ByteReader, in_thread: InThread) -> ByteReader:
     return read
 
 
-async def unpack_binary_string_header(bytereader: ByteReader) -> tuple[int, int]:
-    str_len = ord(await bytereader(1))
+def to_reader(buffer: bytes) -> SyncByteReader:
+    return io.BytesIO(buffer).read
+
+
+def unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:
+    str_len = ord(bytereader(1))
 
     if str_len > 0xFE:
         raise RuntimeError("Length equal to 255 in string")
 
     elif str_len == 0xFE:
-        str_len = int.from_bytes(await bytereader(3), "little", signed=False)
+        str_len = int.from_bytes(bytereader(3), "little", signed=False)
         padding_bytes = (-str_len) % 4
 
     else:
@@ -133,37 +138,37 @@ class _BinaryStreamState:
         self.padding = padding
 
 
-def unpack_binary_stream(bytereader: ByteReader, state: _BinaryStreamState) -> ByteReader:
-    async def reader(num_bytes: int) -> bytes:
+def unpack_binary_stream(bytereader: SyncByteReader, state: _BinaryStreamState) -> SyncByteReader:
+    def reader(num_bytes: int) -> bytes:
         if num_bytes >= state.remaining:
-            result = await bytereader(state.remaining)
+            result = bytereader(state.remaining)
 
             if state.remaining > 0:
-                await bytereader(state.padding)
+                bytereader(state.padding)
                 state.remaining = 0
 
             return result
         else:
             state.remaining -= num_bytes
-            return await bytereader(num_bytes)
+            return bytereader(num_bytes)
 
     return reader
 
 
-async def unpack_binary_string_stream(bytereader: ByteReader) -> ByteReader:
-    state = _BinaryStreamState(*await unpack_binary_string_header(bytereader))
+def unpack_binary_string_stream(bytereader: SyncByteReader) -> SyncByteReader:
+    state = _BinaryStreamState(*unpack_binary_string_header(bytereader))
     return unpack_binary_stream(bytereader, state)
 
 
-async def unpack_long_binary_string_stream(bytereader: ByteReader) -> ByteReader:
-    state = _BinaryStreamState(int.from_bytes(await bytereader(4), "little", signed=False), 0)
+def unpack_long_binary_string_stream(bytereader: SyncByteReader) -> SyncByteReader:
+    state = _BinaryStreamState(int.from_bytes(bytereader(4), "little", signed=False), 0)
     return unpack_binary_stream(bytereader, state)
 
 
-async def unpack_binary_string(bytereader: ByteReader) -> bytes:
-    str_len, padding_bytes = await unpack_binary_string_header(bytereader)
-    string = await bytereader(str_len)
-    await bytereader(padding_bytes)
+def unpack_binary_string(bytereader: SyncByteReader) -> bytes:
+    str_len, padding_bytes = unpack_binary_string_header(bytereader)
+    string = bytereader(str_len)
+    bytereader(padding_bytes)
     return string
 
 

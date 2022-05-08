@@ -9,12 +9,11 @@ from .byteutils import (
     pack_binary_string,
     unpack_binary_string,
     pack_long_binary_string,
-    Bytedata,
     unpack_gzip_stream,
     unpack_binary_string_stream,
     unpack_long_binary_string_stream,
 )
-from ..typed import InThread, ByteReader, TlMessageBody
+from ..typed import InThread, TlMessageBody, SyncByteReader
 
 __all__ = ("Scheme", "Value", "Structure", "Parameter", "Constructor",)
 
@@ -215,17 +214,17 @@ class Scheme:
 
         return True, "Ok"
 
-    async def deserialize(self, bytereader: ByteReader, parameter: "Parameter") -> TlMessageBody:
+    def deserialize(self, bytereader: SyncByteReader, parameter: "Parameter") -> TlMessageBody:
         if parameter.is_boxed:
             if parameter.type is not None and parameter.type not in self.types:
                 raise ValueError(f"Unknown type `{parameter.type}`")
 
-            cons_number = await bytereader(4)
+            cons_number = bytereader(4)
 
             if cons_number == _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
                 return [
-                    await self.deserialize(bytereader, parameter)
-                    for _ in range(int.from_bytes(await bytereader(4), "little", signed=False))
+                    self.deserialize(bytereader, parameter)
+                    for _ in range(int.from_bytes(bytereader(4), "little", signed=False))
                 ]
 
             cons = self.cons_numbers.get(cons_number, False)
@@ -241,7 +240,7 @@ class Scheme:
             if not cons:
                 raise ValueError(f"Unknown constructor in parameter `{parameter!r}`")
 
-        return await cons.deserialize_bare_data(bytereader)
+        return cons.deserialize_bare_data(bytereader)
 
     def serialize(self, boxed: bool, **kwargs) -> "Value":
         cons_name = kwargs["_cons"]
@@ -257,13 +256,9 @@ class Scheme:
     def boxed(self, **kwargs) -> "Value":
         return self.serialize(boxed=True, **kwargs)
 
-    async def read(self, bytereader: ByteReader, is_boxed=True, parameter_type=None) -> "Structure":
+    def read(self, bytereader: SyncByteReader, is_boxed=True, parameter_type=None) -> "Structure":
         parameter = Parameter("", parameter_type, is_boxed=is_boxed)
-        return await self.deserialize(bytereader, parameter)
-
-    async def read_from_string(self, string: bytes, *args, **kwargs) -> "Structure":
-        bytedata = Bytedata(string)
-        return await self.read(bytedata.cororead, *args, **kwargs)
+        return self.deserialize(bytereader, parameter)
 
 
 # a serialized TL Value that will be sent
@@ -536,74 +531,77 @@ class Constructor:
 
         return data
 
-    async def _deserialize_argument(self, bytereader: ByteReader, parameter: Parameter) -> any:
+    def _deserialize_argument(self, bytereader: SyncByteReader, parameter: Parameter) -> any:
         if parameter.type == "int":
-            return int.from_bytes(await bytereader(4), "little", signed=True)
+            return int.from_bytes(bytereader(4), "little", signed=True)
 
         elif parameter.type == "uint":
-            return int.from_bytes(await bytereader(4), "little", signed=False)
+            return int.from_bytes(bytereader(4), "little", signed=False)
 
         elif parameter.type == "long":
-            return int.from_bytes(await bytereader(8), "little", signed=True)
+            return int.from_bytes(bytereader(8), "little", signed=True)
 
         elif parameter.type == "ulong":
-            return int.from_bytes(await bytereader(8), "little", signed=False)
+            return int.from_bytes(bytereader(8), "little", signed=False)
 
         elif parameter.type == "int128":
-            return await bytereader(16)
+            return bytereader(16)
 
         elif parameter.type == "sha1":
-            return await bytereader(20)
+            return bytereader(20)
 
         elif parameter.type == "int256":
-            return await bytereader(32)
+            return bytereader(32)
 
         elif parameter.type == "double":
-            return struct.unpack(b"<d", await bytereader(8))
+            return struct.unpack(b"<d", bytereader(8))
 
         elif parameter.type == "string":
-            return await unpack_binary_string(bytereader)
+            return unpack_binary_string(bytereader)
 
         elif parameter.type == "bytes":
-            return await unpack_binary_string(bytereader)
+            return unpack_binary_string(bytereader)
 
         elif parameter.type == "gzip":
-            string_stream = await unpack_binary_string_stream(bytereader)
-            gzip_stream = unpack_gzip_stream(string_stream, self.scheme.in_thread)
-            return await self.scheme.read(gzip_stream)
+            string_stream = unpack_binary_string_stream(bytereader)
+            gzip_stream = unpack_gzip_stream(string_stream)
+            return self.scheme.read(gzip_stream)
 
         elif parameter.type == "rawobject":
-            return await self.scheme.read(bytereader)
+            return self.scheme.read(bytereader)
 
         elif parameter.type == "object":
-            return await self.scheme.read(await unpack_long_binary_string_stream(bytereader))
+            return self.scheme.read(unpack_long_binary_string_stream(bytereader))
+
+        elif parameter.type == "bytesobject":
+            return bytereader(int.from_bytes(bytereader(4), "little", signed=False))
 
         elif parameter.is_vector:
             if parameter.is_boxed:
-                vcons = await bytereader(4)
+                vcons = bytereader(4)
 
                 if vcons != _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
                     raise ValueError(f"Not vector `{long_hex(vcons)}` in `{parameter!r}` in `{self!r}`")
 
-            vector_len = int.from_bytes(await bytereader(4), "little", signed=False)
+            vector_len = int.from_bytes(bytereader(4), "little", signed=False)
 
             return [
-                await self._deserialize_argument(bytereader, parameter.element_parameter)
+                self._deserialize_argument(bytereader, parameter.element_parameter)
                 for _ in range(vector_len)
             ]
 
         else:
-            return await self.scheme.deserialize(bytereader, parameter)
+            return self.scheme.deserialize(bytereader, parameter)
 
-    async def deserialize_bare_data(self, bytedata: ByteReader) -> Structure:
+    def deserialize_bare_data(self, bytedata: SyncByteReader) -> Structure:
         result = Structure(self.name)
         fields = result.fields
 
         if self.has_flags:
             for parameter in self._parameters[:self.flags_offset]:
-                fields[parameter.name] = await self._deserialize_argument(bytedata, parameter)
+                fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
 
-            flags = unpack_flags(int.from_bytes(await bytedata(4), "little", signed=False))
+            flags = unpack_flags(int.from_bytes(bytedata(4), "little", signed=False))
 
             parameters = (
                 p
@@ -623,6 +621,6 @@ class Constructor:
             parameters = self._parameters
 
         for parameter in parameters:
-            fields[parameter.name] = await self._deserialize_argument(bytedata, parameter)
+            fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
 
         return result
