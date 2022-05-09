@@ -4,7 +4,6 @@ import hashlib
 import io
 import typing
 import zlib
-from typing import Literal
 
 from ..typed import ByteReader, InThread, ByteConsumer, SyncByteReader
 
@@ -27,7 +26,7 @@ __all__ = (
     "long_hex",
     "short_hex",
     "short_hex_int",
-    "Bytedata"
+    "reader_is_empty"
 )
 
 
@@ -54,7 +53,7 @@ def sha256(b: bytes) -> bytes:
 
 
 @functools.lru_cache()
-def to_bytes(x: int, byte_order: Literal["big", "little"] = "big", signed=False) -> bytes:
+def to_bytes(x: int, byte_order: typing.Literal["big", "little"] = "big", signed=False) -> bytes:
     return x.to_bytes(((x.bit_length() - 1) // 8) + 1, byte_order, signed=signed)
 
 
@@ -100,6 +99,16 @@ def unpack_gzip_stream(bytedata: SyncByteReader) -> SyncByteReader:
 
 def to_reader(buffer: bytes) -> SyncByteReader:
     return io.BytesIO(buffer).read
+
+
+def reader_is_empty(reader: SyncByteReader) -> bool:
+    # noinspection PyUnresolvedReferences
+    bytesio = typing.cast(io.BytesIO, reader.__self__)
+
+    if not isinstance(bytesio, io.BytesIO):
+        raise NotImplementedError()
+
+    return bytesio.getbuffer().nbytes == bytesio.tell()
 
 
 def unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:
@@ -214,73 +223,6 @@ def short_hex(data: bytes) -> str:
 
 
 @functools.lru_cache()
-def short_hex_int(x: int, byte_order: Literal["big", "little"] = "big", signed: bool = False) -> str:
+def short_hex_int(x: int, byte_order: typing.Literal["big", "little"] = "big", signed: bool = False) -> str:
     data = to_bytes(x, byte_order=byte_order, signed=signed)
     return ":".join("%02X" % b for b in data)
-
-
-# .read for bytes
-# this is basically a simplified and possibly buggy but very cozy homebrew StringIO clone
-class Bytedata:
-    __slots__ = ("_byte_order", "_signed", "_offset", "_data")
-
-    _byte_order: Literal["big", "little"]
-    _signed: bool
-    _offset: int
-    _data: bytes
-
-    def __init__(self, data: bytes, byte_order: Literal["big", "little"] = "big", signed: bool = False):
-        self._byte_order = byte_order
-        self._signed = signed
-        self._offset = 0
-        self._data = bytes(data)
-
-    def __repr__(self):
-        if len(self._data) - self._offset <= 16:
-            return f"Bytedata: {short_hex(self._data[self._offset:])}"
-
-        return f"Bytedata:\n{long_hex(self._data[self._offset:])}"
-
-    def __bytes__(self):
-        return self._data[self._offset:]
-
-    def __bool__(self):
-        return self._offset < len(self._data)
-
-    def int(self) -> int:
-        return int.from_bytes(self._data, self._byte_order, signed=self._signed)
-
-    def unpack_binary_string(self) -> bytes:
-        strlen = ord(self.read(1))
-
-        if strlen > 0xFE:
-            raise NotImplementedError(f"Length equal to 255 in string {self!r}")
-
-        elif strlen == 0xFE:
-            strlen = int.from_bytes(self.read(3), "little", signed=False)
-            padding_bytes = (-strlen) % 4
-
-        else:
-            padding_bytes = (3 - strlen) % 4
-
-        s = self.read(strlen)
-        self.read(padding_bytes)
-
-        return s
-
-    def read(self, num_bytes: int) -> bytes:
-        if len(self._data) < num_bytes:
-            raise ValueError(f"Unexpected end of data `{self!r}` while reading {num_bytes:d} bytes")
-
-        result = self._data[self._offset: self._offset + num_bytes]
-        self._offset += num_bytes
-        return result
-
-    async def cororead(self, num_bytes: int) -> bytes:
-        return self.read(num_bytes)
-
-    def blocks(self, block_size: int) -> typing.Generator[bytes, None, None]:
-        while self._offset < len(self._data):
-            block = self._data[self._offset: self._offset + block_size]
-            self._offset += block_size
-            yield block

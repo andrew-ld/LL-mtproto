@@ -10,10 +10,9 @@ from ..tl.byteutils import (
     pack_binary_string,
     short_hex,
     sha1,
-    Bytedata,
-    sha256,
+    sha256, to_reader, reader_is_empty,
 )
-from ..typed import ByteReader, PartialByteReader, InThread
+from ..typed import ByteReader, PartialByteReader, InThread, SyncByteReader
 
 __all__ = ("PublicRSA", "AesIge", "AesIgeAsyncStream", "prepare_key")
 
@@ -37,7 +36,7 @@ class PublicRSA:
             raise SyntaxError("Error parsing public key data")
 
         asn1 = base64.standard_b64decode(match.groupdict()["key"])
-        n, e = self._read_asn1(Bytedata(asn1))
+        n, e = self._read_asn1(to_reader(asn1))
 
         self.fingerprint = int.from_bytes(
             hashlib.sha1(pack_binary_string(n[1:]) + pack_binary_string(e)).digest()[-8:],
@@ -49,22 +48,22 @@ class PublicRSA:
         self.e = int.from_bytes(e, "big")
 
     @staticmethod
-    def _read_asn1(bytedata: Bytedata) -> list[bytes] | bytes:
-        field_type, field_length = bytedata.read(2)
+    def _read_asn1(bytedata: SyncByteReader) -> list[bytes] | bytes:
+        field_type, field_length = bytedata(2)
 
         if field_length & 0x80:
-            field_length = int.from_bytes(bytedata.read(field_length ^ 0x80), "big")
+            field_length = int.from_bytes(bytedata(field_length ^ 0x80), "big")
 
         if field_type == 0x30:  # SEQUENCE
             sequence = []
 
-            while bytedata:
+            while not reader_is_empty(bytedata):
                 sequence.append(PublicRSA._read_asn1(bytedata))
 
             return sequence
 
         elif field_type == 0x02:  # INTEGER
-            return bytedata.read(field_length)
+            return bytedata(field_length)
 
         else:
             raise NotImplementedError("Unknown ASN.1 field `%02X` in record")
