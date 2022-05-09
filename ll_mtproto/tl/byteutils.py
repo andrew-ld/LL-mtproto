@@ -26,7 +26,8 @@ __all__ = (
     "long_hex",
     "short_hex",
     "short_hex_int",
-    "reader_is_empty"
+    "reader_is_empty",
+    "reader_discard"
 )
 
 
@@ -97,18 +98,25 @@ def unpack_gzip_stream(bytedata: SyncByteReader) -> SyncByteReader:
     return read
 
 
-def to_reader(buffer: bytes) -> SyncByteReader:
+_SyncByteReaderByteUtilsImpl: typing.TypeAlias = SyncByteReader
+
+
+def to_reader(buffer: bytes) -> _SyncByteReaderByteUtilsImpl:
     return io.BytesIO(buffer).read
 
 
-def reader_is_empty(reader: SyncByteReader) -> bool:
+def _get_reader_parent(bytereader: _SyncByteReaderByteUtilsImpl) -> io.BytesIO:
     # noinspection PyUnresolvedReferences
-    bytesio = typing.cast(io.BytesIO, reader.__self__)
+    return typing.cast(io.BytesIO, bytereader.__self__)
 
-    if not isinstance(bytesio, io.BytesIO):
-        raise NotImplementedError()
 
-    return bytesio.getbuffer().nbytes == bytesio.tell()
+def reader_is_empty(reader: _SyncByteReaderByteUtilsImpl) -> bool:
+    parent = _get_reader_parent(reader)
+    return parent.getbuffer().nbytes == parent.tell()
+
+
+def reader_discard(reader: _SyncByteReaderByteUtilsImpl):
+    return _get_reader_parent(reader).close()
 
 
 def unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:

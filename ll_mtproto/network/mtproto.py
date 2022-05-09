@@ -14,7 +14,7 @@ from .tcp import AbridgedTCP
 from ..constants import TelegramSchema
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader
+from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader, reader_discard
 from ..tl.tl import Structure
 
 _singleton_executor: ThreadPoolExecutor | None = None
@@ -150,8 +150,12 @@ class MTProto:
             body_envelope = await self._link.readn(body_len)
 
             full_message = unencrypted_message_header_envelope + body_len_envelope + body_envelope
+            full_message_reader = to_reader(full_message)
 
-            return await self._in_thread(self._scheme.read, to_reader(full_message), False, "unencrypted_message")
+            try:
+                return await self._in_thread(self._scheme.read, full_message_reader, False, "unencrypted_message")
+            finally:
+                reader_discard(full_message_reader)
 
     async def _write_unencrypted_message(self, **kwargs):
         message = self._scheme.bare(
@@ -354,7 +358,11 @@ class MTProto:
             decrypter = async_stream_apply(decrypter, plain_sha256.update, self._in_thread)
 
             message_inner_data_reader = to_reader(await decrypter(8 + 8 + 8 + 4))
-            message = self._scheme.read(message_inner_data_reader, False, "message_inner_data_from_server")
+
+            try:
+                message = self._scheme.read(message_inner_data_reader, False, "message_inner_data_from_server")
+            finally:
+                reader_discard(message_inner_data_reader)
 
             message_body_len = int.from_bytes(await decrypter(4), signed=False, byteorder="little")
             message_body_envelope = await decrypter(message_body_len)
@@ -385,7 +393,12 @@ class MTProto:
             if (msg_salt := message.salt) != self._auth_key.server_salt:
                 logging.error("received a message with unknown salt! %d", msg_salt)
 
-            message.message._fields["body"] = await self._in_thread(self._scheme.read, to_reader(message_body_envelope))
+            message_body_reader = to_reader(message_body_envelope)
+
+            try:
+                message.message._fields["body"] = await self._in_thread(self._scheme.read, message_body_reader)
+            finally:
+                reader_discard(message_body_reader)
 
             return message.message
 
