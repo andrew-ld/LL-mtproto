@@ -121,6 +121,12 @@ class Scheme:
             flags_offset = parameter_tokens.index("flags:#")
             parameter_tokens.pop(flags_offset)
 
+        cons_parsed["cons"] = sys.intern(cons_parsed["cons"])
+        cons_parsed["name"] = sys.intern(cons_parsed["name"])
+
+        if "xtype" not in cons_parsed:
+            cons_parsed["type"] = sys.intern(cons_parsed["type"])
+
         parameters = []
 
         if "number" in cons_parsed:
