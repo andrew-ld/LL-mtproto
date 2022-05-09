@@ -307,8 +307,6 @@ class Structure:
     constructor_name: str
     _fields: dict
 
-    __sentinel = object()
-
     def __init__(self, constructor_name: str):
         self.constructor_name = constructor_name
         self._fields = dict()
@@ -321,10 +319,10 @@ class Structure:
         return repr(self.get_dict())
 
     def __getattr__(self, name):
-        if (field := self._fields.get(name, self.__sentinel)) is self.__sentinel:
-            raise KeyError(f"key `{name}` not found in `{self!r}`")
-        else:
-            return field
+        try:
+            return self._fields.get(name)
+        except KeyError as parent_key_error:
+            raise KeyError(f"key `{name}` not found in `{self!r}`") from parent_key_error
 
     def get_dict(self):
         return Structure._get_dict(self)
