@@ -427,7 +427,10 @@ class Constructor:
         if argument is False:
             argument = {"_cons": "boolFalse"}
 
-        if argument is True:
+        if argument is True and parameter.type == "true":
+            argument = {"_cons": "true"}
+
+        if argument is True and parameter.type == "Bool":
             argument = {"_cons": "boolTrue"}
 
         if isinstance(argument, str):
