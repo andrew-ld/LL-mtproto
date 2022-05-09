@@ -3,6 +3,7 @@ import functools
 import gzip
 import re
 import struct
+import sys
 
 from .byteutils import (
     long_hex,
@@ -130,20 +131,24 @@ class Scheme:
 
         for parameter_token in parameter_tokens:
             parameter_parsed = self._parse_token(_parameterRE, parameter_token)
+
             if not parameter_parsed:
                 raise SyntaxError(f"Error in parameter `{parameter_token}`")
 
+            parameter_parsed["name"] = sys.intern(parameter_parsed["name"])
+            parameter_parsed["type"] = sys.intern(parameter_parsed["type"])
+            parameter_parsed["element_type"] = sys.intern(parameter_parsed["element_type"])
+
             is_vector = "vector" in parameter_parsed
 
-            element_parameter = (
-                Parameter(
+            if is_vector:
+                element_parameter = Parameter(
                     pname="<element of vector `%s`>" % parameter_parsed["name"],
                     ptype=parameter_parsed["element_type"],
                     is_boxed="boxed" in parameter_parsed,
                 )
-                if is_vector
-                else None
-            )
+            else:
+                element_parameter = None
 
             parameter = Parameter(
                 pname=parameter_parsed["name"],
