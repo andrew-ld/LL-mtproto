@@ -426,7 +426,7 @@ class MTProto:
 
         message_inner_data_envelope = await self._in_thread(message_inner_data.get_flat_bytes)
 
-        padding = b"\0" * (-(len(message_inner_data_envelope) + 12) % 16 + 12)
+        padding = await self._in_thread(secrets.token_bytes, (-(len(message_inner_data_envelope) + 12) % 16 + 12))
         msg_key = (await self._in_thread(sha256, auth_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
         aes = await self._in_thread(encryption.prepare_key, auth_key, msg_key, True)
         encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
