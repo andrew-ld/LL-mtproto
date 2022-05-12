@@ -78,8 +78,8 @@ class AbridgedTCP:
 
     async def write(self, data: bytes):
         async with self._write_lock:
-            while len(data) > 0:
-                chunk_len = min(len(data), 0x7FFFFF)
+            while (data_len := len(data)) > 0:
+                chunk_len = min(data_len, 0x7FFFFF)
                 await self._write_abridged_packet(data[:chunk_len])
                 data = data[chunk_len:]
 

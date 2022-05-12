@@ -314,38 +314,36 @@ class Client:
             await self._acknowledge_telegram_message(message)
 
     async def _process_telegram_message_body(self, body: TlMessageBody):
-        if body == "rpc_result":
-            await self._process_rpc_result(body)
+        match body.constructor_name:
+            case "rpc_result":
+                await self._process_rpc_result(body)
 
-        elif body == "updates" and not self._no_updates:
-            await self._process_updates(body)
+            case "updates":
+                await self._process_updates(body)
 
-        elif body == "bad_server_salt":
-            await self._process_bad_server_salt(body)
+            case "bad_server_salt":
+                await self._process_bad_server_salt(body)
 
-        elif body == "bad_msg_notification" and body.error_code == 32:
-            await self._process_bad_msg_notification_msg_seqno_too_low(body)
+            case "bad_msg_notification":
+                await self._process_bad_msg_notification(body)
 
-        elif body == "bad_msg_notification":
-            self._process_bad_msg_notification_reject_message(body)
+            case "new_session_created":
+                await self._process_new_session_created(body)
 
-        elif body == "new_session_created":
-            await self._process_new_session_created(body)
+            case "pong":
+                self._process_pong(body)
 
-        elif body == "pong":
-            self._process_pong(body)
+            case "future_salts":
+                self._process_future_salts(body)
 
-        elif body == "future_salts":
-            self._process_future_salts(body)
+            case "msg_detailed_info":
+                self._process_msg_detailed_info(body)
 
-        elif body == "msg_detailed_info":
-            self._process_msg_detailed_info(body)
+            case "msg_new_detailed_info":
+                self._process_msg_new_detailed_info(body)
 
-        elif body == "msg_new_detailed_info":
-            self._process_msg_new_detailed_info(body)
-
-        elif body == "msgs_state_info":
-            self._process_msgs_state_info(body)
+            case "msgs_state_info":
+                self._process_msgs_state_info(body)
 
     def _process_msgs_state_info(self, body: TlMessageBody):
         if pending_request := self._pending_requests.pop(body.req_msg_id, False):
@@ -389,6 +387,9 @@ class Client:
             await self._rpc_call(bad_request, wait_result=False)
 
     async def _process_updates(self, body: TlMessageBody):
+        if self._no_updates:
+            return
+
         users = body.users
         chats = body.chats
 
@@ -445,6 +446,12 @@ class Client:
             await self._rpc_call(bad_request, wait_result=False)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
+
+    async def _process_bad_msg_notification(self, body: TlMessageBody):
+        if body.error_code == 32:
+            await self._process_bad_msg_notification_msg_seqno_too_low(body)
+        else:
+            self._process_bad_msg_notification_reject_message(body)
 
     def _process_bad_msg_notification_reject_message(self, body: TlMessageBody):
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
