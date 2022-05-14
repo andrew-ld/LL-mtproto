@@ -442,6 +442,9 @@ class Constructor:
         if argument is True and parameter.type == "Bool":
             argument = {"_cons": "boolTrue"}
 
+        if isinstance(argument, Structure):
+            argument = argument.get_dict()
+
         if isinstance(argument, dict):
             argument = self.scheme.serialize(boxed=parameter.is_boxed, **argument)
 
