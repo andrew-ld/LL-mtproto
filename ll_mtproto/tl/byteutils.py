@@ -92,7 +92,7 @@ def unpack_gzip_stream(bytedata: SyncByteReader) -> SyncByteReader:
             state.buffer += decompressor.decompress(bytedata(4096))
 
         result = state.buffer[:num_bytes]
-        state.buffer = state.buffer[num_bytes:]
+        del state.buffer[:num_bytes]
         return bytes(result)
 
     return read

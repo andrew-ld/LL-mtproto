@@ -128,7 +128,7 @@ class AesIgeAsyncStream:
                 self._plain_buffer += await in_thread(self._aes.decrypt, await reader())
 
             plain = self._plain_buffer[:n]
-            self._plain_buffer = self._plain_buffer[n:]
+            del self._plain_buffer[:n]
             return bytes(plain)
 
         return decryptor

@@ -73,15 +73,18 @@ class AbridgedTCP:
             self._read_buffer += await self._read_abridged_packet()
 
         result = self._read_buffer[:n]
-        self._read_buffer = self._read_buffer[n:]
+        del self._read_buffer[:n]
         return bytes(result)
 
     async def write(self, data: bytes):
+        data = bytearray(data)
+
         async with self._write_lock:
             while (data_len := len(data)) > 0:
                 chunk_len = min(data_len, 0x7FFFFF)
-                await self._write_abridged_packet(data[:chunk_len])
-                data = data[chunk_len:]
+                chunk_mem = data[:chunk_len]
+                del data[:chunk_len]
+                await self._write_abridged_packet(chunk_mem)
 
     def stop(self):
         if writer := self._writer:
