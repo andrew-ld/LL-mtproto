@@ -1,7 +1,7 @@
 import enum
 import os.path as __ospath
 
-from ll_mtproto.tl import tl
+from .tl import tl
 
 
 _path = __ospath.dirname(__file__)
