@@ -16,7 +16,7 @@ from .byteutils import (
 )
 from ..typed import TlMessageBody, SyncByteReader
 
-__all__ = ("Scheme", "Value", "Structure", "Parameter", "Constructor",)
+__all__ = ("Schema", "Value", "Structure", "Parameter", "Constructor",)
 
 
 @functools.lru_cache()
@@ -74,18 +74,20 @@ _parameterRE = re.compile(
 
 
 # a collection of constructors
-class Scheme:
-    __slots__ = ("constructors", "types", "cons_numbers")
+class Schema:
+    __slots__ = ("constructors", "types", "cons_numbers", "layer")
 
     constructors: dict[str, "Constructor"]
     types: dict[str, set]
     cons_numbers: dict[bytes, "Constructor"]
+    layer: int
 
-    def __init__(self, scheme_data: str):
+    def __init__(self, parsable_schema: str, layer: int):
         self.constructors = dict()
         self.types = dict()
         self.cons_numbers = dict()
-        self._parse_file(scheme_data)
+        self._parse_file(parsable_schema)
+        self.layer = layer
 
     def __repr__(self):
         return "\n".join(repr(cons) for cons in self.constructors.values())
@@ -400,7 +402,7 @@ class Parameter:
 class Constructor:
     __slots__ = ("scheme", "type", "name", "number", "has_flags", "flags_offset", "_parameters")
 
-    scheme: Scheme
+    scheme: Schema
     type: str
     name: str
     number: bytes
@@ -410,7 +412,7 @@ class Constructor:
 
     def __init__(
             self,
-            scheme: Scheme,
+            scheme: Schema,
             ptype: str,
             name: str,
             number: bytes,

@@ -11,14 +11,13 @@ from concurrent.futures import ThreadPoolExecutor
 from . import encryption
 from .encryption import AesIgeAsyncStream
 from .tcp import AbridgedTCP
-from ..constants import TelegramSchema
+from ..constants import DatacenterInfo
 from ..math import primes
 from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader, reader_discard
 from ..tl.tl import Structure
 
 _singleton_executor: ThreadPoolExecutor | None = None
-_singleton_scheme: tl.Scheme | None = None
 
 __all__ = ("AuthKey", "MTProto")
 
@@ -30,23 +29,6 @@ def _get_executor() -> ThreadPoolExecutor:
         _singleton_executor = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
 
     return _singleton_executor
-
-
-def _get_scheme() -> tl.Scheme:
-    global _singleton_scheme
-
-    if _singleton_scheme is None:
-        _singleton_scheme = tl.Scheme(TelegramSchema.MERGED_SCHEMA)
-
-    return _singleton_scheme
-
-
-def _get_auth_key_id(auth_key: bytes) -> bytes:
-    return sha1(auth_key)[-8:]
-
-
-def _new_session_id() -> int:
-    return secrets.randbits(64)
 
 
 class AuthKey:
@@ -74,8 +56,16 @@ class AuthKey:
         self.seq_no = seq_no or -1
         self.auth_key_lock = asyncio.Lock()
 
+    @staticmethod
+    def _get_auth_key_id(auth_key: bytes) -> bytes:
+        return sha1(auth_key)[-8:]
+
+    @staticmethod
+    def _new_session_id() -> int:
+        return secrets.randbits(64)
+
     def clone(self) -> "AuthKey":
-        return AuthKey(self.auth_key, self.auth_key_id, _new_session_id(), self.server_salt)
+        return AuthKey(self.auth_key, self.auth_key_id, AuthKey._new_session_id(), self.server_salt)
 
     def __getstate__(self) -> tuple[bytes | None, int | None]:
         return self.auth_key, self.server_salt
@@ -83,7 +73,7 @@ class AuthKey:
     def __setstate__(self, state: tuple[bytes | None, int | None] | bytes):
         self.auth_key_lock = asyncio.Lock()
 
-        self.session_id = _new_session_id()
+        self.session_id = AuthKey._new_session_id()
         self.seq_no = -1
 
         if isinstance(state, bytes):
@@ -92,7 +82,7 @@ class AuthKey:
         else:
             self.auth_key, self.server_salt = state
 
-        self.auth_key_id = _get_auth_key_id(self.auth_key) if self.auth_key else None
+        self.auth_key_id = AuthKey._get_auth_key_id(self.auth_key) if self.auth_key else None
 
 
 class MTProto:
@@ -104,7 +94,7 @@ class MTProto:
         "_last_message_id",
         "_auth_key",
         "_executor",
-        "_scheme",
+        "_schema",
         "_last_msg_ids",
     )
 
@@ -115,19 +105,19 @@ class MTProto:
     _last_message_id: int
     _auth_key: AuthKey
     _executor: ThreadPoolExecutor
-    _scheme: tl.Scheme
     _last_msg_ids: collections.deque[int]
+    _schema: tl.Schema
 
-    def __init__(self, host: str, port: int, public_rsa_key: str, auth_key: AuthKey):
+    def __init__(self, datacenter_info: DatacenterInfo, auth_key: AuthKey):
         self._loop = asyncio.get_event_loop()
-        self._link = AbridgedTCP(host, port)
-        self._public_rsa_key = encryption.PublicRSA(public_rsa_key)
+        self._link = AbridgedTCP(datacenter_info.address, datacenter_info.port)
+        self._public_rsa_key = encryption.PublicRSA(datacenter_info.rsa)
         self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
         self._last_message_id = 0
         self._executor = _get_executor()
-        self._scheme = _get_scheme()
         self._last_msg_ids = collections.deque(maxlen=64)
+        self._schema = datacenter_info.schema
 
     async def _in_thread(self, *args, **kwargs):
         return await self._loop.run_in_executor(self._executor, *args, **kwargs)
@@ -153,16 +143,16 @@ class MTProto:
             full_message_reader = to_reader(full_message)
 
             try:
-                return await self._in_thread(self._scheme.read, full_message_reader, False, "unencrypted_message")
+                return await self._in_thread(self._schema.read, full_message_reader, False, "unencrypted_message")
             finally:
                 reader_discard(full_message_reader)
 
     async def _write_unencrypted_message(self, **kwargs):
-        message = self._scheme.bare(
+        message = self._schema.bare(
             _cons="unencrypted_message",
             auth_key_id=0,
             message_id=0,
-            body=self._scheme.boxed(**kwargs),
+            body=self._schema.boxed(**kwargs),
         )
 
         await self._link.write(message.get_flat_bytes())
@@ -198,7 +188,7 @@ class MTProto:
         p_string = to_bytes(p)
         q_string = to_bytes(q)
 
-        p_q_inner_data = self._scheme.boxed(
+        p_q_inner_data = self._schema.boxed(
             _cons="p_q_inner_data",
             pq=res_pq.pq,
             p=p_string,
@@ -253,7 +243,7 @@ class MTProto:
             answer_hash_performer.update(result)
             return result
 
-        params2 = await self._in_thread(self._scheme.read, answer_reader_hasher)
+        params2 = await self._in_thread(self._schema.read, answer_reader_hasher)
         answer_hash_computed = await self._in_thread(answer_hash_performer.digest)
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):
@@ -305,11 +295,11 @@ class MTProto:
             raise RuntimeError("Diffie–Hellman exchange failed: g_b > dh_prime - (2 ** (2048 - 64))")
 
         self._auth_key.auth_key = to_bytes(auth_key)
-        self._auth_key.auth_key_id = (await self._in_thread(_get_auth_key_id, self._auth_key.auth_key))
+        self._auth_key.auth_key_id = (await self._in_thread(AuthKey._get_auth_key_id, self._auth_key.auth_key))
         self._auth_key.server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
-        self._auth_key.session_id = await self._in_thread(_new_session_id)
+        self._auth_key.session_id = await self._in_thread(AuthKey._new_session_id)
 
-        client_dh_inner_data = self._scheme.boxed(
+        client_dh_inner_data = self._schema.boxed(
             _cons="client_DH_inner_data",
             nonce=nonce,
             server_nonce=server_nonce,
@@ -360,7 +350,7 @@ class MTProto:
             message_inner_data_reader = to_reader(await decrypter(8 + 8 + 8 + 4))
 
             try:
-                message = self._scheme.read(message_inner_data_reader, False, "message_inner_data_from_server")
+                message = self._schema.read(message_inner_data_reader, False, "message_inner_data_from_server")
             finally:
                 reader_discard(message_inner_data_reader)
 
@@ -396,7 +386,7 @@ class MTProto:
             message_body_reader = to_reader(message_body_envelope)
 
             try:
-                message.message._fields["body"] = await self._in_thread(self._scheme.read, message_body_reader)
+                message.message._fields["body"] = await self._in_thread(self._schema.read, message_body_reader)
             finally:
                 reader_discard(message_body_reader)
 
@@ -405,11 +395,11 @@ class MTProto:
     def box_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
         message_id = self._get_message_id()
 
-        message = self._scheme.bare(
+        message = self._schema.bare(
             _cons="message",
             msg_id=message_id,
             seqno=seq_no,
-            body=self._scheme.boxed(**kwargs),
+            body=self._schema.boxed(**kwargs),
         )
 
         return message, message_id
@@ -417,7 +407,7 @@ class MTProto:
     async def write(self, message: tl.Value):
         auth_key, auth_key_id = await self._get_auth_key()
 
-        message_inner_data = self._scheme.bare(
+        message_inner_data = self._schema.bare(
             _cons="message_inner_data",
             salt=self._auth_key.server_salt,
             session_id=self._auth_key.session_id,
@@ -431,7 +421,7 @@ class MTProto:
         aes = await self._in_thread(encryption.prepare_key, auth_key, msg_key, True)
         encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
 
-        full_message = self._scheme.bare(
+        full_message = self._schema.bare(
             _cons="encrypted_message",
             auth_key_id=int.from_bytes(auth_key_id, "little", signed=False),
             msg_key=msg_key,
