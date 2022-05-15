@@ -331,7 +331,7 @@ class Structure:
 
     def __getattr__(self, name):
         try:
-            return self._fields.get(name)
+            return self._fields[name]
         except KeyError as parent_key_error:
             raise KeyError(f"key `{name}` not found in `{self!r}`") from parent_key_error
 

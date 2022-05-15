@@ -206,8 +206,15 @@ class Client:
         logging.debug("connecting to Telegram at %s", self._datacenter)
 
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
+
         await self._create_ping_request()
         await self._create_future_salt_request()
+        await self._create_get_state_request()
+
+    async def _create_get_state_request(self):
+        get_state_message = dict(_cons="updates.getState")
+        get_state_request = _PendingRequest(self._loop, get_state_message, self._get_next_odd_seqno)
+        await self._rpc_call(get_state_request, wait_result=False)
 
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
@@ -480,6 +487,9 @@ class Client:
                 result = body.result.packed_data
             else:
                 result = body.result
+
+            if result == "auth.authorization":
+                await self._create_get_state_request()
 
             if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
