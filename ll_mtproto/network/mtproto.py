@@ -6,16 +6,23 @@ import logging
 import multiprocessing
 import secrets
 import time
+import typing
 from concurrent.futures import ThreadPoolExecutor
 
 from . import encryption
 from .encryption import AesIgeAsyncStream
 from .tcp import AbridgedTCP
-from ..constants import DatacenterInfo
 from ..math import primes
 from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader, reader_discard
 from ..tl.tl import Structure
+
+
+if typing.TYPE_CHECKING:
+    from ..constants import DatacenterInfo
+else:
+    DatacenterInfo = None
+
 
 _singleton_executor: ThreadPoolExecutor | None = None
 
