@@ -96,6 +96,7 @@ inputGroupCallStream#598a92a flags:# call:InputGroupCall time_ms:long scale:int 
 
 peerUser#59511722 user_id:long = Peer;
 peerChat#36c6019a chat_id:long = Peer;
+peerChannel#bddde532 channel_id:int = Peer;
 peerChannel#a2a5371e channel_id:long = Peer;
 
 storage.fileUnknown#aa963b05 = storage.FileType;
