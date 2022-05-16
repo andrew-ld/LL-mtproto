@@ -1,21 +1,34 @@
 import enum
 import os.path as __ospath
 
-from .tl import tl
+from .tl.tl import Schema
+from .network.encryption import PublicRSA
 
 
 _path = __ospath.dirname(__file__)
 _telegram_rsa = open(_path + "/resources/telegram.rsa.pub").read()
-_singleton_schema: tl.Schema | None = None
 
 __all__ = ("TelegramSchema", "TelegramDatacenter", "DatacenterInfo")
 
 
-def _get_schema() -> tl.Schema:
+_singleton_schema: Schema | None = None
+_singleton_public_rsa: PublicRSA | None = None
+
+
+def _get_public_rsa() -> PublicRSA:
+    global _singleton_public_rsa
+
+    if _singleton_public_rsa is None:
+        _singleton_public_rsa = PublicRSA(_telegram_rsa)
+
+    return _singleton_public_rsa
+
+
+def _get_schema() -> Schema:
     global _singleton_schema
 
     if _singleton_schema is None:
-        _singleton_schema = tl.Schema(TelegramSchema.MERGED_SCHEMA, TelegramSchema.SCHEMA_LAYER)
+        _singleton_schema = Schema(TelegramSchema.MERGED_SCHEMA, TelegramSchema.SCHEMA_LAYER)
 
     return _singleton_schema
 
@@ -37,10 +50,10 @@ class DatacenterInfo:
 
     address: str
     port: int
-    rsa: str
-    schema: tl.Schema
+    rsa: PublicRSA
+    schema: Schema
 
-    def __init__(self, address: str, port: int, rsa: str, schema: tl.Schema):
+    def __init__(self, address: str, port: int, rsa: PublicRSA, schema: Schema):
         self.address = address
         self.port = port
         self.rsa = rsa
@@ -53,11 +66,11 @@ class DatacenterInfo:
 class TelegramDatacenter(enum.Enum):
     __slots__ = ()
 
-    PLUTO = DatacenterInfo("149.154.175.53", 443, _telegram_rsa, _get_schema())
-    VENUS = DatacenterInfo("149.154.167.51", 443, _telegram_rsa, _get_schema())
-    AURORA = DatacenterInfo("149.154.175.100", 443, _telegram_rsa, _get_schema())
-    VESTA = DatacenterInfo("149.154.167.91", 443, _telegram_rsa, _get_schema())
-    FLORA = DatacenterInfo("91.108.56.130", 443, _telegram_rsa, _get_schema())
+    PLUTO = DatacenterInfo("149.154.175.53", 443, _get_public_rsa(), _get_schema())
+    VENUS = DatacenterInfo("149.154.167.51", 443, _get_public_rsa(), _get_schema())
+    AURORA = DatacenterInfo("149.154.175.100", 443, _get_public_rsa(), _get_schema())
+    VESTA = DatacenterInfo("149.154.167.91", 443, _get_public_rsa(), _get_schema())
+    FLORA = DatacenterInfo("91.108.56.130", 443, _get_public_rsa(), _get_schema())
 
-    VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _telegram_rsa, _get_schema())
-    VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _telegram_rsa, _get_schema())
+    VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _get_public_rsa(), _get_schema())
+    VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _get_public_rsa(), _get_schema())

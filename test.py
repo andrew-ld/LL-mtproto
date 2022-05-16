@@ -2,7 +2,7 @@ import asyncio
 import logging
 import argparse
 
-from ll_mtproto import Client, TelegramSchema, AuthKey, TelegramDatacenter
+from ll_mtproto import Client, AuthKey, TelegramDatacenter
 
 
 async def get_updates(client: Client):
@@ -17,13 +17,14 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     logging.getLogger().setLevel(level=logging.DEBUG)
 
     auth_key = AuthKey()
-    session = Client(TelegramDatacenter.VESTA, auth_key)
+    datacenter_info = TelegramDatacenter.VESTA.value
+    session = Client(datacenter_info, auth_key)
 
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
 
     await session.rpc_call({
         "_cons": "invokeWithLayer",
-        "layer": TelegramSchema.SCHEMA_LAYER,
+        "layer": datacenter_info.schema.layer,
         "_wrapped": {
             "_cons": "initConnection",
             "api_id": api_id,

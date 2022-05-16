@@ -118,7 +118,7 @@ class MTProto:
     def __init__(self, datacenter_info: DatacenterInfo, auth_key: AuthKey):
         self._loop = asyncio.get_event_loop()
         self._link = AbridgedTCP(datacenter_info.address, datacenter_info.port)
-        self._public_rsa_key = encryption.PublicRSA(datacenter_info.rsa)
+        self._public_rsa_key = datacenter_info.rsa
         self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
         self._last_message_id = 0
