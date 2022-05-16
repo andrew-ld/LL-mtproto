@@ -7,7 +7,7 @@ import traceback
 import typing
 
 from . import RpcError
-from .constants import TelegramDatacenter, DatacenterInfo
+from .network.datacenter_info import DatacenterInfo
 from .network import mtproto
 from .network.mtproto import AuthKey, MTProto
 from .typed import TlMessageBody, Structure
@@ -92,7 +92,7 @@ class Client:
     _no_updates: bool
     _pending_future_salt: asyncio.TimerHandle | None
 
-    def __init__(self, datacenter: TelegramDatacenter | DatacenterInfo, auth_key: AuthKey, no_updates: bool = False):
+    def __init__(self, datacenter: enum.Enum | DatacenterInfo, auth_key: AuthKey, no_updates: bool = False):
         self._loop = asyncio.get_event_loop()
         self._msgids_to_ack = []
         self._last_time_acks_flushed = time.time()

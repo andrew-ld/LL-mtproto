@@ -19,7 +19,7 @@ from ..tl.tl import Structure
 
 
 if typing.TYPE_CHECKING:
-    from ..constants import DatacenterInfo
+    from .datacenter_info import DatacenterInfo
 else:
     DatacenterInfo = None
 
