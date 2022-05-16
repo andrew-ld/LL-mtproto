@@ -547,7 +547,7 @@ class Constructor:
                 return struct.unpack(b"<d", bytereader(8))
 
             case "string":
-                return unpack_binary_string(bytereader)
+                return unpack_binary_string(bytereader).decode()
 
             case "bytes":
                 return unpack_binary_string(bytereader)
