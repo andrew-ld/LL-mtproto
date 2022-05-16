@@ -1,9 +1,8 @@
-import enum
 import os.path as __ospath
 
 from .network.datacenter_info import DatacenterInfo
-from .tl.tl import Schema
 from .network.encryption import PublicRSA
+from .tl.tl import Schema
 
 _path = __ospath.dirname(__file__)
 _telegram_rsa = open(_path + "/resources/telegram.rsa.pub").read()
@@ -44,7 +43,7 @@ def _get_schema() -> Schema:
     return _singleton_schema
 
 
-class TelegramDatacenter(enum.Enum):
+class TelegramDatacenter:
     __slots__ = ()
 
     PLUTO = DatacenterInfo("149.154.175.53", 443, _get_public_rsa(), _get_schema())

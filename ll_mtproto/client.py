@@ -1,5 +1,4 @@
 import asyncio
-import enum
 import logging
 import random
 import time
@@ -92,7 +91,7 @@ class Client:
     _no_updates: bool
     _pending_future_salt: asyncio.TimerHandle | None
 
-    def __init__(self, datacenter: enum.Enum | DatacenterInfo, auth_key: AuthKey, no_updates: bool = False):
+    def __init__(self, datacenter: DatacenterInfo, auth_key: AuthKey, no_updates: bool = False):
         self._loop = asyncio.get_event_loop()
         self._msgids_to_ack = []
         self._last_time_acks_flushed = time.time()
@@ -106,13 +105,8 @@ class Client:
         self._updates_queue = asyncio.Queue()
         self._no_updates = no_updates
         self._pending_future_salt = None
-
-        if isinstance(datacenter, enum.Enum):
-            self._datacenter = typing.cast(DatacenterInfo, datacenter.value)
-        else:
-            self._datacenter = datacenter
-
-        self._mtproto = MTProto(self._datacenter, self._auth_key)
+        self._datacenter = datacenter
+        self._mtproto = MTProto(datacenter, auth_key)
 
     async def get_update(self) -> _Update | None:
         await self._start_mtproto_loop_if_needed()

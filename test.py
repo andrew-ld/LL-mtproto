@@ -17,7 +17,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     logging.getLogger().setLevel(level=logging.DEBUG)
 
     auth_key = AuthKey()
-    datacenter_info = TelegramDatacenter.VESTA.value
+    datacenter_info = TelegramDatacenter.VESTA
     session = Client(datacenter_info, auth_key)
 
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
