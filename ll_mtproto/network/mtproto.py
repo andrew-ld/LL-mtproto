@@ -17,12 +17,10 @@ from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader, reader_discard
 from ..tl.tl import Structure
 
-
 if typing.TYPE_CHECKING:
     from .datacenter_info import DatacenterInfo
 else:
     DatacenterInfo = None
-
 
 _singleton_executor: ThreadPoolExecutor | None = None
 

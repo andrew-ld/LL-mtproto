@@ -73,9 +73,6 @@ _parameterRE = re.compile(
 )
 
 
-
-
-
 class Schema:
     __slots__ = ("constructors", "types", "cons_numbers", "layer")
 

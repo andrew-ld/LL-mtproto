@@ -5,12 +5,10 @@ from .network.datacenter_info import DatacenterInfo
 from .tl.tl import Schema
 from .network.encryption import PublicRSA
 
-
 _path = __ospath.dirname(__file__)
 _telegram_rsa = open(_path + "/resources/telegram.rsa.pub").read()
 
 __all__ = ("TelegramSchema", "TelegramDatacenter")
-
 
 _singleton_schema: Schema | None = None
 _singleton_public_rsa: PublicRSA | None = None
