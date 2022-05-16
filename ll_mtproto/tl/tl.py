@@ -49,7 +49,7 @@ def unpack_flags(n: int) -> set[int]:
     return flags
 
 
-_schemeRE = re.compile(
+_schemaRE = re.compile(
     r"^(?P<empty>$)"
     r"|(?P<comment>//.*)"
     r"|(?P<typessection>---types---)"
@@ -73,7 +73,9 @@ _parameterRE = re.compile(
 )
 
 
-# a collection of constructors
+
+
+
 class Schema:
     __slots__ = ("constructors", "types", "cons_numbers", "layer")
 
@@ -92,9 +94,9 @@ class Schema:
     def __repr__(self):
         return "\n".join(repr(cons) for cons in self.constructors.values())
 
-    def _parse_file(self, scheme_data: str):
-        for scheme_line in scheme_data.split("\n"):
-            self._parse_line(scheme_line)
+    def _parse_file(self, schema: str):
+        for schema_line in schema.split("\n"):
+            self._parse_line(schema_line)
 
     @staticmethod
     def _parse_token(regex, s: str) -> None | dict[str, str]:
@@ -106,10 +108,10 @@ class Schema:
             return {k: v for k, v in match.groupdict().items() if v is not None}
 
     def _parse_line(self, line: str):
-        cons_parsed = self._parse_token(_schemeRE, line)
+        cons_parsed = self._parse_token(_schemaRE, line)
 
         if not cons_parsed:
-            raise SyntaxError("Error in scheme: `%s`" % line)
+            raise SyntaxError("Error in schema: `%s`" % line)
 
         if "cons" not in cons_parsed:
             return
@@ -186,7 +188,7 @@ class Schema:
             )
 
         cons = Constructor(
-            scheme=self,
+            schema=self,
             ptype=None if "xtype" in cons_parsed else cons_parsed["type"],
             name=cons_parsed["name"],
             number=cons_number,
@@ -257,7 +259,7 @@ class Schema:
         if cons := self.constructors.get(cons_name, False):
             return cons.serialize(boxed=boxed, **kwargs)
         else:
-            raise NotImplementedError(f"Constructor `{cons_name}` not present in scheme.")
+            raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
 
     def bare(self, **kwargs) -> "Value":
         return self.serialize(boxed=False, **kwargs)
@@ -270,7 +272,6 @@ class Schema:
         return self.deserialize(bytereader, parameter)
 
 
-# a serialized TL Value that will be sent
 class Value:
     __slots__ = ("cons", "boxed", "_flags", "_data")
 
@@ -313,7 +314,6 @@ class Value:
         return prefix + b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Value) else k, self._data))
 
 
-# a deserialized TL Value that was received
 class Structure:
     __slots__ = ("constructor_name", "_fields")
 
@@ -364,7 +364,6 @@ class Structure:
             return anything
 
 
-# a parameter in TL Constructor or TL Function
 class Parameter:
     __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter")
 
@@ -398,11 +397,10 @@ class Parameter:
             return f"{self.name}:{self.type}"
 
 
-# a TL Constructor or TL Function
 class Constructor:
-    __slots__ = ("scheme", "type", "name", "number", "has_flags", "flags_offset", "_parameters")
+    __slots__ = ("schema", "type", "name", "number", "has_flags", "flags_offset", "_parameters")
 
-    scheme: Schema
+    schema: Schema
     type: str
     name: str
     number: bytes
@@ -412,7 +410,7 @@ class Constructor:
 
     def __init__(
             self,
-            scheme: Schema,
+            schema: Schema,
             ptype: str,
             name: str,
             number: bytes,
@@ -420,7 +418,7 @@ class Constructor:
             parameters: list[Parameter],
             flags_offset: int | None
     ):
-        self.scheme = scheme
+        self.schema = schema
         self.name = name
         self.number = number
         self.type = ptype
@@ -448,7 +446,7 @@ class Constructor:
             argument = argument.get_dict()
 
         if isinstance(argument, dict):
-            argument = self.scheme.serialize(boxed=parameter.is_boxed, **argument)
+            argument = self.schema.serialize(boxed=parameter.is_boxed, **argument)
 
         match parameter.type:
             case "int":
@@ -505,7 +503,7 @@ class Constructor:
                 self._serialize_argument(data, parameter.element_parameter, element_argument)
 
         else:
-            self.scheme.typecheck(parameter, argument)
+            self.schema.typecheck(parameter, argument)
             data.append(argument)
 
         if parameter.flag_number is not None:
@@ -560,13 +558,13 @@ class Constructor:
             case "gzip":
                 string_stream = unpack_binary_string_stream(bytereader)
                 gzip_stream = unpack_gzip_stream(string_stream)
-                return self.scheme.read(gzip_stream)
+                return self.schema.read(gzip_stream)
 
             case "rawobject":
-                return self.scheme.read(bytereader)
+                return self.schema.read(bytereader)
 
             case "object":
-                return self.scheme.read(unpack_long_binary_string_stream(bytereader))
+                return self.schema.read(unpack_long_binary_string_stream(bytereader))
 
             case "bytesobject":
                 return bytereader(int.from_bytes(bytereader(4), "little", signed=False))
@@ -585,7 +583,7 @@ class Constructor:
                 for _ in range(vector_len)
             ]
         else:
-            return self.scheme.deserialize(bytereader, parameter)
+            return self.schema.deserialize(bytereader, parameter)
 
     def deserialize_bare_data(self, bytedata: SyncByteReader) -> Structure:
         result = Structure(self.name)
