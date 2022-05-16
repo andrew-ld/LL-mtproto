@@ -1,5 +1,5 @@
-from ll_mtproto.network.encryption import PublicRSA
-from ll_mtproto.tl.tl import Schema
+from .encryption import PublicRSA
+from ..tl.tl import Schema
 
 
 class DatacenterInfo:
