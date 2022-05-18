@@ -220,7 +220,6 @@ class Client:
         self._pending_pongs[random_ping_id] = self._loop.call_later(10, self.disconnect)
 
         ping_message = dict(_cons="ping", ping_id=random_ping_id)
-        ping_message = dict(_cons="invokeWithLayer", _wrapped=ping_message, layer=self._datacenter.schema.layer)
         ping_request = _PendingRequest(self._loop, ping_message, self._get_next_odd_seqno)
 
         await self._rpc_call(ping_request, wait_result=False)
