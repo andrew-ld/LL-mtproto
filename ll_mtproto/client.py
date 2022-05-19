@@ -206,8 +206,9 @@ class Client:
         await self._create_get_state_request()
 
     async def _create_get_state_request(self):
-        get_state_message = dict(_cons="updates.getState")
-        get_state_request = _PendingRequest(self._loop, get_state_message, self._get_next_odd_seqno)
+        message = dict(_cons="updates.getState")
+        message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
+        get_state_request = _PendingRequest(self._loop, message, self._get_next_odd_seqno)
         await self._rpc_call(get_state_request, wait_result=False)
 
     async def _create_future_salt_request(self):
