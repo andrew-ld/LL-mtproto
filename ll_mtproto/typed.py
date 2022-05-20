@@ -21,8 +21,8 @@ class RpcError(BaseException):
     __slots__ = ("code", "message")
 
     code: int
-    message: bytes
+    message: str
 
-    def __init__(self, code: int, message: bytes):
+    def __init__(self, code: int, message: str):
         self.code = code
         self.message = message
