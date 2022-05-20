@@ -109,6 +109,9 @@ class Client:
         self._mtproto = MTProto(datacenter, auth_key)
 
     async def get_update(self) -> _Update | None:
+        if self._no_updates:
+            raise RuntimeError("the updates queue is always empty if no_updates has been set to true.")
+
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
