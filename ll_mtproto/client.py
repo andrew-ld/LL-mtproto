@@ -203,11 +203,17 @@ class Client:
 
         await self._create_ping_request()
         await self._create_future_salt_request()
-        await self._create_get_state_request()
+        await self._create_init_request()
 
-    async def _create_get_state_request(self):
-        message = dict(_cons="updates.getState")
+    async def _create_init_request(self):
+        if self._no_updates:
+            message = dict(_cons="help.getConfig")
+            message = dict(_cons="invokeWithoutUpdates", _wrapped=message)
+        else:
+            message = dict(_cons="updates.getState")
+
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
+
         get_state_request = _PendingRequest(self._loop, message, self._get_next_odd_seqno)
         await self._rpc_call(get_state_request, wait_result=False)
 
@@ -484,7 +490,7 @@ class Client:
                 result = body.result
 
             if result == "auth.authorization":
-                await self._create_get_state_request()
+                await self._create_init_request()
 
             if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
