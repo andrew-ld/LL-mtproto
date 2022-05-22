@@ -3,11 +3,10 @@ import collections
 import hashlib
 import hmac
 import logging
-import multiprocessing
 import secrets
 import time
 import typing
-from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
 
 from . import encryption
 from .encryption import AesIgeAsyncStream
@@ -22,18 +21,8 @@ if typing.TYPE_CHECKING:
 else:
     DatacenterInfo = None
 
-_singleton_executor: ThreadPoolExecutor | None = None
 
 __all__ = ("AuthKey", "MTProto")
-
-
-def _get_executor() -> ThreadPoolExecutor:
-    global _singleton_executor
-
-    if _singleton_executor is None:
-        _singleton_executor = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
-
-    return _singleton_executor
 
 
 class AuthKey:
@@ -109,7 +98,7 @@ class MTProto:
     _read_message_lock: asyncio.Lock
     _last_message_id: int
     _auth_key: AuthKey
-    _executor: ThreadPoolExecutor
+    _executor: concurrent.futures.Executor
     _last_msg_ids: collections.deque[int]
     _schema: tl.Schema
 
@@ -120,7 +109,7 @@ class MTProto:
         self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
         self._last_message_id = 0
-        self._executor = _get_executor()
+        self._executor = datacenter_info.executor
         self._last_msg_ids = collections.deque(maxlen=64)
         self._schema = datacenter_info.schema
 
