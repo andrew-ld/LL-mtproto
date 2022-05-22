@@ -333,11 +333,14 @@ class Client:
             await self._acknowledge_telegram_message(message)
 
     async def _process_telegram_message_body(self, body: TlMessageBody):
-        match body.constructor_name:
+        match (constructor_name := body.constructor_name):
             case "rpc_result":
                 await self._process_rpc_result(body)
 
             case "updates":
+                await self._process_updates(body)
+
+            case "updatesCombined":
                 await self._process_updates(body)
 
             case "bad_server_salt":
@@ -363,6 +366,15 @@ class Client:
 
             case "msgs_state_info":
                 self._process_msgs_state_info(body)
+
+            case "msgs_ack":
+                self._process_msgs_ack(body)
+
+            case _:
+                logging.critical("unknown message type (%s) received", constructor_name)
+
+    def _process_msgs_ack(self, body: TlMessageBody):
+        logging.debug("received msgs_ack %r", body.msg_ids)
 
     def _process_msgs_state_info(self, body: TlMessageBody):
         if pending_request := self._pending_requests.pop(body.req_msg_id, False):
