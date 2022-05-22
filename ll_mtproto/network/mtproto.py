@@ -13,7 +13,7 @@ from .encryption import AesIgeAsyncStream
 from .tcp import AbridgedTCP
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, sha256, async_stream_apply, to_reader, reader_discard
+from ..tl.byteutils import to_bytes, sha1, xor, sha256, ByteReaderApply, to_reader, reader_discard
 from ..tl.tl import Structure
 
 if typing.TYPE_CHECKING:
@@ -331,29 +331,27 @@ class MTProto:
                 raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
 
             msg_key = await self._link.readn(16)
-
-            aes = AesIgeAsyncStream(await self._in_thread(encryption.prepare_key, auth_key, msg_key, False))
+            msg_aes = await self._in_thread(encryption.prepare_key, auth_key, msg_key, False)
+            msg_aes_stream = AesIgeAsyncStream(msg_aes, self._in_thread, self._link.read)
 
             plain_sha256 = hashlib.sha256()
             await self._in_thread(plain_sha256.update, auth_key_part)
+            msg_aes_stream_with_hash = ByteReaderApply(msg_aes_stream, plain_sha256.update, self._in_thread)
 
-            decrypter = aes.decrypt_async_stream(self._in_thread, self._link.read)
-            decrypter = async_stream_apply(decrypter, plain_sha256.update, self._in_thread)
-
-            message_inner_data_reader = to_reader(await decrypter(8 + 8 + 8 + 4))
+            message_inner_data_reader = to_reader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
 
             try:
                 message = self._schema.read(message_inner_data_reader, False, "message_inner_data_from_server")
             finally:
                 reader_discard(message_inner_data_reader)
 
-            message_body_len = int.from_bytes(await decrypter(4), signed=False, byteorder="little")
-            message_body_envelope = await decrypter(message_body_len)
+            message_body_len = int.from_bytes(await msg_aes_stream_with_hash(4), signed=False, byteorder="little")
+            message_body_envelope = await msg_aes_stream_with_hash(message_body_len)
 
-            if len(aes.remaining_plain_buffer()) not in range(12, 1024):
+            if len(msg_aes_stream.remaining_plain_buffer()) not in range(12, 1024):
                 raise ValueError("Received a message with wrong padding length!")
 
-            await self._in_thread(plain_sha256.update, aes.remaining_plain_buffer())
+            await self._in_thread(plain_sha256.update, msg_aes_stream.remaining_plain_buffer())
             msg_key_computed = (await self._in_thread(plain_sha256.digest))[8:24]
 
             if not hmac.compare_digest(msg_key, msg_key_computed):

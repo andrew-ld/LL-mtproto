@@ -10,9 +10,9 @@ from .byteutils import (
     pack_binary_string,
     unpack_binary_string,
     pack_long_binary_string,
-    unpack_gzip_stream,
     unpack_binary_string_stream,
     unpack_long_binary_string_stream,
+    GzipStreamReader,
 )
 from ..typed import TlMessageBody, SyncByteReader
 
@@ -554,7 +554,7 @@ class Constructor:
 
             case "gzip":
                 string_stream = unpack_binary_string_stream(bytereader)
-                gzip_stream = unpack_gzip_stream(string_stream)
+                gzip_stream = GzipStreamReader(string_stream)
                 return self.schema.read(gzip_stream)
 
             case "rawobject":

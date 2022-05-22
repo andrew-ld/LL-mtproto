@@ -12,7 +12,7 @@ from ..tl.byteutils import (
     sha1,
     sha256, to_reader, reader_is_empty,
 )
-from ..typed import ByteReader, PartialByteReader, InThread, SyncByteReader
+from ..typed import PartialByteReader, InThread, SyncByteReader
 
 __all__ = ("PublicRSA", "AesIge", "AesIgeAsyncStream", "prepare_key")
 
@@ -113,25 +113,26 @@ class AesIge:
 
 
 class AesIgeAsyncStream:
-    __slots__ = ("_plain_buffer", "_aes")
+    __slots__ = ("_plain_buffer", "_aes", "_in_thread", "_parent")
 
     _plain_buffer: bytearray
     _aes: AesIge
+    _in_thread: InThread
+    _parent: PartialByteReader
 
-    def __init__(self, aes: AesIge):
+    def __init__(self, aes: AesIge, in_thread: InThread, parent: PartialByteReader):
         self._aes = aes
+        self._in_thread = in_thread
+        self._parent = parent
         self._plain_buffer = bytearray()
 
-    def decrypt_async_stream(self, in_thread: InThread, reader: PartialByteReader) -> ByteReader:
-        async def decryptor(n: int) -> bytes:
-            while len(self._plain_buffer) < n:
-                self._plain_buffer += await in_thread(self._aes.decrypt, await reader())
+    async def __call__(self, nbytes: int):
+        while len(self._plain_buffer) < nbytes:
+            self._plain_buffer += await self._in_thread(self._aes.decrypt, await self._parent())
 
-            plain = self._plain_buffer[:n]
-            del self._plain_buffer[:n]
-            return bytes(plain)
-
-        return decryptor
+        plain = self._plain_buffer[:nbytes]
+        del self._plain_buffer[:nbytes]
+        return bytes(plain)
 
     def remaining_plain_buffer(self) -> bytes:
         return bytes(self._plain_buffer)
