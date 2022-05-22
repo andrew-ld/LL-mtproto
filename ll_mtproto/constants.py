@@ -16,18 +16,6 @@ _singleton_public_rsa: PublicRSA | None = None
 _singleton_executor: ThreadPoolExecutor | None = None
 
 
-class TelegramSchema:
-    __slots__ = ()
-
-    AUTH_SCHEMA = open(_path + "/resources/auth.tl").read()
-    APPLICATION_SCHEMA = open(_path + "/resources/application.tl").read()
-    SERVICE_SCHEMA = open(_path + "/resources/service.tl").read()
-
-    MERGED_SCHEMA = "\n".join((AUTH_SCHEMA, APPLICATION_SCHEMA, SERVICE_SCHEMA))
-
-    SCHEMA_LAYER = 139
-
-
 def _get_executor() -> ThreadPoolExecutor:
     global _singleton_executor
 
@@ -53,6 +41,18 @@ def _get_schema() -> Schema:
         _singleton_schema = Schema(TelegramSchema.MERGED_SCHEMA, TelegramSchema.SCHEMA_LAYER)
 
     return _singleton_schema
+
+
+class TelegramSchema:
+    __slots__ = ()
+
+    AUTH_SCHEMA = open(_path + "/resources/auth.tl").read()
+    APPLICATION_SCHEMA = open(_path + "/resources/application.tl").read()
+    SERVICE_SCHEMA = open(_path + "/resources/service.tl").read()
+
+    MERGED_SCHEMA = "\n".join((AUTH_SCHEMA, APPLICATION_SCHEMA, SERVICE_SCHEMA))
+
+    SCHEMA_LAYER = 139
 
 
 class TelegramDatacenter:

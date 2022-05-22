@@ -1,12 +1,12 @@
 import asyncio
 import collections
+import concurrent.futures
 import hashlib
 import hmac
 import logging
 import secrets
 import time
 import typing
-import concurrent.futures
 
 from . import encryption
 from .encryption import AesIgeAsyncStream
@@ -20,7 +20,6 @@ if typing.TYPE_CHECKING:
     from .datacenter_info import DatacenterInfo
 else:
     DatacenterInfo = None
-
 
 __all__ = ("AuthKey", "MTProto")
 
