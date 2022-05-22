@@ -21,4 +21,4 @@ class DatacenterInfo:
         self.executor = executor
 
     def __str__(self):
-        return f"{self.address}:{self.port}"
+        return f"{self.address}:{self.port} (layer: {self.schema.layer})"
