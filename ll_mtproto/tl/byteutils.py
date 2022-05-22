@@ -150,10 +150,9 @@ class ByteReaderApply:
 
 
 class BinaryStreamReader:
-    __slots__ = ("_parent", "_buffer", "_remaining", "_padding")
+    __slots__ = ("_parent", "_remaining", "_padding")
 
     _parent: SyncByteReader
-    _buffer: bytearray
     _remaining: int
     _padding: int
 
@@ -161,7 +160,6 @@ class BinaryStreamReader:
         self._parent = parent
         self._remaining = remaining
         self._padding = padding
-        self._buffer = bytearray()
 
     def __call__(self, nbytes: int) -> bytes:
         if nbytes >= (remaining := self._remaining):
