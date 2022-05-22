@@ -21,10 +21,34 @@ _C7_prime = int(
 
 
 def is_safe_dh_prime(g: int, n: int) -> bool:
-    if g != 3:
+    if n != _C7_prime:
         return False
 
-    if n == _C7_prime:
-        return True
+    match g:
+        case 2:
+            if n % 8 != 7:
+                return False
 
-    return False
+        case 3:
+            if n % 3 != 2:
+                return False
+
+        case 4:
+            pass
+
+        case 5:
+            if n % 5 not in (1, 4):
+                return False
+
+        case 6:
+            if n % 24 not in (19, 23):
+                return False
+
+        case 7:
+            if n % 7 not in (3, 5, 6):
+                return False
+
+        case _:
+            return False
+
+    return True
