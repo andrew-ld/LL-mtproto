@@ -343,6 +343,9 @@ class Client:
             case "updatesCombined":
                 await self._process_updates(body)
 
+            case "updateShort":
+                await self._process_update_short(body)
+
             case "bad_server_salt":
                 await self._process_bad_server_salt(body)
 
@@ -372,6 +375,10 @@ class Client:
 
             case _:
                 logging.critical("unknown message type (%s) received", constructor_name)
+
+    async def _process_update_short(self, body: TlMessageBody):
+        if not self._no_updates:
+            await self._updates_queue.put(_Update([], [], body.update))
 
     def _process_msgs_ack(self, body: TlMessageBody):
         logging.debug("received msgs_ack %r", body.msg_ids)
