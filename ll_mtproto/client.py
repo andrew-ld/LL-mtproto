@@ -316,6 +316,9 @@ class Client:
             await self._start_mtproto_loop()
 
     async def _flush_msgids_to_ack_if_needed(self):
+        if not self._msgids_to_ack:
+            return
+
         if len(self._msgids_to_ack) >= 32 or (time.time() - self._last_time_acks_flushed) > 10:
             await self._flush_msgids_to_ack()
 
