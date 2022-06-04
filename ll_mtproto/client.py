@@ -224,14 +224,14 @@ class Client:
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
         get_future_salts_request = _PendingRequest(self._loop, get_future_salts_message, self._get_next_odd_seqno)
 
-        await self._rpc_call(get_future_salts_request, wait_result=False)
-
         if pending_future_salt := self._pending_future_salt:
             pending_future_salt.cancel()
 
         self._pending_future_salt = self._loop.call_later(
             30,
             lambda: self._loop.create_task(self._create_future_salt_request()))
+
+        await self._rpc_call(get_future_salts_request, wait_result=False)
 
     async def _create_ping_request(self):
         random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
