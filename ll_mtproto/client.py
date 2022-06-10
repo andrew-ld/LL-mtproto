@@ -185,6 +185,11 @@ class Client:
             await asyncio.wait_for(self._mtproto.write(message), 120)
         except (OSError, KeyboardInterrupt):
             self._cancel_pending_request(message_id)
+        except asyncio.CancelledError:
+            raise
+        except:
+            logging.error("error while write tl payload to mtproto: %s", traceback.format_exc())
+            self._cancel_pending_futures()
 
         if wait_result:
             await self._start_mtproto_loop_if_needed()
