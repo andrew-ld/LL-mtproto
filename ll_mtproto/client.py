@@ -188,7 +188,7 @@ class Client:
         except asyncio.CancelledError:
             raise
         except:
-            logging.error("error while write tl payload to mtproto: %s", traceback.format_exc())
+            logging.error("failure while write tl payload to mtproto: %s", traceback.format_exc())
             self._cancel_pending_futures()
             self._mtproto.stop()
 
