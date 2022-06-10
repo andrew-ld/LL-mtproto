@@ -190,6 +190,7 @@ class Client:
         except:
             logging.error("error while write tl payload to mtproto: %s", traceback.format_exc())
             self._cancel_pending_futures()
+            self._mtproto.stop()
 
         if wait_result:
             await self._start_mtproto_loop_if_needed()
