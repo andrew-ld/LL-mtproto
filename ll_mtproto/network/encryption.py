@@ -10,7 +10,9 @@ from ..tl.byteutils import (
     pack_binary_string,
     short_hex,
     sha1,
-    sha256, to_reader, reader_is_empty,
+    sha256,
+    to_reader,
+    reader_is_empty,
 )
 from ..typed import PartialByteReader, InThread, SyncByteReader
 

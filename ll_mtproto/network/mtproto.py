@@ -50,15 +50,15 @@ class AuthKey:
         self.auth_key_lock = asyncio.Lock()
 
     @staticmethod
-    def _get_auth_key_id(auth_key: bytes) -> bytes:
+    def generate_auth_key_id(auth_key: bytes) -> bytes:
         return sha1(auth_key)[-8:]
 
     @staticmethod
-    def _new_session_id() -> int:
+    def generate_new_session_id() -> int:
         return secrets.randbits(64)
 
     def clone(self) -> "AuthKey":
-        return AuthKey(self.auth_key, self.auth_key_id, AuthKey._new_session_id(), self.server_salt)
+        return AuthKey(self.auth_key, self.auth_key_id, AuthKey.generate_new_session_id(), self.server_salt)
 
     def __getstate__(self) -> tuple[bytes | None, int | None]:
         return self.auth_key, self.server_salt
@@ -66,7 +66,7 @@ class AuthKey:
     def __setstate__(self, state: tuple[bytes | None, int | None] | bytes):
         self.auth_key_lock = asyncio.Lock()
 
-        self.session_id = AuthKey._new_session_id()
+        self.session_id = AuthKey.generate_new_session_id()
         self.seq_no = -1
 
         if isinstance(state, bytes):
@@ -75,7 +75,7 @@ class AuthKey:
         else:
             self.auth_key, self.server_salt = state
 
-        self.auth_key_id = AuthKey._get_auth_key_id(self.auth_key) if self.auth_key else None
+        self.auth_key_id = AuthKey.generate_auth_key_id(self.auth_key) if self.auth_key else None
 
 
 class MTProto:
@@ -288,9 +288,9 @@ class MTProto:
             raise RuntimeError("Diffie–Hellman exchange failed: g_b > dh_prime - (2 ** (2048 - 64))")
 
         self._auth_key.auth_key = to_bytes(auth_key)
-        self._auth_key.auth_key_id = (await self._in_thread(AuthKey._get_auth_key_id, self._auth_key.auth_key))
+        self._auth_key.auth_key_id = (await self._in_thread(AuthKey.generate_auth_key_id, self._auth_key.auth_key))
         self._auth_key.server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
-        self._auth_key.session_id = await self._in_thread(AuthKey._new_session_id)
+        self._auth_key.session_id = await self._in_thread(AuthKey.generate_new_session_id)
 
         client_dh_inner_data = self._schema.boxed(
             _cons="client_DH_inner_data",

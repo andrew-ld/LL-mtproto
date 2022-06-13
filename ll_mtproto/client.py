@@ -389,7 +389,7 @@ class Client:
                 self._process_msgs_state_info(body)
 
             case "msgs_ack":
-                self._process_msgs_ack(body)                
+                self._process_msgs_ack(body)
 
             case _:
                 logging.critical("unknown message type (%s) received", constructor_name)

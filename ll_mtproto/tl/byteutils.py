@@ -26,7 +26,8 @@ __all__ = (
     "short_hex_int",
     "reader_is_empty",
     "reader_discard",
-    "GzipStreamReader"
+    "GzipStreamReader",
+    "to_reader"
 )
 
 
