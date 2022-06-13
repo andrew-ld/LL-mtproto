@@ -355,6 +355,15 @@ class Client:
             case "updateShort":
                 await self._process_update_short(body)
 
+            case "updateShortMessage":
+                await self._process_update_short_message(body)
+
+            case "updateShortChatMessage":
+                await self._process_update_short_message(body)
+
+            case "updateShortSentMessage":
+                await self._process_update_short_message(body)
+
             case "bad_server_salt":
                 await self._process_bad_server_salt(body)
 
@@ -380,10 +389,14 @@ class Client:
                 self._process_msgs_state_info(body)
 
             case "msgs_ack":
-                self._process_msgs_ack(body)
+                self._process_msgs_ack(body)                
 
             case _:
                 logging.critical("unknown message type (%s) received", constructor_name)
+
+    async def _process_update_short_message(self, body: TlMessageBody):
+        if not self._no_updates:
+            await self._updates_queue.put(_Update([], [], body))
 
     async def _process_update_short(self, body: TlMessageBody):
         if not self._no_updates:
