@@ -445,6 +445,9 @@ class Constructor:
         if isinstance(argument, dict):
             argument = self.schema.serialize(boxed=parameter.is_boxed, **argument)
 
+        if argument is not None and parameter.flag_number is not None:
+            data.set_flag(parameter.flag_number)
+
         match parameter.type:
             case "int":
                 return data.append(int(argument).to_bytes(4, "little", signed=True))
@@ -502,9 +505,6 @@ class Constructor:
         else:
             self.schema.typecheck(parameter, argument)
             data.append(argument)
-
-        if parameter.flag_number is not None:
-            data.set_flag(parameter.flag_number)
 
     def serialize(self, boxed: bool, **arguments) -> Value:
         data = Value(self, boxed=boxed)
