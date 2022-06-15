@@ -639,6 +639,8 @@ class Constructor:
                 elif parameter.flag_number is not None:
                     if parameter.flag_number in flags[parameter.flag_name]:
                         fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
+                    else:
+                        fields[parameter.name] = None
 
                 else:
                     fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
