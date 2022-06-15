@@ -629,17 +629,21 @@ class Constructor:
         result = Structure(self.name)
         fields = result._fields
 
-        flags: dict[int, set[int]] = {}
+        if self.flags:
+            flags: dict[int, set[int]] = {}
 
-        for parameter in self._parameters:
-            if parameter.is_flag:
-                flags[parameter.flag_name] = self._deserialize_argument(bytedata, parameter)
+            for parameter in self._parameters:
+                if parameter.is_flag:
+                    flags[parameter.flag_name] = self._deserialize_argument(bytedata, parameter)
 
-            elif parameter.flag_number is not None:
-                if parameter.flag_number in flags[parameter.flag_name]:
+                elif parameter.flag_number is not None:
+                    if parameter.flag_number in flags[parameter.flag_name]:
+                        fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
+
+                else:
                     fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
-
-            else:
+        else:
+            for parameter in self._parameters:
                 fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
 
         return result
