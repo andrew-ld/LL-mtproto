@@ -64,12 +64,16 @@ _schemaRE = re.compile(
 
 _parameterRE = re.compile(
     r"^(?P<name>\w+):"
-    r"(flags.(?P<flag_number>\d+)\?)?"
+    r"(flags(?P<flag_name>\d+)?.(?P<flag_number>\d+)\?)?"
     r"(?P<type>"
     r"(?P<vector>((?P<bare_vector>vector)|(?P<boxed_vector>Vector))<)?"
     r"(?P<element_type>((?P<namespace>[a-zA-Z\d._]*)\.)?"
     r"((?P<bare>[a-z][a-zA-Z\d._]*)|(?P<boxed>[A-Z][a-zA-Z\d._]*)))"
     r"(?(vector)>)?)$"
+)
+
+_flagRE = re.compile(
+    r"flags(?P<flag_name>\d+)?:#"
 )
 
 
@@ -115,13 +119,6 @@ class Schema:
 
         parameter_tokens: list[str] = cons_parsed["parameters"].split(" ")[1:]
 
-        has_flags = "flags:#" in parameter_tokens
-        flags_offset: int | None = None
-
-        if has_flags:
-            flags_offset = parameter_tokens.index("flags:#")
-            parameter_tokens.pop(flags_offset)
-
         cons_parsed["cons"] = sys.intern(cons_parsed["cons"])
         cons_parsed["name"] = sys.intern(cons_parsed["name"])
 
@@ -139,14 +136,23 @@ class Schema:
         for parameter_token in parameter_tokens:
             parameter_parsed = self._parse_token(_parameterRE, parameter_token)
 
-            if not parameter_parsed:
+            if not parameter_parsed and parameter_token.endswith(":#"):
+                flag_parsed = self._parse_token(_flagRE, parameter_token)
+                flag_name = int(flag_parsed["flag_name"]) if "flag_name" in flag_parsed else 0
+            else:
+                flag_parsed = None
+                flag_name = None
+
+            if parameter_parsed is None and flag_parsed is None:
                 raise SyntaxError(f"Error in parameter `{parameter_token}`")
 
-            parameter_parsed["name"] = sys.intern(parameter_parsed["name"])
-            parameter_parsed["type"] = sys.intern(parameter_parsed["type"])
-            parameter_parsed["element_type"] = sys.intern(parameter_parsed["element_type"])
-
-            is_vector = "vector" in parameter_parsed
+            if parameter_parsed:
+                parameter_parsed["name"] = sys.intern(parameter_parsed["name"])
+                parameter_parsed["type"] = sys.intern(parameter_parsed["type"])
+                parameter_parsed["element_type"] = sys.intern(parameter_parsed["element_type"])
+                is_vector = "vector" in parameter_parsed
+            else:
+                is_vector = False
 
             if is_vector:
                 element_parameter = Parameter(
@@ -157,18 +163,31 @@ class Schema:
             else:
                 element_parameter = None
 
-            parameter = Parameter(
-                pname=parameter_parsed["name"],
-                ptype=parameter_parsed["type"],
-                flag_number=int(parameter_parsed["flag_number"])
-                if "flag_number" in parameter_parsed
-                else None,
-                is_vector=is_vector,
-                is_boxed="boxed_vector" in parameter_parsed
-                if is_vector
-                else "boxed" in parameter_parsed,
-                element_parameter=element_parameter,
-            )
+            if parameter_parsed:
+                parameter = Parameter(
+                    pname=parameter_parsed["name"],
+                    ptype=parameter_parsed["type"],
+                    flag_number=int(parameter_parsed["flag_number"])
+                    if "flag_number" in parameter_parsed
+                    else None,
+                    flag_name=int(parameter_parsed["flag_name"])
+                    if "flag_name" in parameter_parsed
+                    else 0,
+                    is_vector=is_vector,
+                    is_boxed="boxed_vector" in parameter_parsed
+                    if is_vector
+                    else "boxed" in parameter_parsed,
+                    element_parameter=element_parameter,
+                )
+            else:
+                parameter = Parameter(
+                    is_boxed=False,
+                    is_flag=True,
+                    is_vector=False,
+                    pname=parameter_token,
+                    ptype="flags",
+                    flag_name=flag_name
+                )
 
             parameters.append(parameter)
 
@@ -189,9 +208,8 @@ class Schema:
             ptype=None if "xtype" in cons_parsed else cons_parsed["type"],
             name=cons_parsed["name"],
             number=cons_number,
-            has_flags=has_flags,
             parameters=parameters,
-            flags_offset=flags_offset
+            flags=set(p.flag_name for p in parameters if p.is_flag) or None
         )
 
         self.constructors[cons.name] = cons
@@ -269,13 +287,28 @@ class Schema:
         return self.deserialize(bytereader, parameter)
 
 
+class Flags:
+    __slots__ = ("_flags",)
+
+    _flags: set[int]
+
+    def __init__(self):
+        self._flags = set()
+
+    def add_flag(self, flag: int):
+        self._flags.add(flag)
+
+    def get_flat_bytes(self) -> bytes:
+        return _pack_flags(self._flags)
+
+
 class Value:
     __slots__ = ("cons", "boxed", "_flags", "_data")
 
     cons: "Constructor"
     boxed: bool
-    _flags: set[int]
-    _data: list[bytes]
+    _flags: dict[int, Flags] | None
+    _data: list["bytes | Value | Flags"]
 
     def __init__(self, cons: "Constructor", boxed: bool = False):
         self.cons = cons
@@ -284,16 +317,20 @@ class Value:
         if self.boxed and self.cons.number is None:
             raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{cons!r}`")
 
-        self._flags = set()
+        if cons.flags:
+            self._flags = dict((flag_name, Flags()) for flag_name in cons.flags)
+        else:
+            self._flags = None
+
         self._data = []
 
-    def set_flag(self, flag_number: int):
-        if not self.cons.has_flags:
-            raise TypeError(f"Conditional data added to plain constructor `{self.cons!r}`")
+    def set_flag(self, flag_number: int, flag_name: int):
+        self._flags[flag_name].add_flag(flag_number)
 
-        self._flags.add(flag_number)
+    def append_serializable_flag(self, flag_name: int):
+        self._data.append(self._flags[flag_name])
 
-    def append(self, data: bytes):
+    def append_serialized_tl(self, data: bytes):
         self._data.append(data)
 
     def __repr__(self):
@@ -305,10 +342,7 @@ class Value:
         if self.boxed:
             prefix += self.cons.number
 
-        if self.cons.has_flags:
-            prefix += _pack_flags(self._flags)
-
-        return prefix + b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Value) else k, self._data))
+        return prefix + b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, (Value, Flags)) else k, self._data))
 
 
 class Structure:
@@ -362,13 +396,15 @@ class Structure:
 
 
 class Parameter:
-    __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter")
+    __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name")
 
     name: str
     type: str
     flag_number: int | None
+    flag_name: int | None
     is_vector: bool
     is_boxed: bool
+    is_flag: bool
     element_parameter: "Parameter | None"
 
     def __init__(
@@ -378,6 +414,8 @@ class Parameter:
             is_boxed: bool,
             flag_number: int = None,
             is_vector: bool = False,
+            is_flag: bool = False,
+            flag_name: int | None = None,
             element_parameter: "Parameter | None" = None
     ):
         self.name = pname
@@ -386,6 +424,8 @@ class Parameter:
         self.is_vector = is_vector
         self.is_boxed = is_boxed
         self.element_parameter = element_parameter
+        self.is_flag = is_flag
+        self.flag_name = flag_name
 
     def __repr__(self):
         if self.flag_number is not None:
@@ -395,15 +435,14 @@ class Parameter:
 
 
 class Constructor:
-    __slots__ = ("schema", "type", "name", "number", "has_flags", "flags_offset", "_parameters")
+    __slots__ = ("schema", "type", "name", "number", "_parameters", "flags")
 
     schema: Schema
     type: str
     name: str
     number: bytes
-    has_flags: bool
-    flags_offset: int | None
     _parameters: list[Parameter]
+    flags: set[int] | None
 
     def __init__(
             self,
@@ -411,17 +450,15 @@ class Constructor:
             ptype: str,
             name: str,
             number: bytes,
-            has_flags: bool,
             parameters: list[Parameter],
-            flags_offset: int | None
+            flags: set[int] | None
     ):
         self.schema = schema
         self.name = name
         self.number = number
         self.type = ptype
-        self.has_flags = has_flags
-        self.flags_offset = flags_offset
         self._parameters = parameters
+        self.flags = flags
 
     def __repr__(self):
         return f"{self.name} {''.join('%r ' % p for p in self._parameters)}= {self.type};"
@@ -446,71 +483,74 @@ class Constructor:
             argument = self.schema.serialize(boxed=parameter.is_boxed, **argument)
 
         if argument is not None and parameter.flag_number is not None:
-            data.set_flag(parameter.flag_number)
+            data.set_flag(parameter.flag_number, parameter.flag_name)
 
         match parameter.type:
             case "int":
-                return data.append(int(argument).to_bytes(4, "little", signed=True))
+                return data.append_serialized_tl(int(argument).to_bytes(4, "little", signed=True))
 
             case "uint":
-                return data.append(int(argument).to_bytes(4, "little", signed=False))
+                return data.append_serialized_tl(int(argument).to_bytes(4, "little", signed=False))
 
             case "long":
-                return data.append(int(argument).to_bytes(8, "little", signed=True))
+                return data.append_serialized_tl(int(argument).to_bytes(8, "little", signed=True))
 
             case "ulong":
-                return data.append(int(argument).to_bytes(8, "little", signed=False))
+                return data.append_serialized_tl(int(argument).to_bytes(8, "little", signed=False))
 
             case "int128":
-                return data.append(argument)
+                return data.append_serialized_tl(argument)
 
             case "sha1":
-                return data.append(argument)
+                return data.append_serialized_tl(argument)
 
             case "int256":
-                return data.append(argument)
+                return data.append_serialized_tl(argument)
 
             case "double":
-                return data.append(struct.pack(b"<d", float(argument)))
+                return data.append_serialized_tl(struct.pack(b"<d", float(argument)))
 
             case "string":
-                return data.append(pack_binary_string(argument))
+                return data.append_serialized_tl(pack_binary_string(argument))
 
             case "bytes":
-                return data.append(pack_binary_string(argument))
+                return data.append_serialized_tl(pack_binary_string(argument))
 
             case "object":
-                return data.append(pack_long_binary_string(argument.get_flat_bytes()))
+                return data.append_serialized_tl(pack_long_binary_string(argument.get_flat_bytes()))
 
             case "rawobject":
                 argument.boxed = True
-                return data.append(argument)
+                return data.append_serialized_tl(argument)
 
             case "encrypted":
-                return data.append(argument)
+                return data.append_serialized_tl(argument)
 
             case "gzip":
                 argument.boxed = True
-                return data.append(pack_binary_string(gzip.compress(argument.get_flat_bytes(), compresslevel=1)))
+                return data.append_serialized_tl(pack_binary_string(gzip.compress(argument.get_flat_bytes())))
 
         if parameter.is_vector:
             if parameter.is_boxed:
-                data.append(_compile_cons_number(b"vector t:Type # [ t ] = Vector t"))
+                data.append_serialized_tl(_compile_cons_number(b"vector t:Type # [ t ] = Vector t"))
 
-            data.append(len(argument).to_bytes(4, "little", signed=False))
+            data.append_serialized_tl(len(argument).to_bytes(4, "little", signed=False))
 
             for element_argument in argument:
                 self._serialize_argument(data, parameter.element_parameter, element_argument)
 
         else:
             self.schema.typecheck(parameter, argument)
-            data.append(argument)
+            data.append_serialized_tl(argument)
 
     def serialize(self, boxed: bool, **arguments) -> Value:
         data = Value(self, boxed=boxed)
 
         for parameter in self._parameters:
-            if parameter.name not in arguments:
+            if parameter.is_flag:
+                data.append_serializable_flag(parameter.flag_name)
+
+            elif parameter.name not in arguments:
                 if parameter.flag_number is None:
                     raise TypeError(f"required `{parameter}` not found in `{self.name}`")
 
@@ -566,6 +606,9 @@ class Constructor:
             case "bytesobject":
                 return bytereader(int.from_bytes(bytereader(4), "little", signed=False))
 
+            case "flags":
+                return unpack_flags(int.from_bytes(bytereader(4), "little", signed=False))
+
         if parameter.is_vector:
             if parameter.is_boxed:
                 vcons = bytereader(4)
@@ -586,30 +629,17 @@ class Constructor:
         result = Structure(self.name)
         fields = result._fields
 
-        if self.has_flags:
-            for parameter in self._parameters[:self.flags_offset]:
+        flags: dict[int, set[int]] = {}
+
+        for parameter in self._parameters:
+            if parameter.is_flag:
+                flags[parameter.flag_name] = self._deserialize_argument(bytedata, parameter)
+
+            elif parameter.flag_number is not None:
+                if parameter.flag_number in flags[parameter.flag_name]:
+                    fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
+
+            else:
                 fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
-
-            flags = unpack_flags(int.from_bytes(bytedata(4), "little", signed=False))
-
-            parameters = (
-                p
-                for p in self._parameters[self.flags_offset:]
-                if p.flag_number is None or p.flag_number in flags
-            )
-
-            fields.update(
-                {
-                    (p.name, None)
-                    for p in self._parameters
-                    if p.flag_number is not None and p.flag_number not in flags
-                }
-            )
-
-        else:
-            parameters = self._parameters
-
-        for parameter in parameters:
-            fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
 
         return result
