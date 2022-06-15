@@ -13,7 +13,7 @@ from .encryption import AesIgeAsyncStream
 from .tcp import AbridgedTCP
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, sha256, ByteReaderApply, to_reader, reader_discard, reader_is_empty
+from ..tl.byteutils import to_bytes, sha1, xor, sha256, ByteReaderApply, to_reader, reader_discard
 from ..tl.tl import Structure
 
 if typing.TYPE_CHECKING:
@@ -378,9 +378,6 @@ class MTProto:
 
             try:
                 message.message._fields["body"] = await self._in_thread(self._schema.read, message_body_reader)
-
-                if not reader_is_empty(message_body_reader):
-                    raise ValueError("There is problem with TL serialization on server side.")
             finally:
                 reader_discard(message_body_reader)
 
