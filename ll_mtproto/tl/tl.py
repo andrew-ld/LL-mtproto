@@ -306,7 +306,7 @@ class Value:
     cons: "Constructor"
     boxed: bool
     _flags: dict[int, Flags] | None
-    _data: list["bytes | Value | Flags"]
+    _data: list["bytearray | Flags"]
 
     def __init__(self, cons: "Constructor", boxed: bool = False):
         self.cons = cons
@@ -320,16 +320,16 @@ class Value:
         else:
             self._flags = None
 
-        self._data = []
+        self._data = [bytearray()]
 
     def set_flag(self, flag_number: int, flag_name: int):
         self._flags[flag_name].add_flag(flag_number)
 
     def append_serializable_flag(self, flag_name: int):
-        self._data.append(self._flags[flag_name])
+        self._data.extend((self._flags[flag_name], bytearray()))
 
-    def append_serialized_tl(self, data: bytes):
-        self._data.append(data)
+    def append_serialized_tl(self, data: "bytes | Value"):
+        self._data[-1] += data if isinstance(data, bytes) else data.get_flat_bytes()
 
     def __repr__(self):
         return f'{"boxed" if self.boxed else "bare"}({self.cons!r})\n{long_hex(self.get_flat_bytes())}'
@@ -340,7 +340,7 @@ class Value:
         if self.boxed:
             prefix += self.cons.number
 
-        return prefix + b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, (Value, Flags)) else k, self._data))
+        return prefix + b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Flags) else k, self._data))
 
 
 class Structure:
