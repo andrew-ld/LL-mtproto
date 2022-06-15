@@ -268,13 +268,11 @@ class Schema:
 
         return cons.deserialize_bare_data(bytereader)
 
-    def serialize(self, boxed: bool, **kwargs) -> "Value":
-        cons_name = kwargs["_cons"]
-
-        if cons := self.constructors.get(cons_name, False):
+    def serialize(self, boxed: bool, _cons: str, **kwargs) -> "Value":
+        if cons := self.constructors.get(_cons, False):
             return cons.serialize(boxed=boxed, **kwargs)
         else:
-            raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
+            raise NotImplementedError(f"Constructor `{_cons}` not present in schema.")
 
     def bare(self, **kwargs) -> "Value":
         return self.serialize(boxed=False, **kwargs)
