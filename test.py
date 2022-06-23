@@ -2,7 +2,7 @@ import asyncio
 import logging
 import argparse
 
-from ll_mtproto import Client, AuthKey, TelegramDatacenter
+from ll_mtproto import Client, AuthKey, TelegramDatacenter, ConnectionInfo
 
 
 async def get_updates(client: Client):
@@ -18,33 +18,27 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     auth_key = AuthKey()
     datacenter_info = TelegramDatacenter.VESTA
-    session = Client(datacenter_info, auth_key)
+
+    init_info = ConnectionInfo(
+        api_id=api_id,
+        device_model="enterprise desktop computer 2",
+        system_version="linux 5.777",
+        app_version="1.1",
+        lang_code="de",
+        system_lang_code="de",
+        lang_pack=""
+    )
+
+    session = Client(datacenter_info, auth_key, init_info)
 
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
 
     await session.rpc_call({
-        "_cons": "invokeWithLayer",
-        "layer": datacenter_info.schema.layer,
-        "_wrapped": {
-            "_cons": "initConnection",
-            "api_id": api_id,
-            "device_model": "1",
-            "system_version": "1",
-            "app_version": "1",
-            "lang_code": "it",
-            "system_lang_code": "it",
-            "lang_pack": "",
-            "_wrapped": {
-                "_cons": "invokeWithoutUpdates",
-                "_wrapped": {
-                    "_cons": "auth.importBotAuthorization",
-                    "api_id": api_id,
-                    "api_hash": api_hash,
-                    "flags": 0,
-                    "bot_auth_token": bot_token
-                }
-            },
-        },
+        "_cons": "auth.importBotAuthorization",
+        "api_id": api_id,
+        "api_hash": api_hash,
+        "flags": 0,
+        "bot_auth_token": bot_token
     })
 
     multiple_requests_test = await session.rpc_call_multi([
@@ -84,7 +78,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     media_sessions = []
 
     for _ in range(8):
-        media_sessions.append(Client(TelegramDatacenter.VESTA_MEDIA, auth_key.clone(), no_updates=True))
+        media_sessions.append(Client(TelegramDatacenter.VESTA_MEDIA, auth_key.clone(), init_info, no_updates=True))
 
     get_file_request = {
         "_cons": "upload.getFile",

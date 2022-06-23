@@ -11,7 +11,7 @@ from .network import mtproto
 from .network.mtproto import AuthKey, MTProto
 from .typed import TlMessageBody, Structure
 
-__all__ = ("_Update", "Client")
+__all__ = ("_Update", "Client", "ConnectionInfo")
 
 _SeqNoGenerator = typing.Callable[[], int]
 
@@ -56,6 +56,56 @@ class _Update:
         self.update = update
 
 
+class ConnectionInfo:
+    __slots__ = (
+        "api_id",
+        "device_model",
+        "system_version",
+        "app_version",
+        "lang_code",
+        "system_lang_code",
+        "lang_pack"
+    )
+
+    api_id: int
+    device_model: str
+    system_version: str
+    app_version: str
+    lang_code: str
+    system_lang_code: str
+    lang_pack: str
+
+    def __init__(
+            self,
+            *,
+            api_id: int,
+            device_model: str,
+            system_version: str,
+            app_version: str,
+            lang_code: str,
+            system_lang_code: str,
+            lang_pack: str
+    ):
+        self.api_id = api_id
+        self.device_model = device_model
+        self.system_version = system_version
+        self.app_version = app_version
+        self.lang_code = lang_code
+        self.system_lang_code = system_lang_code
+        self.lang_pack = lang_pack
+
+    def dict(self) -> dict:
+        return {
+            "api_id": self.api_id,
+            "device_model": self.device_model,
+            "system_version": self.system_version,
+            "app_version": self.app_version,
+            "lang_code": self.lang_code,
+            "system_lang_code": self.system_lang_code,
+            "lang_pack": self.lang_pack
+        }
+
+
 class Client:
     __slots__ = (
         "_mtproto",
@@ -72,7 +122,9 @@ class Client:
         "_stable_seqno",
         "_updates_queue",
         "_no_updates",
-        "_pending_future_salt"
+        "_pending_future_salt",
+        "_connection_info",
+        "_connection_init_wait_future",
     )
 
     _mtproto: mtproto.MTProto
@@ -90,8 +142,10 @@ class Client:
     _updates_queue: asyncio.Queue[_Update | None]
     _no_updates: bool
     _pending_future_salt: asyncio.TimerHandle | None
+    _connection_info: ConnectionInfo
+    _connection_init_wait_future: asyncio.Future[TlMessageBody | None]
 
-    def __init__(self, datacenter: DatacenterInfo, auth_key: AuthKey, no_updates: bool = False):
+    def __init__(self, datacenter: DatacenterInfo, key: AuthKey, info: ConnectionInfo, no_updates: bool = False):
         self._loop = asyncio.get_event_loop()
         self._msgids_to_ack = []
         self._last_time_acks_flushed = time.time()
@@ -100,13 +154,15 @@ class Client:
         self._mtproto_loop_task = None
         self._pending_requests = dict()
         self._pending_pongs = dict()
-        self._auth_key = auth_key
+        self._auth_key = key
         self._pending_ping = None
         self._updates_queue = asyncio.Queue()
         self._no_updates = no_updates
         self._pending_future_salt = None
         self._datacenter = datacenter
-        self._mtproto = MTProto(datacenter, auth_key)
+        self._mtproto = MTProto(datacenter, key)
+        self._connection_info = info
+        self._connection_init_wait_future = asyncio.Future()
 
     async def get_update(self) -> _Update | None:
         if self._no_updates:
@@ -181,6 +237,9 @@ class Client:
 
         self._pending_requests[message_id] = request
 
+        if wait_result:
+            await self._connection_init_wait_future
+
         try:
             await asyncio.wait_for(self._mtproto.write(message), 120)
         except (OSError, KeyboardInterrupt):
@@ -210,21 +269,21 @@ class Client:
 
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
 
+        await self._create_init_request()
         await self._create_ping_request()
         await self._create_future_salt_request()
-        await self._create_init_request()
 
     async def _create_init_request(self):
-        if self._no_updates:
-            message = dict(_cons="help.getConfig")
-            message = dict(_cons="invokeWithoutUpdates", _wrapped=message)
-        else:
-            message = dict(_cons="updates.getState")
-
+        message = dict(_cons="initConnection", _wrapped=dict(_cons="help.getConfig"), **self._connection_info.dict())
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
 
-        get_state_request = _PendingRequest(self._loop, message, self._get_next_odd_seqno)
-        await self._rpc_call(get_state_request, wait_result=False)
+        if self._connection_init_wait_future.done():
+            self._connection_init_wait_future = asyncio.Future()
+
+        init_request = _PendingRequest(self._loop, message, self._get_next_odd_seqno)
+        await self._rpc_call(init_request, wait_result=False)
+
+        self._connection_init_wait_future.set_result(await init_request.response)
 
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
@@ -284,6 +343,7 @@ class Client:
                 break
             except:
                 logging.error("failure while read message from mtproto: %s", traceback.format_exc())
+                self._cancel_pending_futures()
                 break
 
             logging.debug("received message (%s) %d from mtproto", message.body.constructor_name, message.msg_id)
@@ -292,11 +352,10 @@ class Client:
                 await self._process_telegram_message(message)
                 await self._flush_msgids_to_ack_if_needed()
             except (KeyboardInterrupt, asyncio.CancelledError):
+                self._cancel_pending_futures()
                 break
             except:
                 logging.error("failure while process message from mtproto: %s", traceback.format_exc())
-
-        self._cancel_pending_futures()
 
     def _cancel_pending_futures(self):
         self._updates_queue.put_nowait(None)
@@ -313,6 +372,8 @@ class Client:
             pending_ping_request.cancel()
 
         self._pending_ping = None
+
+        self._connection_init_wait_future.cancel()
 
     async def _start_mtproto_loop_if_needed(self):
         if mtproto_loop_task := self._mtproto_loop_task:
@@ -540,9 +601,6 @@ class Client:
                 result = body.result.packed_data
             else:
                 result = body.result
-
-            if result == "auth.authorization":
-                await self._create_init_request()
 
             if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
