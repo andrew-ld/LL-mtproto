@@ -248,8 +248,7 @@ class Client:
             raise
         except:
             logging.error("failure while write tl payload to mtproto: %s", traceback.format_exc())
-            self._cancel_pending_futures()
-            self._mtproto.stop()
+            self.disconnect()
 
         if wait_result:
             await self._start_mtproto_loop_if_needed()
@@ -257,16 +256,9 @@ class Client:
         return message_id
 
     async def _start_mtproto_loop(self):
-        self._cancel_pending_futures()
-
-        if mtproto_loop := self._mtproto_loop_task:
-            mtproto_loop.cancel()
-
-        if mtproto_link := self._mtproto:
-            mtproto_link.stop()
+        self.disconnect()
 
         logging.debug("connecting to Telegram at %s", self._datacenter)
-
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
 
         await self._create_init_request()
@@ -315,18 +307,6 @@ class Client:
         self._auth_key.seq_no = (self._auth_key.seq_no // 2 + 1) * 2
         return self._auth_key.seq_no
 
-    def _cancel_pending_pongs(self):
-        for pending_pong in self._pending_pongs.values():
-            pending_pong.cancel()
-
-        self._pending_pongs.clear()
-
-    def _cancel_pending_requests(self):
-        for pending_request in self._pending_requests.values():
-            pending_request.finalize()
-
-        self._pending_requests.clear()
-
     def _cancel_pending_pong(self, ping_id: int):
         if pending_pong := self._pending_pongs.pop(ping_id, False):
             pending_pong.cancel()
@@ -340,10 +320,10 @@ class Client:
             try:
                 message = await mtproto_link.read()
             except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
-                break
+                raise
             except:
                 logging.error("failure while read message from mtproto: %s", traceback.format_exc())
-                self._cancel_pending_futures()
+                self.disconnect()
                 break
 
             logging.debug("received message (%s) %d from mtproto", message.body.constructor_name, message.msg_id)
@@ -352,28 +332,9 @@ class Client:
                 await self._process_telegram_message(message)
                 await self._flush_msgids_to_ack_if_needed()
             except (KeyboardInterrupt, asyncio.CancelledError):
-                self._cancel_pending_futures()
-                break
+                raise
             except:
                 logging.error("failure while process message from mtproto: %s", traceback.format_exc())
-
-    def _cancel_pending_futures(self):
-        self._updates_queue.put_nowait(None)
-
-        self._cancel_pending_pongs()
-        self._cancel_pending_requests()
-
-        if pending_future_salt := self._pending_future_salt:
-            pending_future_salt.cancel()
-
-        self._pending_future_salt = None
-
-        if pending_ping_request := self._pending_ping:
-            pending_ping_request.cancel()
-
-        self._pending_ping = None
-
-        self._connection_init_wait_future.cancel()
 
     async def _start_mtproto_loop_if_needed(self):
         if mtproto_loop_task := self._mtproto_loop_task:
@@ -615,7 +576,29 @@ class Client:
                 pending_request.finalize()
 
     def disconnect(self):
-        self._cancel_pending_futures()
+        self._updates_queue.put_nowait(None)
+
+        for pending_pong in self._pending_pongs.values():
+            pending_pong.cancel()
+
+        self._pending_pongs.clear()
+
+        for pending_request in self._pending_requests.values():
+            pending_request.finalize()
+
+        self._pending_requests.clear()
+
+        if pending_future_salt := self._pending_future_salt:
+            pending_future_salt.cancel()
+
+        self._pending_future_salt = None
+
+        if pending_ping_request := self._pending_ping:
+            pending_ping_request.cancel()
+
+        self._pending_ping = None
+
+        self._connection_init_wait_future.cancel()
 
         if mtproto_loop := self._mtproto_loop_task:
             mtproto_loop.cancel()
