@@ -245,6 +245,7 @@ class Client:
         except (OSError, KeyboardInterrupt):
             self._cancel_pending_request(message_id)
         except asyncio.CancelledError:
+            self._cancel_pending_request(message_id)
             raise
         except:
             logging.error("failure while write tl payload to mtproto: %s", traceback.format_exc())
@@ -600,11 +601,11 @@ class Client:
 
         self._connection_init_wait_future.cancel()
 
-        if mtproto_loop := self._mtproto_loop_task:
-            mtproto_loop.cancel()
-
         if mtproto_link := self._mtproto:
             mtproto_link.stop()
+
+        if mtproto_loop := self._mtproto_loop_task:
+            mtproto_loop.cancel()
 
         self._mtproto_loop_task = None
 
