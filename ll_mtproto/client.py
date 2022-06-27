@@ -242,9 +242,7 @@ class Client:
 
         try:
             await asyncio.wait_for(self._mtproto.write(message), 120)
-        except (OSError, KeyboardInterrupt):
-            self._cancel_pending_request(message_id)
-        except asyncio.CancelledError:
+        except (KeyboardInterrupt, asyncio.CancelledError):
             self._cancel_pending_request(message_id)
             raise
         except:
@@ -276,7 +274,10 @@ class Client:
         init_request = _PendingRequest(self._loop, message, self._get_next_odd_seqno)
         await self._rpc_call(init_request, wait_result=False)
 
-        self._connection_init_wait_future.set_result(await init_request.response)
+        try:
+            self._connection_init_wait_future.set_result(await init_request.response)
+        except:
+            self._connection_init_wait_future.cancel()
 
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
