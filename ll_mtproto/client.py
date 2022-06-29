@@ -237,10 +237,9 @@ class Client:
 
         self._pending_requests[message_id] = request
 
-        if wait_result:
-            await self._connection_init_wait_future
-
         try:
+            if wait_result:
+                await self._connection_init_wait_future
             await asyncio.wait_for(self._mtproto.write(message), 120)
         except (KeyboardInterrupt, asyncio.CancelledError):
             self._cancel_pending_request(message_id)
@@ -276,8 +275,6 @@ class Client:
 
         try:
             self._connection_init_wait_future.set_result(await init_request.response)
-        except (asyncio.CancelledError, KeyboardInterrupt):
-            self._connection_init_wait_future.cancel()
         except:
             self._connection_init_wait_future.set_exception(ConnectionError())
 
