@@ -276,8 +276,10 @@ class Client:
 
         try:
             self._connection_init_wait_future.set_result(await init_request.response)
+        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
+            self._connection_init_wait_future.set_exception(exc)
         except:
-            self._connection_init_wait_future.cancel()
+            self._connection_init_wait_future.set_exception(ConnectionError())
 
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
