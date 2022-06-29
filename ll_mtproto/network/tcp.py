@@ -25,39 +25,43 @@ class AbridgedTCP:
         self._write_lock = asyncio.Lock()
         self._read_buffer = bytearray()
 
-    async def _reconnect_if_needed(self):
+    async def _reconnect_if_needed(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         async with self._connect_lock:
             if self._writer is None or self._reader is None:
                 self._reader, self._writer = await asyncio.open_connection(self._host, self._port)
                 self._writer.write(b"\xef")
 
+            return self._reader, self._writer
+
     async def _write_abridged_packet(self, data: bytes):
-        await self._reconnect_if_needed()
+        reader, writer = await self._reconnect_if_needed()
+
         packet_data_length = len(data) >> 2
 
         if packet_data_length < 0x7F:
-            self._writer.write(packet_data_length.to_bytes(1, "little"))
+            writer.write(packet_data_length.to_bytes(1, "little"))
 
         elif packet_data_length <= 0x7FFFFF:
-            self._writer.write(b"\x7f")
-            self._writer.write(packet_data_length.to_bytes(3, "little"))
+            writer.write(b"\x7f")
+            writer.write(packet_data_length.to_bytes(3, "little"))
 
         else:
             raise OverflowError("Packet data is too long")
 
-        self._writer.write(data)
+        writer.write(data)
 
     async def _read_abridged_packet(self) -> bytes:
-        await self._reconnect_if_needed()
-        packet_data_length = ord(await self._reader.readexactly(1))
+        reader, writer = await self._reconnect_if_needed()
+
+        packet_data_length = ord(await reader.readexactly(1))
 
         if packet_data_length > 0x7F:
             raise NotImplementedError(f"Wrong packet data length {packet_data_length:d}")
 
         if packet_data_length == 0x7F:
-            packet_data_length = int.from_bytes(await self._reader.readexactly(3), "little", signed=False)
+            packet_data_length = int.from_bytes(await reader.readexactly(3), "little", signed=False)
 
-        return await self._reader.readexactly(packet_data_length * 4)
+        return await reader.readexactly(packet_data_length * 4)
 
     async def read(self) -> bytes:
         if self._read_buffer:
