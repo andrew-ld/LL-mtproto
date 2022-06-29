@@ -276,8 +276,8 @@ class Client:
 
         try:
             self._connection_init_wait_future.set_result(await init_request.response)
-        except (asyncio.CancelledError, KeyboardInterrupt) as exc:
-            self._connection_init_wait_future.set_exception(exc)
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            self._connection_init_wait_future.cancel()
         except:
             self._connection_init_wait_future.set_exception(ConnectionError())
 
