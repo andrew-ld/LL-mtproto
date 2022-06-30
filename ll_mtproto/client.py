@@ -600,7 +600,8 @@ class Client:
 
         self._pending_ping = None
 
-        self._connection_init_wait_future.cancel()
+        if not self._connection_init_wait_future.done():
+            self._connection_init_wait_future.set_exception(ConnectionError())
 
         if mtproto_link := self._mtproto:
             mtproto_link.stop()
