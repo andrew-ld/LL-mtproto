@@ -268,16 +268,18 @@ class Client:
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
 
         if self._connection_init_wait_future.done():
-            self._connection_init_wait_future = asyncio.Future()
+            connection_init_wait_future = self._connection_init_wait_future = asyncio.Future()
+        else:
+            connection_init_wait_future = self._connection_init_wait_future
 
         init_request = _PendingRequest(self._loop, message, self._get_next_odd_seqno)
         await self._rpc_call(init_request, wait_result=False)
 
         try:
-            self._connection_init_wait_future.set_result(await init_request.response)
+            connection_init_wait_future.set_result(await init_request.response)
         except:
-            if not self._connection_init_wait_future.done():
-                self._connection_init_wait_future.set_exception(ConnectionError())
+            if not connection_init_wait_future.done():
+                connection_init_wait_future.set_exception(ConnectionError())
 
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
@@ -600,8 +602,9 @@ class Client:
 
         self._pending_ping = None
 
-        if not self._connection_init_wait_future.done():
-            self._connection_init_wait_future.set_exception(ConnectionError())
+        if not (connection_init_wait_future := self._connection_init_wait_future).done():
+            connection_init_wait_future.set_exception(ConnectionError())
+            connection_init_wait_future.exception()
 
         if mtproto_link := self._mtproto:
             mtproto_link.stop()
