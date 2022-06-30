@@ -267,10 +267,10 @@ class Client:
         message = dict(_cons="initConnection", _wrapped=dict(_cons="help.getConfig"), **self._connection_info.dict())
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
 
-        if self._connection_init_wait_future.done():
+        if connection_init_wait_future := self._connection_init_wait_future.done():
             connection_init_wait_future = self._connection_init_wait_future = asyncio.Future()
         else:
-            connection_init_wait_future = self._connection_init_wait_future
+            connection_init_wait_future = connection_init_wait_future
 
         init_request = _PendingRequest(self._loop, message, self._get_next_odd_seqno)
         await self._rpc_call(init_request, wait_result=False)
