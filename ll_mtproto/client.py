@@ -278,6 +278,7 @@ class Client:
         except:
             if not connection_init_wait_future.done():
                 connection_init_wait_future.set_exception(ConnectionError())
+                connection_init_wait_future.exception()
 
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
