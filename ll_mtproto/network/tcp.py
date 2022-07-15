@@ -27,11 +27,14 @@ class AbridgedTCP:
 
     async def _reconnect_if_needed(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
         async with self._connect_lock:
-            if self._writer is None or self._reader is None:
-                self._reader, self._writer = await asyncio.open_connection(self._host, self._port)
-                self._writer.write(b"\xef")
+            reader, writer = self._reader, self._writer
 
-            return self._reader, self._writer
+            if reader is None or writer is None:
+                reader, writer = await asyncio.open_connection(self._host, self._port)
+                self._reader, self._writer = reader, writer
+                writer.write(b"\xef")
+
+            return reader, writer
 
     async def _write_abridged_packet(self, data: bytes):
         reader, writer = await self._reconnect_if_needed()
