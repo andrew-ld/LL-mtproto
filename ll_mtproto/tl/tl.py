@@ -216,29 +216,33 @@ class Schema:
         self.cons_numbers[cons.number] = cons
         self.types.setdefault(cons.type, set()).add(cons)
 
+    @staticmethod
+    def _debug_type_error_msg(parameter: "Parameter", argument: "Value") -> str:
+        return f"expected: {parameter!r}, found: {argument!r}"
+
     def typecheck(self, parameter: "Parameter", argument: "Value"):
         if not isinstance(argument, Value):
-            raise TypeError("not an object for nonbasic type")
+            raise TypeError("not an object for nonbasic type", self._debug_type_error_msg(parameter, argument))
 
         if parameter.is_boxed:
             if parameter.type not in self.types:
-                raise TypeError("unknown type")
+                raise TypeError("unknown type", self._debug_type_error_msg(parameter, argument))
 
             if argument.cons not in self.types[parameter.type]:
-                raise TypeError("type mismatch")
+                raise TypeError("type mismatch", self._debug_type_error_msg(parameter, argument))
 
             if not argument.boxed:
-                raise TypeError("expected boxed, found bare")
+                raise TypeError("expected boxed, found bare", self._debug_type_error_msg(parameter, argument))
 
         else:
             if parameter.type not in self.constructors:
-                raise TypeError("expected boxed, found bare")
+                raise TypeError("expected boxed, found bare", self._debug_type_error_msg(parameter, argument))
 
             if argument.cons != self.constructors[parameter.type]:
-                raise TypeError("wrong constructor")
+                raise TypeError("wrong constructor", self._debug_type_error_msg(parameter, argument))
 
             if argument.boxed:
-                raise TypeError("expected bare, found boxed")
+                raise TypeError("expected bare, found boxed", self._debug_type_error_msg(parameter, argument))
 
     def deserialize(self, bytereader: SyncByteReader, parameter: "Parameter") -> TlMessageBody:
         if parameter.is_boxed:
@@ -332,7 +336,7 @@ class Value:
         self._data[-1] += data if isinstance(data, bytes) else data.get_flat_bytes()
 
     def __repr__(self):
-        return f'{"boxed" if self.boxed else "bare"}({self.cons!r})\n{long_hex(self.get_flat_bytes())}'
+        return f'{"boxed" if self.boxed else "bare"}({self.cons!r})'
 
     def get_flat_bytes(self) -> bytes:
         prefix = b""
