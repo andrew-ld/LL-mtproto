@@ -558,6 +558,10 @@ class Constructor:
 
             else:
                 argument = arguments[parameter.name]
+
+                if argument is None and parameter.flag_name is not None:
+                    continue
+
                 self._serialize_argument(data, parameter, argument)
 
         return data

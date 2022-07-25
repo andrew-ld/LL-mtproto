@@ -64,7 +64,8 @@ class ConnectionInfo:
         "app_version",
         "lang_code",
         "system_lang_code",
-        "lang_pack"
+        "lang_pack",
+        "params"
     )
 
     api_id: int
@@ -74,6 +75,7 @@ class ConnectionInfo:
     lang_code: str
     system_lang_code: str
     lang_pack: str
+    params: dict | None
 
     def __init__(
             self,
@@ -84,7 +86,8 @@ class ConnectionInfo:
             app_version: str,
             lang_code: str,
             system_lang_code: str,
-            lang_pack: str
+            lang_pack: str,
+            params: TlMessageBody | None = None
     ):
         self.api_id = api_id
         self.device_model = device_model
@@ -93,6 +96,7 @@ class ConnectionInfo:
         self.lang_code = lang_code
         self.system_lang_code = system_lang_code
         self.lang_pack = lang_pack
+        self.params = params
 
     def dict(self) -> dict:
         return {
@@ -102,7 +106,8 @@ class ConnectionInfo:
             "app_version": self.app_version,
             "lang_code": self.lang_code,
             "system_lang_code": self.system_lang_code,
-            "lang_pack": self.lang_pack
+            "lang_pack": self.lang_pack,
+            "params": self.params if self.params is not None else None
         }
 
 
