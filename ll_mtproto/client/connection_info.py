@@ -1,4 +1,4 @@
-from ll_mtproto.typed import TlRequestBody
+from ..typed import TlRequestBody
 
 __all__ = ("ConnectionInfo",)
 
