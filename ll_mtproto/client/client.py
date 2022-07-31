@@ -148,7 +148,6 @@ class Client:
 
         if layer_init_boxing_required:
             request_body = self._wrap_request_in_layer_init(request_body)
-            self._layer_init_required = False
 
         message, message_id = self._mtproto.box_message(request.next_seq_no(), **request_body)
 
@@ -482,6 +481,9 @@ class Client:
                 result = body.result.packed_data
             else:
                 result = body.result
+
+            if pending_request.allow_container:
+                self._layer_init_required = False
 
             if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
