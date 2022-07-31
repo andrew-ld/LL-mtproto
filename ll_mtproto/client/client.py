@@ -256,16 +256,12 @@ class Client:
             except:
                 logging.error("failure while process message from mtproto: %s", traceback.format_exc())
 
-    async def _start_mtproto_loop_if_needed(self) -> bool:
+    async def _start_mtproto_loop_if_needed(self):
         if mtproto_loop_task := self._mtproto_loop_task:
             if mtproto_loop_task.done():
                 await self._start_mtproto_loop()
-                return True
         else:
             await self._start_mtproto_loop()
-            return True
-
-        return False
 
     async def _flush_msgids_to_ack_if_needed(self):
         if not self._msgids_to_ack:
