@@ -1,6 +1,6 @@
 from concurrent.futures import Executor
 
-from .encryption import PublicRSA
+from ..crypto import PublicRSA
 from ..tl.tl import Schema
 
 

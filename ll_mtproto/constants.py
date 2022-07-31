@@ -2,8 +2,8 @@ import multiprocessing
 import os.path as __ospath
 from concurrent.futures import ThreadPoolExecutor
 
+from .crypto import PublicRSA
 from .network.datacenter_info import DatacenterInfo
-from .network.encryption import PublicRSA
 from .tl.tl import Schema
 
 _path = __ospath.dirname(__file__)

@@ -15,7 +15,8 @@ __all__ = (
     "RpcError",
     "TlMessageBody",
     "Structure",
-    "SyncByteReader"
+    "SyncByteReader",
+    "TlRequestBody"
 )
 
 InThread = typing.Callable[..., typing.Awaitable[any]]
@@ -25,6 +26,8 @@ PartialByteReader = typing.Callable[[], typing.Awaitable[bytes]]
 Loop = asyncio.AbstractEventLoop
 ByteConsumer = typing.Callable[[bytes], None]
 TlMessageBody = Structure | list[Structure]
+SeqNoGenerator = typing.Callable[[], int]
+TlRequestBody = dict[str, TlMessageBody | list[TlMessageBody] | bytes | str | int]
 
 
 class RpcError(BaseException):

@@ -5,110 +5,15 @@ import time
 import traceback
 import typing
 
-from . import RpcError
-from .network.datacenter_info import DatacenterInfo
-from .network import mtproto
-from .network.mtproto import AuthKey, MTProto
-from .typed import TlMessageBody, Structure
+from . import PendingRequest, Update
+from . import ConnectionInfo
+from ..network import mtproto, DatacenterInfo
+from ..crypto import AuthKey
+from ..network.mtproto import MTProto
+from ..tl import tl
+from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
 
-__all__ = ("_Update", "Client", "ConnectionInfo")
-
-_SeqNoGenerator = typing.Callable[[], int]
-
-
-class _PendingRequest:
-    __slots__ = ("response", "request", "cleaner", "retries", "next_seq_no")
-
-    response: asyncio.Future[TlMessageBody]
-    request: dict[str, any]
-    cleaner: asyncio.TimerHandle | None
-    retries: int
-    next_seq_no: _SeqNoGenerator
-
-    def __init__(self, loop: asyncio.AbstractEventLoop, message: dict[str, any], seq_no_func: _SeqNoGenerator):
-        self.response = loop.create_future()
-        self.request = message
-        self.cleaner = None
-        self.retries = 0
-        self.next_seq_no = seq_no_func
-
-    def finalize(self):
-        if not (response := self.response).done():
-            response.set_exception(ConnectionResetError())
-
-        if cleaner := self.cleaner:
-            cleaner.cancel()
-
-        self.cleaner = None
-        self.response.exception()
-
-
-class _Update:
-    __slots__ = ("users", "chats", "update")
-
-    users: list[Structure]
-    chats: list[Structure]
-    update: Structure
-
-    def __init__(self, users: list[Structure], chats: list[Structure], update: Structure):
-        self.users = users
-        self.chats = chats
-        self.update = update
-
-
-class ConnectionInfo:
-    __slots__ = (
-        "api_id",
-        "device_model",
-        "system_version",
-        "app_version",
-        "lang_code",
-        "system_lang_code",
-        "lang_pack",
-        "params"
-    )
-
-    api_id: int
-    device_model: str
-    system_version: str
-    app_version: str
-    lang_code: str
-    system_lang_code: str
-    lang_pack: str
-    params: dict | None
-
-    def __init__(
-            self,
-            *,
-            api_id: int,
-            device_model: str,
-            system_version: str,
-            app_version: str,
-            lang_code: str,
-            system_lang_code: str,
-            lang_pack: str,
-            params: TlMessageBody | None = None
-    ):
-        self.api_id = api_id
-        self.device_model = device_model
-        self.system_version = system_version
-        self.app_version = app_version
-        self.lang_code = lang_code
-        self.system_lang_code = system_lang_code
-        self.lang_pack = lang_pack
-        self.params = params
-
-    def dict(self) -> dict:
-        return {
-            "api_id": self.api_id,
-            "device_model": self.device_model,
-            "system_version": self.system_version,
-            "app_version": self.app_version,
-            "lang_code": self.lang_code,
-            "system_lang_code": self.system_lang_code,
-            "lang_pack": self.lang_pack,
-            "params": self.params if self.params is not None else None
-        }
+__all__ = ("Client",)
 
 
 class Client:
@@ -128,8 +33,8 @@ class Client:
         "_updates_queue",
         "_no_updates",
         "_pending_future_salt",
-        "_connection_info",
-        "_connection_init_wait_future",
+        "_layer_init_info",
+        "_layer_init_required"
     )
 
     _mtproto: mtproto.MTProto
@@ -139,16 +44,16 @@ class Client:
     _stable_seqno: bool
     _seqno_increment: int
     _mtproto_loop_task: asyncio.Task | None
-    _pending_requests: dict[int, _PendingRequest]
+    _pending_requests: dict[int, PendingRequest]
     _pending_pongs: dict[int, asyncio.TimerHandle]
     _datacenter: DatacenterInfo
     _auth_key: AuthKey
     _pending_ping: asyncio.TimerHandle | None
-    _updates_queue: asyncio.Queue[_Update | None]
+    _updates_queue: asyncio.Queue[Update | None]
     _no_updates: bool
     _pending_future_salt: asyncio.TimerHandle | None
-    _connection_info: ConnectionInfo
-    _connection_init_wait_future: asyncio.Future[TlMessageBody | None]
+    _layer_init_info: ConnectionInfo
+    _layer_init_required: bool
 
     def __init__(self, datacenter: DatacenterInfo, key: AuthKey, info: ConnectionInfo, no_updates: bool = False):
         self._loop = asyncio.get_event_loop()
@@ -166,25 +71,28 @@ class Client:
         self._pending_future_salt = None
         self._datacenter = datacenter
         self._mtproto = MTProto(datacenter, key)
-        self._connection_info = info
-        self._connection_init_wait_future = asyncio.Future()
+        self._layer_init_info = info
+        self._layer_init_required = True
 
-    async def get_update(self) -> _Update | None:
+    async def get_update(self) -> Update | None:
         if self._no_updates:
             raise RuntimeError("the updates queue is always empty if no_updates has been set to true.")
 
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call_multi(self, payloads: typing.Iterable[dict[str, any]]) -> tuple[TlMessageBody | BaseException]:
+    async def rpc_call_multi(self, payloads: typing.Iterable[TlRequestBody]) -> tuple[TlMessageBody | BaseException]:
         messages = []
         messages_ids = []
         responses = []
 
         await self._start_mtproto_loop_if_needed()
 
+        if self._layer_init_required:
+            await self.rpc_call(dict(_cons="help.getConfig"))
+
         for payload in payloads:
-            request = _PendingRequest(self._loop, payload, self._get_next_odd_seqno)
+            request = PendingRequest(self._loop, payload, self._get_next_odd_seqno, True)
             request_message, request_message_id = self._mtproto.box_message(request.next_seq_no(), **payload)
 
             self._pending_requests[request_message_id] = request
@@ -197,8 +105,8 @@ class Client:
             raise ValueError("this method expects the `payloads` iterator to return at least one element")
 
         container_message = dict(_cons="msg_container", messages=messages)
-        container_request = _PendingRequest(self._loop, container_message, self._get_next_even_seqno)
-        container_message_id = await self._rpc_call(container_request, wait_result=True)
+        container_request = PendingRequest(self._loop, container_message, self._get_next_even_seqno, False)
+        container_message_id = await self._rpc_call(container_request, parent_is_waiting=True)
 
         await asyncio.wait((*responses, container_request.response), return_when=asyncio.FIRST_COMPLETED)
 
@@ -220,18 +128,29 @@ class Client:
 
         return typing.cast(tuple[TlMessageBody | BaseException], results)
 
-    async def rpc_call(self, payload: dict[str, any]) -> TlMessageBody:
-        pending_request = _PendingRequest(self._loop, payload, self._get_next_odd_seqno)
-        await self._rpc_call(pending_request, wait_result=True)
+    async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
+        pending_request = PendingRequest(self._loop, payload, self._get_next_odd_seqno, True)
+        await self._rpc_call(pending_request, parent_is_waiting=True)
         return await pending_request.response
 
-    async def _rpc_call(self, request: _PendingRequest, *, wait_result: bool) -> int:
+    async def _rpc_call(self, request: PendingRequest, *, parent_is_waiting: bool) -> int:
         request.retries += 1
 
-        if wait_result:
+        if parent_is_waiting:
             await self._start_mtproto_loop_if_needed()
 
-        message, message_id = self._mtproto.box_message(request.next_seq_no(), **request.request)
+        if request.allow_container:
+            layer_init_boxing_required = self._layer_init_required
+        else:
+            layer_init_boxing_required = False
+
+        request_body = request.request
+
+        if layer_init_boxing_required:
+            request_body = self._wrap_request_in_layer_init(request_body)
+            self._layer_init_required = False
+
+        message, message_id = self._mtproto.box_message(request.next_seq_no(), **request_body)
 
         logging.debug("sending message (%s) %d to mtproto", request.request["_cons"], message_id)
 
@@ -243,9 +162,7 @@ class Client:
         self._pending_requests[message_id] = request
 
         try:
-            if wait_result:
-                await self._connection_init_wait_future
-            await asyncio.wait_for(self._mtproto.write(message), 120)
+            await self._write_mtproto_socket(message, 120, parent_is_waiting)
         except (KeyboardInterrupt, asyncio.CancelledError):
             self._cancel_pending_request(message_id)
             raise
@@ -253,10 +170,20 @@ class Client:
             logging.error("failure while write tl payload to mtproto: %s", traceback.format_exc())
             self.disconnect()
 
-        if wait_result:
-            await self._start_mtproto_loop_if_needed()
-
         return message_id
+
+    def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
+        message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.dict())
+        message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
+        return message
+
+    async def _write_mtproto_socket(self, message: tl.Value, timeout: int, parent_is_waiting: bool):
+        write_coro = self._mtproto.write(message)
+
+        if parent_is_waiting:
+            await asyncio.wait_for(write_coro, timeout)
+        else:
+            await write_coro
 
     async def _start_mtproto_loop(self):
         self.disconnect()
@@ -264,30 +191,15 @@ class Client:
         logging.debug("connecting to Telegram at %s", self._datacenter)
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
 
-        await self._create_init_request()
+        await self._create_init_requests()
+
+    async def _create_init_requests(self):
         await self._create_ping_request()
         await self._create_future_salt_request()
 
-    async def _create_init_request(self):
-        message = dict(_cons="initConnection", _wrapped=dict(_cons="help.getConfig"), **self._connection_info.dict())
-        message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
-
-        if (connection_init_wait_future := self._connection_init_wait_future).done():
-            connection_init_wait_future = self._connection_init_wait_future = asyncio.Future()
-
-        init_request = _PendingRequest(self._loop, message, self._get_next_odd_seqno)
-        await self._rpc_call(init_request, wait_result=False)
-
-        try:
-            connection_init_wait_future.set_result(await init_request.response)
-        except:
-            if not connection_init_wait_future.done():
-                connection_init_wait_future.set_exception(ConnectionError())
-                connection_init_wait_future.exception()
-
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
-        get_future_salts_request = _PendingRequest(self._loop, get_future_salts_message, self._get_next_odd_seqno)
+        get_future_salts_request = PendingRequest(self._loop, get_future_salts_message, self._get_next_odd_seqno, False)
 
         if pending_future_salt := self._pending_future_salt:
             pending_future_salt.cancel()
@@ -296,16 +208,16 @@ class Client:
             30,
             lambda: self._loop.create_task(self._create_future_salt_request()))
 
-        await self._rpc_call(get_future_salts_request, wait_result=False)
+        await self._rpc_call(get_future_salts_request, parent_is_waiting=False)
 
     async def _create_ping_request(self):
         random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
         self._pending_pongs[random_ping_id] = self._loop.call_later(10, self.disconnect)
 
         ping_message = dict(_cons="ping", ping_id=random_ping_id)
-        ping_request = _PendingRequest(self._loop, ping_message, self._get_next_odd_seqno)
+        ping_request = PendingRequest(self._loop, ping_message, self._get_next_odd_seqno, False)
 
-        await self._rpc_call(ping_request, wait_result=False)
+        await self._rpc_call(ping_request, parent_is_waiting=False)
 
     def _get_next_odd_seqno(self) -> int:
         self._auth_key.seq_no = ((self._auth_key.seq_no + 1) // 2) * 2 + 1
@@ -344,12 +256,16 @@ class Client:
             except:
                 logging.error("failure while process message from mtproto: %s", traceback.format_exc())
 
-    async def _start_mtproto_loop_if_needed(self):
+    async def _start_mtproto_loop_if_needed(self) -> bool:
         if mtproto_loop_task := self._mtproto_loop_task:
             if mtproto_loop_task.done():
                 await self._start_mtproto_loop()
+                return True
         else:
             await self._start_mtproto_loop()
+            return True
+
+        return False
 
     async def _flush_msgids_to_ack_if_needed(self):
         if not self._msgids_to_ack:
@@ -426,11 +342,11 @@ class Client:
 
     async def _process_update_short_message(self, body: TlMessageBody):
         if not self._no_updates:
-            await self._updates_queue.put(_Update([], [], body))
+            await self._updates_queue.put(Update([], [], body))
 
     async def _process_update_short(self, body: TlMessageBody):
         if not self._no_updates:
-            await self._updates_queue.put(_Update([], [], body.update))
+            await self._updates_queue.put(Update([], [], body.update))
 
     def _process_msgs_ack(self, body: TlMessageBody):
         logging.debug("received msgs_ack %r", body.msg_ids)
@@ -474,7 +390,7 @@ class Client:
 
         for bad_msg_id, bad_request in bad_requests.items():
             self._pending_requests.pop(bad_msg_id, None)
-            await self._rpc_call(bad_request, wait_result=False)
+            await self._rpc_call(bad_request, parent_is_waiting=False)
 
     async def _process_updates(self, body: TlMessageBody):
         if self._no_updates:
@@ -484,7 +400,7 @@ class Client:
         chats = body.chats
 
         for update in body.updates:
-            await self._updates_queue.put(_Update(users, chats, update))
+            await self._updates_queue.put(Update(users, chats, update))
 
     def _process_pong(self, pong: TlMessageBody):
         logging.debug("pong message: %d", pong.ping_id)
@@ -514,8 +430,8 @@ class Client:
         msgids_to_ack = self._msgids_to_ack[:1024]
 
         msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=msgids_to_ack)
-        msgids_to_ack_request = _PendingRequest(self._loop, msgids_to_ack_message, self._get_next_even_seqno)
-        msgids_to_ack_message_id = await self._rpc_call(msgids_to_ack_request, wait_result=False)
+        msgids_to_ack_request = PendingRequest(self._loop, msgids_to_ack_message, self._get_next_even_seqno, False)
+        msgids_to_ack_message_id = await self._rpc_call(msgids_to_ack_request, parent_is_waiting=False)
 
         if pending_msgids_to_ack_request := self._pending_requests.pop(msgids_to_ack_message_id, False):
             pending_msgids_to_ack_request.finalize()
@@ -533,7 +449,7 @@ class Client:
         logging.debug("updating salt: %d", body.new_server_salt)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
-            await self._rpc_call(bad_request, wait_result=False)
+            await self._rpc_call(bad_request, parent_is_waiting=False)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -557,7 +473,7 @@ class Client:
         logging.debug("updating seqno by %d to %d", self._seqno_increment, self._auth_key.seq_no)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
-            await self._rpc_call(bad_request, wait_result=False)
+            await self._rpc_call(bad_request, parent_is_waiting=False)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -573,7 +489,7 @@ class Client:
 
             if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
-                await self._rpc_call(pending_request, wait_result=False)
+                await self._rpc_call(pending_request, parent_is_waiting=False)
 
             elif result == "rpc_error":
                 pending_request.response.set_exception(RpcError(result.error_code, result.error_message))
@@ -584,6 +500,8 @@ class Client:
                 pending_request.finalize()
 
     def disconnect(self):
+        self._layer_init_required = True
+
         self._updates_queue.put_nowait(None)
 
         for pending_pong in self._pending_pongs.values():
@@ -605,10 +523,6 @@ class Client:
             pending_ping_request.cancel()
 
         self._pending_ping = None
-
-        if not (connection_init_wait_future := self._connection_init_wait_future).done():
-            connection_init_wait_future.set_exception(ConnectionError())
-            connection_init_wait_future.exception()
 
         if mtproto_link := self._mtproto:
             mtproto_link.stop()

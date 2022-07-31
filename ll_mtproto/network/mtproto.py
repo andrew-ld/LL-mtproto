@@ -8,74 +8,21 @@ import secrets
 import time
 import typing
 
-from . import encryption
-from .encryption import AesIgeAsyncStream
 from .tcp import AbridgedTCP
+from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
+from ..crypto.public_rsa import PublicRSA
 from ..math import primes
 from ..tl import tl
 from ..tl.byteutils import to_bytes, sha1, xor, sha256, ByteReaderApply, to_reader, reader_discard
 from ..tl.tl import Structure
+from ..crypto import AuthKey
 
 if typing.TYPE_CHECKING:
     from .datacenter_info import DatacenterInfo
 else:
     DatacenterInfo = None
 
-__all__ = ("AuthKey", "MTProto")
-
-
-class AuthKey:
-    __slots__ = ("auth_key", "auth_key_id", "auth_key_lock", "session_id", "server_salt", "seq_no")
-
-    auth_key: None | bytes
-    auth_key_id: None | bytes
-    auth_key_lock: asyncio.Lock
-    session_id: None | int
-    server_salt: None | int
-    seq_no: int
-
-    def __init__(
-            self,
-            auth_key: None | bytes = None,
-            auth_key_id: None | bytes = None,
-            session_id: None | int = None,
-            server_salt: None | int = None,
-            seq_no: None | int = None
-    ):
-        self.auth_key = auth_key
-        self.auth_key_id = auth_key_id
-        self.session_id = session_id
-        self.server_salt = server_salt
-        self.seq_no = seq_no or -1
-        self.auth_key_lock = asyncio.Lock()
-
-    @staticmethod
-    def generate_auth_key_id(auth_key: bytes) -> bytes:
-        return sha1(auth_key)[-8:]
-
-    @staticmethod
-    def generate_new_session_id() -> int:
-        return secrets.randbits(64)
-
-    def clone(self) -> "AuthKey":
-        return AuthKey(self.auth_key, self.auth_key_id, AuthKey.generate_new_session_id(), self.server_salt)
-
-    def __getstate__(self) -> tuple[bytes | None, int | None]:
-        return self.auth_key, self.server_salt
-
-    def __setstate__(self, state: tuple[bytes | None, int | None] | bytes):
-        self.auth_key_lock = asyncio.Lock()
-
-        self.session_id = AuthKey.generate_new_session_id()
-        self.seq_no = -1
-
-        if isinstance(state, bytes):
-            self.auth_key = state
-            self.server_salt = secrets.randbits(8)
-        else:
-            self.auth_key, self.server_salt = state
-
-        self.auth_key_id = AuthKey.generate_auth_key_id(self.auth_key) if self.auth_key else None
+__all__ = ("MTProto",)
 
 
 class MTProto:
@@ -91,9 +38,21 @@ class MTProto:
         "_last_msg_ids",
     )
 
+    @staticmethod
+    def prepare_key(auth_key: bytes, msg_key: bytes, read: bool) -> AesIge:
+        x = 0 if read else 8
+
+        sha256a = sha256(msg_key + auth_key[x: x + 36])
+        sha256b = sha256(auth_key[x + 40:x + 76] + msg_key)
+
+        aes_key = sha256a[:8] + sha256b[8:24] + sha256a[24:32]
+        aes_iv = sha256b[:8] + sha256a[8:24] + sha256b[24:32]
+
+        return AesIge(aes_key, aes_iv)
+
     _loop: asyncio.AbstractEventLoop
     _link: AbridgedTCP
-    _public_rsa_key: encryption.PublicRSA
+    _public_rsa_key: PublicRSA
     _read_message_lock: asyncio.Lock
     _last_message_id: int
     _auth_key: AuthKey
@@ -221,7 +180,7 @@ class MTProto:
 
         tmp_aes_key = tmp_aes_key_1 + tmp_aes_key_2[:12]
         tmp_aes_iv = tmp_aes_iv_1[12:] + tmp_aes_iv_2 + new_nonce[:4]
-        tmp_aes = encryption.AesIge(tmp_aes_key, tmp_aes_iv)
+        tmp_aes = AesIge(tmp_aes_key, tmp_aes_iv)
 
         (answer_hash, answer), b = await asyncio.gather(
             self._in_thread(tmp_aes.decrypt_with_hash, params.encrypted_answer),
@@ -300,7 +259,7 @@ class MTProto:
             g_b=to_bytes(g_b),
         ).get_flat_bytes()
 
-        tmp_aes = encryption.AesIge(tmp_aes_key, tmp_aes_iv)
+        tmp_aes = AesIge(tmp_aes_key, tmp_aes_iv)
 
         await self._write_unencrypted_message(
             _cons="set_client_DH_params",
@@ -331,7 +290,7 @@ class MTProto:
                 raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
 
             msg_key = await self._link.readn(16)
-            msg_aes = await self._in_thread(encryption.prepare_key, auth_key, msg_key, False)
+            msg_aes = await self._in_thread(self.prepare_key, auth_key, msg_key, False)
             msg_aes_stream = AesIgeAsyncStream(msg_aes, self._in_thread, self._link.read)
 
             plain_sha256 = hashlib.sha256()
@@ -409,7 +368,7 @@ class MTProto:
 
         padding = await self._in_thread(secrets.token_bytes, (-(len(message_inner_data_envelope) + 12) % 16 + 12))
         msg_key = (await self._in_thread(sha256, auth_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
-        aes = await self._in_thread(encryption.prepare_key, auth_key, msg_key, True)
+        aes = await self._in_thread(self.prepare_key, auth_key, msg_key, True)
         encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
 
         full_message = self._schema.bare(
