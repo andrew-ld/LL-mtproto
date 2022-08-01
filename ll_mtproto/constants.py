@@ -35,14 +35,13 @@ def _get_codec() -> TransportCodecAbridged:
     return codec
 
 
-_public_rsa = _get_public_rsa()
-_schema = _get_schema()
-_executor = _get_executor()
-_codec = _get_codec()
-
-
 class TelegramDatacenter:
     __slots__ = ()
+
+    _public_rsa = _get_public_rsa()
+    _schema = _get_schema()
+    _executor = _get_executor()
+    _codec = _get_codec()
 
     PLUTO = DatacenterInfo("149.154.175.53", 443, _public_rsa, _schema, _executor, _codec)
     VENUS = DatacenterInfo("149.154.167.51", 443, _public_rsa, _schema, _executor, _codec)
