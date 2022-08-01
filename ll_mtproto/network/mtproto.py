@@ -8,7 +8,7 @@ import secrets
 import time
 import typing
 
-from .tcp import IntermediateTCP
+from .transport import TCP
 from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ..crypto.public_rsa import PublicRSA
 from ..math import primes
@@ -51,7 +51,7 @@ class MTProto:
         return AesIge(aes_key, aes_iv)
 
     _loop: asyncio.AbstractEventLoop
-    _link: IntermediateTCP
+    _link: TCP
     _public_rsa_key: PublicRSA
     _read_message_lock: asyncio.Lock
     _last_message_id: int
@@ -62,7 +62,7 @@ class MTProto:
 
     def __init__(self, datacenter_info: DatacenterInfo, auth_key: AuthKey):
         self._loop = asyncio.get_event_loop()
-        self._link = IntermediateTCP(datacenter_info.address, datacenter_info.port)
+        self._link = TCP(datacenter_info.address, datacenter_info.port, datacenter_info.transport_codec)
         self._public_rsa_key = datacenter_info.rsa
         self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()

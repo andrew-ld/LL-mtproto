@@ -5,64 +5,50 @@ from concurrent.futures import ThreadPoolExecutor
 from .crypto import PublicRSA
 from .network.datacenter_info import DatacenterInfo
 from .tl.tl import Schema
+from .network.transport import TransportCodecAbridged
 
-_path = __ospath.dirname(__file__)
-_telegram_rsa = open(_path + "/resources/telegram.rsa.pub").read()
+_ll_mtproto_path = __ospath.dirname(__file__)
 
-__all__ = ("TelegramSchema", "TelegramDatacenter")
-
-_singleton_schema: Schema | None = None
-_singleton_public_rsa: PublicRSA | None = None
-_singleton_executor: ThreadPoolExecutor | None = None
-
-
-def _get_executor() -> ThreadPoolExecutor:
-    global _singleton_executor
-
-    if _singleton_executor is None:
-        _singleton_executor = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
-
-    return _singleton_executor
-
-
-def _get_public_rsa() -> PublicRSA:
-    global _singleton_public_rsa
-
-    if _singleton_public_rsa is None:
-        _singleton_public_rsa = PublicRSA(_telegram_rsa)
-
-    return _singleton_public_rsa
+__all__ = ("TelegramDatacenter",)
 
 
 def _get_schema() -> Schema:
-    global _singleton_schema
+    auth_schema = open(_ll_mtproto_path + "/resources/auth.tl").read()
+    application_schema = open(_ll_mtproto_path + "/resources/application.tl").read()
+    server_schema = open(_ll_mtproto_path + "/resources/service.tl").read()
+    merged_schema = "\n".join((auth_schema, application_schema, server_schema))
+    return Schema(merged_schema, 143)
 
-    if _singleton_schema is None:
-        _singleton_schema = Schema(TelegramSchema.MERGED_SCHEMA, TelegramSchema.SCHEMA_LAYER)
 
-    return _singleton_schema
+def _get_public_rsa() -> PublicRSA:
+    telegram_rsa = open(_ll_mtproto_path + "/resources/telegram.rsa.pub").read()
+    return PublicRSA(telegram_rsa)
 
 
-class TelegramSchema:
-    __slots__ = ()
+def _get_executor() -> ThreadPoolExecutor:
+    executor = ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
+    return executor
 
-    AUTH_SCHEMA = open(_path + "/resources/auth.tl").read()
-    APPLICATION_SCHEMA = open(_path + "/resources/application.tl").read()
-    SERVICE_SCHEMA = open(_path + "/resources/service.tl").read()
 
-    MERGED_SCHEMA = "\n".join((AUTH_SCHEMA, APPLICATION_SCHEMA, SERVICE_SCHEMA))
+def _get_codec() -> TransportCodecAbridged:
+    codec = TransportCodecAbridged()
+    return codec
 
-    SCHEMA_LAYER = 143
+
+_public_rsa = _get_public_rsa()
+_schema = _get_schema()
+_executor = _get_executor()
+_codec = _get_codec()
 
 
 class TelegramDatacenter:
     __slots__ = ()
 
-    PLUTO = DatacenterInfo("149.154.175.53", 443, _get_public_rsa(), _get_schema(), _get_executor())
-    VENUS = DatacenterInfo("149.154.167.51", 443, _get_public_rsa(), _get_schema(), _get_executor())
-    AURORA = DatacenterInfo("149.154.175.100", 443, _get_public_rsa(), _get_schema(), _get_executor())
-    VESTA = DatacenterInfo("149.154.167.91", 443, _get_public_rsa(), _get_schema(), _get_executor())
-    FLORA = DatacenterInfo("91.108.56.130", 443, _get_public_rsa(), _get_schema(), _get_executor())
+    PLUTO = DatacenterInfo("149.154.175.53", 443, _public_rsa, _schema, _executor, _codec)
+    VENUS = DatacenterInfo("149.154.167.51", 443, _public_rsa, _schema, _executor, _codec)
+    AURORA = DatacenterInfo("149.154.175.100", 443, _public_rsa, _schema, _executor, _codec)
+    VESTA = DatacenterInfo("149.154.167.91", 443, _public_rsa, _schema, _executor, _codec)
+    FLORA = DatacenterInfo("91.108.56.130", 443, _public_rsa, _schema, _executor, _codec)
 
-    VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _get_public_rsa(), _get_schema(), _get_executor())
-    VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _get_public_rsa(), _get_schema(), _get_executor())
+    VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _public_rsa, _schema, _executor, _codec)
+    VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _public_rsa, _schema, _executor, _codec)

@@ -1,11 +1,22 @@
 import asyncio
-import struct
+from . import TransportCodecBase, TransportCodecFactory
 
-__all__ = ("IntermediateTCP",)
+__all__ = ("TCP",)
 
 
-class IntermediateTCP:
-    __slots__ = ("_loop", "_host", "_port", "_connect_lock", "_reader", "_writer", "_write_lock", "_read_buffer")
+class TCP:
+    __slots__ = (
+        "_loop",
+        "_host",
+        "_port",
+        "_connect_lock",
+        "_reader",
+        "_writer",
+        "_write_lock",
+        "_read_buffer",
+        "_codec_factory",
+        "_codec"
+    )
 
     _loop: asyncio.AbstractEventLoop
     _host: str
@@ -15,18 +26,10 @@ class IntermediateTCP:
     _writer: asyncio.StreamWriter | None
     _write_lock: asyncio.Lock
     _read_buffer: bytearray
+    _codec_factory: TransportCodecFactory | None
+    _codec: TransportCodecBase | None
 
-    @staticmethod
-    async def _write_packet(data: bytes, writer: asyncio.StreamWriter):
-        writer.write(struct.pack("<i", len(data)))
-        writer.write(data)
-
-    @staticmethod
-    async def _read_packet(reader: asyncio.StreamReader) -> bytes:
-        packet_data_length = struct.unpack("<i", await reader.readexactly(4))
-        return await reader.readexactly(*packet_data_length)
-
-    def __init__(self, host: str, port: int):
+    def __init__(self, host: str, port: int, codec_factory: TransportCodecFactory):
         self._loop = asyncio.get_event_loop()
         self._host = host
         self._port = port
@@ -35,33 +38,36 @@ class IntermediateTCP:
         self._writer = None
         self._write_lock = asyncio.Lock()
         self._read_buffer = bytearray()
+        self._codec_factory = codec_factory
+        self._codec = None
 
-    async def _reconnect_if_needed(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter]:
+    async def _reconnect_if_needed(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, TransportCodecBase]:
         async with self._connect_lock:
-            reader, writer = self._reader, self._writer
+            reader, writer, codec = self._reader, self._writer, self._codec
 
-            if reader is None or writer is None:
+            if reader is None or writer is None or codec is None:
                 reader, writer = await asyncio.open_connection(self._host, self._port)
-                self._reader, self._writer = reader, writer
-                writer.write(b"\xee" * 4)
+                codec = self._codec_factory.new_codec()
+                self._reader, self._writer, self._codec = reader, writer, codec
+                await codec.write_header(writer, reader)
 
-            return reader, writer
+            return reader, writer, codec
 
     async def read(self) -> bytes:
         if self._read_buffer:
             result = bytes(self._read_buffer)
             self._read_buffer.clear()
         else:
-            reader, _ = await self._reconnect_if_needed()
-            result = await self._read_packet(reader)
+            reader, _, codec = await self._reconnect_if_needed()
+            result = await codec.read_packet(reader)
 
         return result
 
     async def readn(self, n: int) -> bytes:
-        reader, _ = await self._reconnect_if_needed()
+        reader, _, codec = await self._reconnect_if_needed()
 
         while len(self._read_buffer) < n:
-            self._read_buffer += await self._read_packet(reader)
+            self._read_buffer += await codec.read_packet(reader)
 
         result = self._read_buffer[:n]
         del self._read_buffer[:n]
@@ -70,14 +76,14 @@ class IntermediateTCP:
     async def write(self, data: bytes):
         data = bytearray(data)
 
-        _, writer = await self._reconnect_if_needed()
+        _, writer, codec = await self._reconnect_if_needed()
 
         async with self._write_lock:
             while (data_len := len(data)) > 0:
                 chunk_len = min(data_len, 0x7FFFFF)
                 chunk_mem = data[:chunk_len]
                 del data[:chunk_len]
-                await self._write_packet(chunk_mem, writer)
+                await codec.write_packet(writer, chunk_mem)
 
     def stop(self):
         if writer := self._writer:
