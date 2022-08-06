@@ -1,9 +1,12 @@
 import asyncio
 import collections
+import copy
 import logging
 import argparse
 
 from ll_mtproto import Client, AuthKey, TelegramDatacenter, ConnectionInfo
+from ll_mtproto.network.transport.transport_codec_abridged import TransportCodecAbridged
+from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 
 async def get_updates(client: Client):
@@ -30,7 +33,9 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         lang_pack=""
     )
 
-    session = Client(datacenter_info, auth_key, init_info)
+    transport_link_factory = TransportLinkTcpFactory(TransportCodecAbridged())
+
+    session = Client(datacenter_info, auth_key, init_info, transport_link_factory)
 
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
 
@@ -79,7 +84,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     media_sessions = collections.deque()
 
     for _ in range(2):
-        media_sessions.append(Client(TelegramDatacenter.VESTA_MEDIA, auth_key.clone(), init_info, no_updates=True))
+        media_sessions.append(Client(TelegramDatacenter.VESTA_MEDIA, copy.copy(auth_key), init_info, transport_link_factory, True))
 
     get_file_request = {
         "_cons": "upload.getFile",

@@ -3,9 +3,8 @@ import os.path as __ospath
 from concurrent.futures import ThreadPoolExecutor
 
 from .crypto import PublicRSA
-from .network.datacenter_info import DatacenterInfo
 from .tl.tl import Schema
-from .network.transport import TransportCodecAbridged
+from .network import DatacenterInfo
 
 _ll_mtproto_path = __ospath.dirname(__file__)
 
@@ -30,24 +29,21 @@ def _get_executor() -> ThreadPoolExecutor:
     return executor
 
 
-def _get_codec() -> TransportCodecAbridged:
-    codec = TransportCodecAbridged()
-    return codec
-
-
 class TelegramDatacenter:
     __slots__ = ()
+
+    def __init__(self):
+        raise NotImplementedError()
 
     _public_rsa = _get_public_rsa()
     _schema = _get_schema()
     _executor = _get_executor()
-    _codec = _get_codec()
 
-    PLUTO = DatacenterInfo("149.154.175.53", 443, _public_rsa, _schema, _executor, _codec)
-    VENUS = DatacenterInfo("149.154.167.51", 443, _public_rsa, _schema, _executor, _codec)
-    AURORA = DatacenterInfo("149.154.175.100", 443, _public_rsa, _schema, _executor, _codec)
-    VESTA = DatacenterInfo("149.154.167.91", 443, _public_rsa, _schema, _executor, _codec)
-    FLORA = DatacenterInfo("91.108.56.130", 443, _public_rsa, _schema, _executor, _codec)
+    PLUTO = DatacenterInfo("149.154.175.53", 443, _public_rsa, _schema, _executor)
+    VENUS = DatacenterInfo("149.154.167.51", 443, _public_rsa, _schema, _executor)
+    AURORA = DatacenterInfo("149.154.175.100", 443, _public_rsa, _schema, _executor)
+    VESTA = DatacenterInfo("149.154.167.91", 443, _public_rsa, _schema, _executor)
+    FLORA = DatacenterInfo("91.108.56.130", 443, _public_rsa, _schema, _executor)
 
-    VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _public_rsa, _schema, _executor, _codec)
-    VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _public_rsa, _schema, _executor, _codec)
+    VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _public_rsa, _schema, _executor)
+    VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _public_rsa, _schema, _executor)

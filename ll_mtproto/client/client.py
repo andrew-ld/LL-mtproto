@@ -10,6 +10,7 @@ from . import ConnectionInfo
 from ..network import mtproto, DatacenterInfo
 from ..crypto import AuthKey
 from ..network.mtproto import MTProto
+from ..network.transport import TransportLinkFactory
 from ..tl import tl
 from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
 
@@ -55,7 +56,14 @@ class Client:
     _layer_init_info: ConnectionInfo
     _layer_init_required: bool
 
-    def __init__(self, datacenter: DatacenterInfo, key: AuthKey, info: ConnectionInfo, no_updates: bool = False):
+    def __init__(
+            self,
+            datacenter: DatacenterInfo,
+            key: AuthKey,
+            info: ConnectionInfo,
+            transport_link_factory: TransportLinkFactory,
+            no_updates: bool = False
+    ):
         self._loop = asyncio.get_event_loop()
         self._msgids_to_ack = []
         self._last_time_acks_flushed = time.time()
@@ -70,7 +78,7 @@ class Client:
         self._no_updates = no_updates
         self._pending_future_salt = None
         self._datacenter = datacenter
-        self._mtproto = MTProto(datacenter, key)
+        self._mtproto = MTProto(datacenter, key, transport_link_factory)
         self._layer_init_info = info
         self._layer_init_required = True
 
@@ -177,7 +185,7 @@ class Client:
         return message
 
     async def _write_mtproto_socket(self, message: tl.Value, timeout: int, parent_is_waiting: bool):
-        write_coro = self._mtproto.write(message)
+        write_coro = self._mtproto.write_encrypted(message)
 
         if parent_is_waiting:
             await asyncio.wait_for(write_coro, timeout)
@@ -237,7 +245,7 @@ class Client:
     async def _mtproto_loop(self):
         while mtproto_link := self._mtproto:
             try:
-                message = await mtproto_link.read()
+                message = await mtproto_link.read_encrypted()
             except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
                 raise
             except:

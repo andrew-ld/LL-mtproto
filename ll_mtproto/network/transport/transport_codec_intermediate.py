@@ -1,8 +1,8 @@
 import asyncio
 import struct
 
-from .transport_codec_base import TransportCodecBase
-from .transport_codec_factory import TransportCodecFactory
+from ll_mtproto.network.transport.transport_codec_base import TransportCodecBase
+from ll_mtproto.network.transport.transport_codec_factory import TransportCodecFactory
 
 __all__ = ("TransportCodecIntermediate",)
 

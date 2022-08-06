@@ -1,41 +1,36 @@
 import asyncio
 import collections
-import concurrent.futures
 import hashlib
 import hmac
 import logging
 import secrets
 import time
-import typing
 
-from .transport import TCP
+from .datacenter_info import DatacenterInfo
+from .transport import TransportLinkBase, TransportLinkFactory
+from ..crypto import AuthKey
 from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
-from ..crypto.public_rsa import PublicRSA
 from ..math import primes
 from ..tl import tl
-from ..tl.byteutils import to_bytes, sha1, xor, sha256, ByteReaderApply, to_reader, reader_discard
+from ..tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard
+from ..tl.byteutils import to_bytes, sha1, xor
 from ..tl.tl import Structure
-from ..crypto import AuthKey
+from ..typed import InThread
 
-if typing.TYPE_CHECKING:
-    from .datacenter_info import DatacenterInfo
-else:
-    DatacenterInfo = None
-
-__all__ = ("MTProto",)
+__all__ = ("MTProto", "MTProtoKeyExchange")
 
 
 class MTProto:
     __slots__ = (
         "_loop",
         "_link",
-        "_public_rsa_key",
         "_read_message_lock",
         "_last_message_id",
         "_auth_key",
-        "_executor",
-        "_schema",
         "_last_msg_ids",
+        "_datacenter",
+        "_key_exchange",
+        "_auth_key_lock"
     )
 
     @staticmethod
@@ -51,28 +46,28 @@ class MTProto:
         return AesIge(aes_key, aes_iv)
 
     _loop: asyncio.AbstractEventLoop
-    _link: TCP
-    _public_rsa_key: PublicRSA
+    _link: TransportLinkBase
     _read_message_lock: asyncio.Lock
+    _auth_key_lock: asyncio.Lock
     _last_message_id: int
     _auth_key: AuthKey
-    _executor: concurrent.futures.Executor
     _last_msg_ids: collections.deque[int]
-    _schema: tl.Schema
+    _datacenter: DatacenterInfo
+    _key_exchange: "MTProtoKeyExchange"
 
-    def __init__(self, datacenter_info: DatacenterInfo, auth_key: AuthKey):
+    def __init__(self, datacenter: DatacenterInfo, auth_key: AuthKey, transport_link_factory: TransportLinkFactory):
         self._loop = asyncio.get_event_loop()
-        self._link = TCP(datacenter_info.address, datacenter_info.port, datacenter_info.transport_codec)
-        self._public_rsa_key = datacenter_info.rsa
+        self._link = transport_link_factory.new_transport_link(datacenter)
         self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
+        self._auth_key_lock = asyncio.Lock()
         self._last_message_id = 0
-        self._executor = datacenter_info.executor
         self._last_msg_ids = collections.deque(maxlen=64)
-        self._schema = datacenter_info.schema
+        self._datacenter = datacenter
+        self._key_exchange = MTProtoKeyExchange(self, self._in_thread, datacenter)
 
     async def _in_thread(self, *args, **kwargs):
-        return await self._loop.run_in_executor(self._executor, *args, **kwargs)
+        return await self._loop.run_in_executor(self._datacenter.executor, *args, **kwargs)
 
     def _get_message_id(self) -> int:
         message_id = (int(time.time() * 2 ** 30) | secrets.randbits(12)) * 4
@@ -83,7 +78,7 @@ class MTProto:
         self._last_message_id = message_id
         return message_id
 
-    async def _read_unencrypted_message(self) -> Structure:
+    async def read_unencrypted_message(self) -> Structure:
         async with self._read_message_lock:
             unencrypted_message_header_envelope = await self._link.readn(8 + 8)
 
@@ -95,38 +90,167 @@ class MTProto:
             full_message_reader = to_reader(full_message)
 
             try:
-                return await self._in_thread(self._schema.read, full_message_reader, False, "unencrypted_message")
+                return await self._in_thread(self._datacenter.schema.read, full_message_reader, False, "unencrypted_message")
             finally:
                 reader_discard(full_message_reader)
 
-    async def _write_unencrypted_message(self, **kwargs):
-        message = self._schema.bare(
+    async def write_unencrypted_message(self, **kwargs):
+        message = self._datacenter.schema.bare(
             _cons="unencrypted_message",
             auth_key_id=0,
             message_id=0,
-            body=self._schema.boxed(**kwargs),
+            body=self._datacenter.schema.boxed(**kwargs),
         )
 
         await self._link.write(message.get_flat_bytes())
 
-    async def _get_auth_key(self) -> tuple[bytes, bytes]:
-        async with self._auth_key.auth_key_lock:
-            if self._auth_key.auth_key is None:
-                await self._create_auth_key()
+    async def write_encrypted(self, message: tl.Value):
+        auth_key, auth_key_id = await self.get_auth_key()
 
-        return self._auth_key.auth_key, self._auth_key.auth_key_id
+        message_inner_data = self._datacenter.schema.bare(
+            _cons="message_inner_data",
+            salt=self._auth_key.server_salt,
+            session_id=self._auth_key.session_id,
+            message=message,
+        )
 
-    async def _create_auth_key(self):
+        message_inner_data_envelope = await self._in_thread(message_inner_data.get_flat_bytes)
+
+        padding = await self._in_thread(secrets.token_bytes, (-(len(message_inner_data_envelope) + 12) % 16 + 12))
+        msg_key = (await self._in_thread(sha256, auth_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
+        aes = await self._in_thread(self.prepare_key, auth_key, msg_key, True)
+        encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
+
+        full_message = self._datacenter.schema.bare(
+            _cons="encrypted_message",
+            auth_key_id=int.from_bytes(auth_key_id, "little", signed=False),
+            msg_key=msg_key,
+            encrypted_data=encrypted_message,
+        )
+
+        await self._link.write(full_message.get_flat_bytes())
+
+    async def get_auth_key(self) -> tuple[bytes, bytes]:
+        async with self._auth_key_lock:
+            auth_key_key, auth_key_id = self._auth_key.auth_key, self._auth_key.auth_key_id
+
+            if auth_key_key is None or auth_key_id is None:
+                new_key = await self._key_exchange.create_auth_key()
+                new_key.copy_to(self._auth_key)
+
+                return new_key.auth_key, new_key.auth_key_id
+
+            return auth_key_key, auth_key_id
+
+    async def read_encrypted(self) -> Structure:
+        auth_key, auth_key_id = await self.get_auth_key()
+        auth_key_part = auth_key[88 + 8:88 + 8 + 32]
+
+        async with self._read_message_lock:
+            server_auth_key_id = await self._link.readn(8)
+
+            if server_auth_key_id == b"l\xfe\xff\xffl\xfe\xff\xff":
+                raise ValueError("Received a message with corrupted authorization!")
+
+            if server_auth_key_id == b'S\xfe\xff\xffS\xfe\xff\xff':
+                raise ValueError("Too many requests!")
+
+            if server_auth_key_id != auth_key_id:
+                raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
+
+            msg_key = await self._link.readn(16)
+            msg_aes = await self._in_thread(self.prepare_key, auth_key, msg_key, False)
+            msg_aes_stream = AesIgeAsyncStream(msg_aes, self._in_thread, self._link.read)
+
+            plain_sha256 = hashlib.sha256()
+            await self._in_thread(plain_sha256.update, auth_key_part)
+            msg_aes_stream_with_hash = ByteReaderApply(msg_aes_stream, plain_sha256.update, self._in_thread)
+
+            message_inner_data_reader = to_reader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
+
+            try:
+                message = self._datacenter.schema.read(message_inner_data_reader, False, "message_inner_data_from_server")
+            finally:
+                reader_discard(message_inner_data_reader)
+
+            message_body_len = int.from_bytes(await msg_aes_stream_with_hash(4), signed=False, byteorder="little")
+            message_body_envelope = await msg_aes_stream_with_hash(message_body_len)
+
+            if len(msg_aes_stream.remaining_plain_buffer()) not in range(12, 1024):
+                raise ValueError("Received a message with wrong padding length!")
+
+            await self._in_thread(plain_sha256.update, msg_aes_stream.remaining_plain_buffer())
+            msg_key_computed = (await self._in_thread(plain_sha256.digest))[8:24]
+
+            if not hmac.compare_digest(msg_key, msg_key_computed):
+                raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
+
+            if (msg_session_id := message.session_id) != self._auth_key.session_id:
+                raise ValueError("Received a message with unknown session id!", msg_session_id)
+
+            if (msg_msg_id := message.message.msg_id) % 2 != 1:
+                raise ValueError("Received message from server to client need odd parity!", msg_msg_id)
+
+            if (msg_msg_id := message.message.msg_id) in self._last_msg_ids:
+                raise ValueError("Received duplicated message from server to client", msg_msg_id)
+            else:
+                self._last_msg_ids.append(msg_msg_id)
+
+            if (message.message.msg_id - self._get_message_id()) not in range(-(300 * (2 ** 32)), (30 * (2 ** 32))):
+                raise RuntimeError("Client time is not synchronised with telegram time!")
+
+            if (msg_salt := message.salt) != self._auth_key.server_salt:
+                logging.error("received a message with unknown salt! %d", msg_salt)
+
+            message_body_reader = to_reader(message_body_envelope)
+
+            try:
+                message.message._fields["body"] = await self._in_thread(self._datacenter.schema.read, message_body_reader)
+            finally:
+                reader_discard(message_body_reader)
+
+            return message.message
+
+    def box_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
+        message_id = self._get_message_id()
+
+        message = self._datacenter.schema.bare(
+            _cons="message",
+            msg_id=message_id,
+            seqno=seq_no,
+            body=self._datacenter.schema.boxed(**kwargs),
+        )
+
+        return message, message_id
+
+    def stop(self):
+        self._link.stop()
+        logging.debug("disconnected from Telegram")
+
+
+class MTProtoKeyExchange:
+    __slots__ = ("_mtproto", "_in_thread", "_datacenter")
+
+    _in_thread: InThread
+    _mtproto: "MTProto"
+    _datacenter: DatacenterInfo
+
+    def __init__(self, mtproto: "MTProto", in_thread: InThread, datacenter: DatacenterInfo):
+        self._mtproto = mtproto
+        self._in_thread = in_thread
+        self._datacenter = datacenter
+
+    async def create_auth_key(self) -> AuthKey:
         nonce = await self._in_thread(secrets.token_bytes, 16)
 
-        await self._write_unencrypted_message(_cons="req_pq", nonce=nonce)
+        await self._mtproto.write_unencrypted_message(_cons="req_pq", nonce=nonce)
 
-        res_pq = (await self._read_unencrypted_message()).body
+        res_pq = (await self._mtproto.read_unencrypted_message()).body
 
         if res_pq != "resPQ":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", res_pq)
 
-        if self._public_rsa_key.fingerprint not in res_pq.server_public_key_fingerprints:
+        if self._datacenter.public_rsa.fingerprint not in res_pq.server_public_key_fingerprints:
             raise ValueError("Our certificate is not supported by the server")
 
         server_nonce = res_pq.server_nonce
@@ -140,7 +264,7 @@ class MTProto:
         p_string = to_bytes(p)
         q_string = to_bytes(q)
 
-        p_q_inner_data = self._schema.boxed(
+        p_q_inner_data = self._datacenter.schema.boxed(
             _cons="p_q_inner_data",
             pq=res_pq.pq,
             p=p_string,
@@ -150,17 +274,17 @@ class MTProto:
             new_nonce=new_nonce,
         ).get_flat_bytes()
 
-        await self._write_unencrypted_message(
+        await self._mtproto.write_unencrypted_message(
             _cons="req_DH_params",
             nonce=nonce,
             server_nonce=server_nonce,
             p=p_string,
             q=q_string,
-            public_key_fingerprint=self._public_rsa_key.fingerprint,
-            encrypted_data=await self._in_thread(self._public_rsa_key.encrypt_with_hash, p_q_inner_data),
+            public_key_fingerprint=self._datacenter.public_rsa.fingerprint,
+            encrypted_data=await self._in_thread(self._datacenter.public_rsa.encrypt_with_hash, p_q_inner_data),
         )
 
-        params = (await self._read_unencrypted_message()).body
+        params = (await self._mtproto.read_unencrypted_message()).body
 
         if params != "server_DH_params_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params)
@@ -195,7 +319,7 @@ class MTProto:
             answer_hash_performer.update(result)
             return result
 
-        params2 = await self._in_thread(self._schema.read, answer_reader_hasher)
+        params2 = await self._in_thread(self._datacenter.schema.read, answer_reader_hasher)
         answer_hash_computed = await self._in_thread(answer_hash_performer.digest)
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):
@@ -246,12 +370,11 @@ class MTProto:
         if g_b > dh_prime - (2 ** (2048 - 64)):
             raise RuntimeError("Diffie–Hellman exchange failed: g_b > dh_prime - (2 ** (2048 - 64))")
 
-        self._auth_key.auth_key = to_bytes(auth_key)
-        self._auth_key.auth_key_id = (await self._in_thread(AuthKey.generate_auth_key_id, self._auth_key.auth_key))
-        self._auth_key.server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
-        self._auth_key.session_id = await self._in_thread(AuthKey.generate_new_session_id)
+        server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
 
-        client_dh_inner_data = self._schema.boxed(
+        new_key = AuthKey(auth_key=to_bytes(auth_key), server_salt=server_salt)
+
+        client_dh_inner_data = self._datacenter.schema.boxed(
             _cons="client_DH_inner_data",
             nonce=nonce,
             server_nonce=server_nonce,
@@ -261,125 +384,16 @@ class MTProto:
 
         tmp_aes = AesIge(tmp_aes_key, tmp_aes_iv)
 
-        await self._write_unencrypted_message(
+        await self._mtproto.write_unencrypted_message(
             _cons="set_client_DH_params",
             nonce=nonce,
             server_nonce=server_nonce,
             encrypted_data=await self._in_thread(tmp_aes.encrypt_with_hash, client_dh_inner_data),
         )
 
-        params3 = (await self._read_unencrypted_message()).body
+        params3 = (await self._mtproto.read_unencrypted_message()).body
 
         if params3 != "dh_gen_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
-    async def read(self) -> Structure:
-        auth_key, auth_key_id = await self._get_auth_key()
-        auth_key_part = auth_key[88 + 8:88 + 8 + 32]
-
-        async with self._read_message_lock:
-            server_auth_key_id = await self._link.readn(8)
-
-            if server_auth_key_id == b"l\xfe\xff\xffl\xfe\xff\xff":
-                raise ValueError("Received a message with corrupted authorization!")
-
-            if server_auth_key_id == b'S\xfe\xff\xffS\xfe\xff\xff':
-                raise ValueError("Too many requests!")
-
-            if server_auth_key_id != auth_key_id:
-                raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
-
-            msg_key = await self._link.readn(16)
-            msg_aes = await self._in_thread(self.prepare_key, auth_key, msg_key, False)
-            msg_aes_stream = AesIgeAsyncStream(msg_aes, self._in_thread, self._link.read)
-
-            plain_sha256 = hashlib.sha256()
-            await self._in_thread(plain_sha256.update, auth_key_part)
-            msg_aes_stream_with_hash = ByteReaderApply(msg_aes_stream, plain_sha256.update, self._in_thread)
-
-            message_inner_data_reader = to_reader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
-
-            try:
-                message = self._schema.read(message_inner_data_reader, False, "message_inner_data_from_server")
-            finally:
-                reader_discard(message_inner_data_reader)
-
-            message_body_len = int.from_bytes(await msg_aes_stream_with_hash(4), signed=False, byteorder="little")
-            message_body_envelope = await msg_aes_stream_with_hash(message_body_len)
-
-            if len(msg_aes_stream.remaining_plain_buffer()) not in range(12, 1024):
-                raise ValueError("Received a message with wrong padding length!")
-
-            await self._in_thread(plain_sha256.update, msg_aes_stream.remaining_plain_buffer())
-            msg_key_computed = (await self._in_thread(plain_sha256.digest))[8:24]
-
-            if not hmac.compare_digest(msg_key, msg_key_computed):
-                raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
-
-            if (msg_session_id := message.session_id) != self._auth_key.session_id:
-                raise ValueError("Received a message with unknown session id!", msg_session_id)
-
-            if (msg_msg_id := message.message.msg_id) % 2 != 1:
-                raise ValueError("Received message from server to client need odd parity!", msg_msg_id)
-
-            if (msg_msg_id := message.message.msg_id) in self._last_msg_ids:
-                raise ValueError("Received duplicated message from server to client", msg_msg_id)
-            else:
-                self._last_msg_ids.append(msg_msg_id)
-
-            if (message.message.msg_id - self._get_message_id()) not in range(-(300 * (2 ** 32)), (30 * (2 ** 32))):
-                raise RuntimeError("Client time is not synchronised with telegram time!")
-
-            if (msg_salt := message.salt) != self._auth_key.server_salt:
-                logging.error("received a message with unknown salt! %d", msg_salt)
-
-            message_body_reader = to_reader(message_body_envelope)
-
-            try:
-                message.message._fields["body"] = await self._in_thread(self._schema.read, message_body_reader)
-            finally:
-                reader_discard(message_body_reader)
-
-            return message.message
-
-    def box_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
-        message_id = self._get_message_id()
-
-        message = self._schema.bare(
-            _cons="message",
-            msg_id=message_id,
-            seqno=seq_no,
-            body=self._schema.boxed(**kwargs),
-        )
-
-        return message, message_id
-
-    async def write(self, message: tl.Value):
-        auth_key, auth_key_id = await self._get_auth_key()
-
-        message_inner_data = self._schema.bare(
-            _cons="message_inner_data",
-            salt=self._auth_key.server_salt,
-            session_id=self._auth_key.session_id,
-            message=message,
-        )
-
-        message_inner_data_envelope = await self._in_thread(message_inner_data.get_flat_bytes)
-
-        padding = await self._in_thread(secrets.token_bytes, (-(len(message_inner_data_envelope) + 12) % 16 + 12))
-        msg_key = (await self._in_thread(sha256, auth_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
-        aes = await self._in_thread(self.prepare_key, auth_key, msg_key, True)
-        encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
-
-        full_message = self._schema.bare(
-            _cons="encrypted_message",
-            auth_key_id=int.from_bytes(auth_key_id, "little", signed=False),
-            msg_key=msg_key,
-            encrypted_data=encrypted_message,
-        )
-
-        await self._link.write(full_message.get_flat_bytes())
-
-    def stop(self):
-        self._link.stop()
-        logging.debug("disconnected from Telegram")
+        return new_key

@@ -1,3 +1,3 @@
-from .ll_mtproto import Client, AuthKey, TelegramDatacenter, RpcError, ConnectionInfo
+from .ll_mtproto import Client, AuthKey, TelegramDatacenter, RpcError, ConnectionInfo, Update
 
-__all__ = ("Client", "TelegramDatacenter", "AuthKey", "RpcError", "ConnectionInfo")
+__all__ = ("Client", "TelegramDatacenter", "Update", "AuthKey", "RpcError", "ConnectionInfo")
