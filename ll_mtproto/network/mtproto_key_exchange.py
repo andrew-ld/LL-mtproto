@@ -215,7 +215,7 @@ class MTProtoKeyExchange:
                 _cons="message_inner_data",
                 salt=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True),
                 session_id=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=False),
-                message=dict(
+                message=self._datacenter.schema.boxed(
                     _cons="message",
                     msg_id=bind_temp_auth_msg_id,
                     seqno=0,
@@ -246,7 +246,7 @@ class MTProtoKeyExchange:
 
             new_auth_key.seq_no = ((new_auth_key.seq_no + 1) // 2) * 2 + 1
 
-            bind_temp_auth_message = dict(
+            bind_temp_auth_message = self._datacenter.schema.boxed(
                 _cons="auth.bindTempAuthKey",
                 perm_auth_key_id=perm_auth_key.auth_key_id,
                 nonce=bind_temp_auth_nonce,
@@ -258,7 +258,7 @@ class MTProtoKeyExchange:
                 _cons="message",
                 msg_id=bind_temp_auth_msg_id,
                 seqno=new_auth_key.seq_no,
-                body=self._datacenter.schema.boxed(**bind_temp_auth_message),
+                body=bind_temp_auth_message,
             )
 
             await self._mtproto.write_encrypted(bind_temp_auth_boxed_message, new_auth_key)
