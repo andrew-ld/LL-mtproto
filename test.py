@@ -1,5 +1,6 @@
 import asyncio
 import collections
+import concurrent.futures
 import copy
 import logging
 import argparse
@@ -23,7 +24,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     auth_key = AuthKey()
     datacenter_info = TelegramDatacenter.VESTA
 
-    init_info = ConnectionInfo(
+    connection_info = ConnectionInfo(
         api_id=api_id,
         device_model="enterprise desktop computer 2",
         system_version="linux 5.777",
@@ -35,7 +36,17 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     transport_link_factory = TransportLinkTcpFactory(TransportCodecAbridged())
 
-    session = Client(datacenter_info, auth_key, init_info, transport_link_factory)
+    blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+
+    session = Client(
+        datacenter_info,
+        auth_key,
+        connection_info,
+        transport_link_factory,
+        blocking_executor,
+        use_perfect_forward_secrecy=True,
+        no_updates=False
+    )
 
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
 
@@ -84,7 +95,17 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     media_sessions = collections.deque()
 
     for _ in range(2):
-        media_sessions.append(Client(TelegramDatacenter.VESTA_MEDIA, copy.copy(auth_key), init_info, transport_link_factory, True))
+        media_session = Client(
+            TelegramDatacenter.VESTA_MEDIA,
+            copy.copy(auth_key),
+            connection_info,
+            transport_link_factory,
+            blocking_executor,
+            use_perfect_forward_secrecy=True,
+            no_updates=True
+        )
+
+        media_sessions.append(media_session)
 
     get_file_request = {
         "_cons": "upload.getFile",

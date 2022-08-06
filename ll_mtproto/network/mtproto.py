@@ -11,7 +11,7 @@ from .transport import TransportLinkBase, TransportLinkFactory
 from ..crypto import AuthKey
 from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ..tl import tl
-from ..tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard
+from ..tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1
 from ..tl.tl import Structure
 from ..typed import InThread
 
@@ -24,14 +24,13 @@ class MTProto:
         "_link",
         "_read_message_lock",
         "_last_message_id",
-        "_auth_key",
         "_last_msg_ids",
         "_datacenter",
         "_in_thread"
     )
 
     @staticmethod
-    def prepare_key(auth_key: bytes, msg_key: bytes, read: bool) -> AesIge:
+    def prepare_key_v2(auth_key: bytes, msg_key: bytes, read: bool) -> AesIge:
         x = 0 if read else 8
 
         sha256a = sha256(msg_key + auth_key[x: x + 36])
@@ -42,27 +41,37 @@ class MTProto:
 
         return AesIge(aes_key, aes_iv)
 
+    @staticmethod
+    def prepare_key_v1_write(auth_key: bytes, msg_key: bytes) -> AesIge:
+        sha1_a = sha1(msg_key + auth_key[:32])
+        sha1_b = sha1(auth_key[32:48] + msg_key + auth_key[48:64])
+        sha1_c = sha1(auth_key[64:96] + msg_key)
+        sha1_d = sha1(msg_key + auth_key[96:128])
+
+        aes_key = sha1_a[:8] + sha1_b[8:20] + sha1_c[4:16]
+        aes_iv = sha1_a[8:20] + sha1_b[:8] + sha1_c[16:20] + sha1_d[:8]
+
+        return AesIge(aes_key, aes_iv)
+
     _loop: asyncio.AbstractEventLoop
     _link: TransportLinkBase
     _read_message_lock: asyncio.Lock
     _auth_key_lock: asyncio.Lock
     _last_message_id: int
-    _auth_key: AuthKey
     _last_msg_ids: collections.deque[int]
     _datacenter: DatacenterInfo
     _in_thread: InThread
 
-    def __init__(self, datacenter: DatacenterInfo, auth_key: AuthKey, transport_link_factory: TransportLinkFactory, in_thread: InThread):
+    def __init__(self, datacenter: DatacenterInfo, transport_link_factory: TransportLinkFactory, in_thread: InThread):
         self._loop = asyncio.get_event_loop()
         self._link = transport_link_factory.new_transport_link(datacenter)
-        self._auth_key = auth_key
         self._read_message_lock = asyncio.Lock()
         self._last_message_id = 0
         self._last_msg_ids = collections.deque(maxlen=64)
         self._datacenter = datacenter
         self._in_thread = in_thread
 
-    def _get_message_id(self) -> int:
+    def get_next_message_id(self) -> int:
         message_id = (int(time.time() * 2 ** 30) | secrets.randbits(12)) * 4
 
         if message_id <= self._last_message_id:
@@ -98,25 +107,25 @@ class MTProto:
         await self._link.write(message.get_flat_bytes())
 
     async def write_encrypted(self, message: tl.Value, auth_key: AuthKey):
-        auth_key, auth_key_id = auth_key.get_or_assert_empty()
+        auth_key_key, auth_key_id = auth_key.get_or_assert_empty()
 
         message_inner_data = self._datacenter.schema.bare(
             _cons="message_inner_data",
-            salt=self._auth_key.server_salt,
-            session_id=self._auth_key.session_id,
+            salt=auth_key.server_salt,
+            session_id=auth_key.session_id,
             message=message,
         )
 
         message_inner_data_envelope = await self._in_thread(message_inner_data.get_flat_bytes)
 
         padding = await self._in_thread(secrets.token_bytes, (-(len(message_inner_data_envelope) + 12) % 16 + 12))
-        msg_key = (await self._in_thread(sha256, auth_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
-        aes = await self._in_thread(self.prepare_key, auth_key, msg_key, True)
+        msg_key = (await self._in_thread(sha256, auth_key_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
+        aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, True)
         encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
 
         full_message = self._datacenter.schema.bare(
             _cons="encrypted_message",
-            auth_key_id=int.from_bytes(auth_key_id, "little", signed=False),
+            auth_key_id=auth_key_id,
             msg_key=msg_key,
             encrypted_data=encrypted_message,
         )
@@ -124,9 +133,9 @@ class MTProto:
         await self._link.write(full_message.get_flat_bytes())
 
     async def read_encrypted(self, auth_key: AuthKey) -> Structure:
-        auth_key, auth_key_id = auth_key.get_or_assert_empty()
+        auth_key_key, auth_key_id = auth_key.get_or_assert_empty()
 
-        auth_key_part = auth_key[88 + 8:88 + 8 + 32]
+        auth_key_part = auth_key_key[88 + 8:88 + 8 + 32]
 
         async with self._read_message_lock:
             server_auth_key_id = await self._link.readn(8)
@@ -137,11 +146,14 @@ class MTProto:
             if server_auth_key_id == b'S\xfe\xff\xffS\xfe\xff\xff':
                 raise ValueError("Too many requests!")
 
+            server_auth_key_id = int.from_bytes(server_auth_key_id, "little", signed=False)
+
             if server_auth_key_id != auth_key_id:
+                print(server_auth_key_id, auth_key_id)
                 raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
 
             msg_key = await self._link.readn(16)
-            msg_aes = await self._in_thread(self.prepare_key, auth_key, msg_key, False)
+            msg_aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, False)
             msg_aes_stream = AesIgeAsyncStream(msg_aes, self._in_thread, self._link.read)
 
             plain_sha256 = hashlib.sha256()
@@ -167,7 +179,7 @@ class MTProto:
             if not hmac.compare_digest(msg_key, msg_key_computed):
                 raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
 
-            if (msg_session_id := message.session_id) != self._auth_key.session_id:
+            if (msg_session_id := message.session_id) != auth_key.session_id:
                 raise ValueError("Received a message with unknown session id!", msg_session_id)
 
             if (msg_msg_id := message.message.msg_id) % 2 != 1:
@@ -178,10 +190,10 @@ class MTProto:
             else:
                 self._last_msg_ids.append(msg_msg_id)
 
-            if (message.message.msg_id - self._get_message_id()) not in range(-(300 * (2 ** 32)), (30 * (2 ** 32))):
+            if (message.message.msg_id - self.get_next_message_id()) not in range(-(300 * (2 ** 32)), (30 * (2 ** 32))):
                 raise RuntimeError("Client time is not synchronised with telegram time!")
 
-            if (msg_salt := message.salt) != self._auth_key.server_salt:
+            if (msg_salt := message.salt) != auth_key.server_salt:
                 logging.error("received a message with unknown salt! %d", msg_salt)
 
             message_body_reader = to_reader(message_body_envelope)
@@ -194,7 +206,7 @@ class MTProto:
             return message.message
 
     def box_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
-        message_id = self._get_message_id()
+        message_id = self.get_next_message_id()
 
         message = self._datacenter.schema.bare(
             _cons="message",

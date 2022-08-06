@@ -1,4 +1,5 @@
 import asyncio
+import concurrent.futures
 import logging
 import random
 import time
@@ -38,7 +39,10 @@ class Client:
         "_layer_init_info",
         "_layer_init_required",
         "_auth_key_lock",
-        "_mtproto_key_exchange"
+        "_mtproto_key_exchange",
+        "_use_perfect_forward_secrecy",
+        "_temp_auth_key",
+        "_blocking_executor"
     )
 
     _mtproto: mtproto.MTProto
@@ -60,6 +64,9 @@ class Client:
     _layer_init_required: bool
     _auth_key_lock: asyncio.Lock
     _mtproto_key_exchange: MTProtoKeyExchange
+    _use_perfect_forward_secrecy: bool
+    _temp_auth_key: AuthKey | None
+    _blocking_executor: concurrent.futures.Executor
 
     def __init__(
             self,
@@ -67,12 +74,16 @@ class Client:
             auth_key: AuthKey,
             connection_info: ConnectionInfo,
             transport_link_factory: TransportLinkFactory,
-            no_updates: bool = False
+            blocking_executor: concurrent.futures.Executor,
+            no_updates: bool = True,
+            use_perfect_forward_secrecy: bool = False,
     ):
         self._datacenter = datacenter
         self._auth_key = auth_key
         self._layer_init_info = connection_info
         self._no_updates = no_updates
+        self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
+        self._blocking_executor = blocking_executor
 
         self._loop = asyncio.get_event_loop()
 
@@ -95,11 +106,12 @@ class Client:
 
         self._auth_key_lock = asyncio.Lock()
 
-        self._mtproto = MTProto(datacenter, auth_key, transport_link_factory, self._in_thread)
+        self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread)
         self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter)
+        self._temp_auth_key = AuthKey() if self._use_perfect_forward_secrecy else None
 
     async def _in_thread(self, *args, **kwargs):
-        return await self._loop.run_in_executor(self._datacenter.executor, *args, **kwargs)
+        return await self._loop.run_in_executor(self._blocking_executor, *args, **kwargs)
 
     async def get_update(self) -> Update | None:
         if self._no_updates:
@@ -263,13 +275,22 @@ class Client:
 
     async def _get_auth_key(self) -> AuthKey:
         async with self._auth_key_lock:
-            auth_key = self._auth_key
+            perm_auth_key = self._auth_key
 
-            if auth_key.is_empty():
-                new_key = await self._mtproto_key_exchange.create_perm_auth_key()
-                new_key.copy_to(auth_key)
+            if perm_auth_key.is_empty():
+                new_auth_key = await self._mtproto_key_exchange.create_perm_auth_key()
+                new_auth_key.copy_to(perm_auth_key)
 
-            return auth_key
+            if self._use_perfect_forward_secrecy:
+                temp_auth_key = self._temp_auth_key
+
+                if temp_auth_key.is_empty():
+                    new_temp_auth_key = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
+                    new_temp_auth_key.copy_to(temp_auth_key)
+
+                return temp_auth_key
+
+            return perm_auth_key
 
     async def _mtproto_loop(self):
         while mtproto_link := self._mtproto:

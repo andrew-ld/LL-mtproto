@@ -2,6 +2,7 @@ import asyncio
 import hashlib
 import hmac
 import secrets
+import time
 
 from ..crypto import AesIge
 from ..math import primes
@@ -13,6 +14,8 @@ from ..crypto import AuthKey
 
 class MTProtoKeyExchange:
     __slots__ = ("_mtproto", "_in_thread", "_datacenter")
+
+    TEMP_AUTH_KEY_EXPIRE_TIME = 24 * 60 * 60
 
     _in_thread: InThread
     _mtproto: MTProto
@@ -32,9 +35,6 @@ class MTProtoKeyExchange:
     async def _create_auth_key(self, temp: bool, perm_auth_key: AuthKey | None) -> AuthKey:
         if temp and perm_auth_key is None:
             raise ValueError("You can't get a temporary key without having the permanent one")
-
-        if temp:
-            raise NotImplementedError("Temporary key exchange")
 
         nonce = await self._in_thread(secrets.token_bytes, 16)
 
@@ -59,14 +59,20 @@ class MTProtoKeyExchange:
         p_string = to_bytes(p)
         q_string = to_bytes(q)
 
+        if temp:
+            temp_key_expires_in = self.TEMP_AUTH_KEY_EXPIRE_TIME + int(time.time())
+        else:
+            temp_key_expires_in = None
+
         p_q_inner_data = self._datacenter.schema.boxed(
-            _cons="p_q_inner_data",
+            _cons="p_q_inner_data_temp" if temp else "p_q_inner_data",
             pq=res_pq.pq,
             p=p_string,
             q=q_string,
             nonce=nonce,
             server_nonce=server_nonce,
             new_nonce=new_nonce,
+            expires_in=temp_key_expires_in
         ).get_flat_bytes()
 
         await self._mtproto.write_unencrypted_message(
@@ -110,9 +116,9 @@ class MTProtoKeyExchange:
         answer_hash_performer = hashlib.sha1()
 
         def answer_reader_hasher(nbytes: int) -> bytes:
-            result = answer_reader(nbytes)
-            answer_hash_performer.update(result)
-            return result
+            reader_result = answer_reader(nbytes)
+            answer_hash_performer.update(reader_result)
+            return reader_result
 
         params2 = await self._in_thread(self._datacenter.schema.read, answer_reader_hasher)
         answer_hash_computed = await self._in_thread(answer_hash_performer.digest)
@@ -167,7 +173,7 @@ class MTProtoKeyExchange:
 
         server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
 
-        new_key = AuthKey(auth_key=to_bytes(auth_key), server_salt=server_salt)
+        new_auth_key = AuthKey(auth_key=to_bytes(auth_key), server_salt=server_salt, seq_no=1)
 
         client_dh_inner_data = self._datacenter.schema.boxed(
             _cons="client_DH_inner_data",
@@ -191,4 +197,84 @@ class MTProtoKeyExchange:
         if params3 != "dh_gen_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
-        return new_key
+        if temp:
+            bind_temp_auth_nonce = int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True)
+
+            bind_temp_auth_inner = self._datacenter.schema.boxed(
+                _cons="bind_auth_key_inner",
+                nonce=bind_temp_auth_nonce,
+                temp_auth_key_id=new_auth_key.auth_key_id,
+                perm_auth_key_id=perm_auth_key.auth_key_id,
+                temp_session_id=new_auth_key.session_id,
+                expires_at=temp_key_expires_in
+            )
+
+            bind_temp_auth_msg_id = self._mtproto.get_next_message_id()
+
+            bind_temp_auth_inner_data = self._datacenter.schema.bare(
+                _cons="message_inner_data",
+                salt=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True),
+                session_id=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=False),
+                message=dict(
+                    _cons="message",
+                    msg_id=bind_temp_auth_msg_id,
+                    seqno=0,
+                    body=bind_temp_auth_inner
+                ),
+            ).get_flat_bytes()
+
+            bind_temp_auth_inner_data_sha1 = await self._in_thread(sha1, bind_temp_auth_inner_data)
+            bind_temp_auth_inner_data_msg_key = bind_temp_auth_inner_data_sha1[4:20]
+
+            bind_temp_auth_inner_data_aes: AesIge = await self._in_thread(
+                MTProto.prepare_key_v1_write,
+                perm_auth_key.auth_key,
+                bind_temp_auth_inner_data_msg_key
+            )
+
+            bind_temp_auth_inner_data_encrypted = await self._in_thread(
+                bind_temp_auth_inner_data_aes.encrypt,
+                bind_temp_auth_inner_data
+            )
+
+            bind_temp_auth_inner_data_encrypted_boxed = self._datacenter.schema.bare(
+                _cons="encrypted_message",
+                auth_key_id=perm_auth_key.auth_key_id,
+                msg_key=bind_temp_auth_inner_data_msg_key,
+                encrypted_data=bind_temp_auth_inner_data_encrypted,
+            )
+
+            new_auth_key.seq_no = ((new_auth_key.seq_no + 1) // 2) * 2 + 1
+
+            bind_temp_auth_message = dict(
+                _cons="auth.bindTempAuthKey",
+                perm_auth_key_id=perm_auth_key.auth_key_id,
+                nonce=bind_temp_auth_nonce,
+                expires_at=temp_key_expires_in,
+                encrypted_message=bind_temp_auth_inner_data_encrypted_boxed.get_flat_bytes()
+            )
+
+            bind_temp_auth_boxed_message = self._datacenter.schema.bare(
+                _cons="message",
+                msg_id=bind_temp_auth_msg_id,
+                seqno=new_auth_key.seq_no,
+                body=self._datacenter.schema.boxed(**bind_temp_auth_message),
+            )
+
+            await self._mtproto.write_encrypted(bind_temp_auth_boxed_message, new_auth_key)
+
+            while True:
+                message = await self._mtproto.read_encrypted(new_auth_key)
+
+                if message.body != "rpc_result":
+                    continue
+
+                if message.body.req_msg_id != bind_temp_auth_msg_id:
+                    continue
+
+                if message.body.result == "boolTrue":
+                    break
+
+                raise RuntimeError("Diffie–Hellman exchange failed: `%r`", message.body.result)
+
+        return new_auth_key

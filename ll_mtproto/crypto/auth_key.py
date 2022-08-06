@@ -9,20 +9,21 @@ class AuthKey:
     __slots__ = ("auth_key", "auth_key_id", "session_id", "server_salt", "seq_no")
 
     auth_key: None | bytes
-    auth_key_id: None | bytes
+    auth_key_id: None | int
     session_id: None | int
     server_salt: None | int
     seq_no: int
 
     @staticmethod
-    def generate_auth_key_id(auth_key: bytes) -> bytes | None:
-        return sha1(auth_key)[-8:] if auth_key else None
+    def generate_auth_key_id(auth_key: bytes) -> int | None:
+        auth_key_id = sha1(auth_key)[-8:] if auth_key else None
+        return int.from_bytes(auth_key_id, "little", signed=False) if auth_key_id else None
 
     @staticmethod
     def generate_new_session_id() -> int:
         return secrets.randbits(64)
 
-    def __init__(self, auth_key: None | bytes = None, server_salt: None | int = None, seq_no: int = -1):
+    def __init__(self, auth_key: None | bytes = None, server_salt: None | int = None, seq_no: int = 1):
         self.auth_key = auth_key
         self.server_salt = server_salt
         self.seq_no = seq_no
