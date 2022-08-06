@@ -215,7 +215,7 @@ class MTProtoKeyExchange:
                 _cons="message_inner_data",
                 salt=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True),
                 session_id=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=False),
-                message=self._datacenter.schema.boxed(
+                message=self._datacenter.schema.bare(
                     _cons="message",
                     msg_id=bind_temp_auth_msg_id,
                     seqno=0,
