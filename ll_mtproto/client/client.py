@@ -208,6 +208,9 @@ class Client:
             logging.error("failure while write tl payload to mtproto: %s", traceback.format_exc())
             self.disconnect()
 
+            if (response := request.response).exception():
+                await response
+
         return message_id
 
     def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
@@ -558,7 +561,8 @@ class Client:
     def disconnect(self):
         self._layer_init_required = True
 
-        self._updates_queue.put_nowait(None)
+        if not self._no_updates:
+            self._updates_queue.put_nowait(None)
 
         for pending_pong in self._pending_pongs.values():
             pending_pong.cancel()

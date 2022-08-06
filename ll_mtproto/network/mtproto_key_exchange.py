@@ -264,8 +264,8 @@ class MTProtoKeyExchange:
 
             await self._mtproto.write_encrypted(bind_temp_auth_boxed_message, new_auth_key)
 
-            while True:
-                message = await self._mtproto.read_encrypted(new_auth_key)
+            for _ in range(10):
+                message = await asyncio.wait_for(self._mtproto.read_encrypted(new_auth_key), 10)
 
                 logging.debug("while waiting for the bindTempAuthKey result i received `%r`", message)
 
@@ -276,8 +276,10 @@ class MTProtoKeyExchange:
                     continue
 
                 if message.body.result == "boolTrue":
-                    break
+                    return new_auth_key
 
                 raise RuntimeError("Diffie–Hellman exchange failed: `%r`", message.body.result)
+
+            raise RuntimeError("Diffie–Hellman exchange failed: too many messages before bindTempAuthKey response")
 
         return new_auth_key
