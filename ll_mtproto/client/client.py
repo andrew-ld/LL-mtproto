@@ -284,6 +284,9 @@ class Client:
                 new_auth_key = await self._mtproto_key_exchange.create_perm_auth_key()
                 new_auth_key.copy_to(perm_auth_key)
 
+                if self._use_perfect_forward_secrecy:
+                    self._mtproto.stop()
+
             if self._use_perfect_forward_secrecy:
                 temp_auth_key = self._temp_auth_key
 
