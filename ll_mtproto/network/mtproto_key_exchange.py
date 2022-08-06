@@ -1,6 +1,7 @@
 import asyncio
 import hashlib
 import hmac
+import logging
 import secrets
 import time
 
@@ -265,6 +266,8 @@ class MTProtoKeyExchange:
 
             while True:
                 message = await self._mtproto.read_encrypted(new_auth_key)
+
+                logging.debug("while waiting for the bindTempAuthKey result i received `%r`", message)
 
                 if message.body != "rpc_result":
                     continue
