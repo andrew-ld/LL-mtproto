@@ -13,6 +13,7 @@ from ..network.mtproto import MTProto
 from ..network.transport import TransportLinkFactory
 from ..tl import tl
 from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
+from ..network.mtproto_key_exchange import MTProtoKeyExchange
 
 __all__ = ("Client",)
 
@@ -35,7 +36,9 @@ class Client:
         "_no_updates",
         "_pending_future_salt",
         "_layer_init_info",
-        "_layer_init_required"
+        "_layer_init_required",
+        "_auth_key_lock",
+        "_mtproto_key_exchange"
     )
 
     _mtproto: mtproto.MTProto
@@ -55,32 +58,48 @@ class Client:
     _pending_future_salt: asyncio.TimerHandle | None
     _layer_init_info: ConnectionInfo
     _layer_init_required: bool
+    _auth_key_lock: asyncio.Lock
+    _mtproto_key_exchange: MTProtoKeyExchange
 
     def __init__(
             self,
             datacenter: DatacenterInfo,
-            key: AuthKey,
-            info: ConnectionInfo,
+            auth_key: AuthKey,
+            connection_info: ConnectionInfo,
             transport_link_factory: TransportLinkFactory,
             no_updates: bool = False
     ):
+        self._datacenter = datacenter
+        self._auth_key = auth_key
+        self._layer_init_info = connection_info
+        self._no_updates = no_updates
+
         self._loop = asyncio.get_event_loop()
+
         self._msgids_to_ack = []
         self._last_time_acks_flushed = time.time()
+
         self._stable_seqno = False
         self._seqno_increment = 1
-        self._mtproto_loop_task = None
+
+        self._layer_init_required = True
+
         self._pending_requests = dict()
         self._pending_pongs = dict()
-        self._auth_key = key
         self._pending_ping = None
-        self._updates_queue = asyncio.Queue()
-        self._no_updates = no_updates
+
+        self._mtproto_loop_task = None
         self._pending_future_salt = None
-        self._datacenter = datacenter
-        self._mtproto = MTProto(datacenter, key, transport_link_factory)
-        self._layer_init_info = info
-        self._layer_init_required = True
+
+        self._updates_queue = asyncio.Queue()
+
+        self._auth_key_lock = asyncio.Lock()
+
+        self._mtproto = MTProto(datacenter, auth_key, transport_link_factory, self._in_thread)
+        self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter)
+
+    async def _in_thread(self, *args, **kwargs):
+        return await self._loop.run_in_executor(self._datacenter.executor, *args, **kwargs)
 
     async def get_update(self) -> Update | None:
         if self._no_updates:
@@ -100,7 +119,7 @@ class Client:
             await self.rpc_call(dict(_cons="help.getConfig"))
 
         for payload in payloads:
-            request = PendingRequest(self._loop, payload, self._get_next_odd_seqno, True)
+            request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
             request_message, request_message_id = self._mtproto.box_message(request.next_seq_no(), **payload)
 
             self._pending_requests[request_message_id] = request
@@ -113,7 +132,7 @@ class Client:
             raise ValueError("this method expects the `payloads` iterator to return at least one element")
 
         container_message = dict(_cons="msg_container", messages=messages)
-        container_request = PendingRequest(self._loop, container_message, self._get_next_even_seqno, False)
+        container_request = PendingRequest(self._loop.create_future(), container_message, self._get_next_even_seqno, False)
         container_message_id = await self._rpc_call(container_request, parent_is_waiting=True)
 
         await asyncio.wait((*responses, container_request.response), return_when=asyncio.FIRST_COMPLETED)
@@ -137,7 +156,7 @@ class Client:
         return typing.cast(tuple[TlMessageBody | BaseException], results)
 
     async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
-        pending_request = PendingRequest(self._loop, payload, self._get_next_odd_seqno, True)
+        pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
         await self._rpc_call(pending_request, parent_is_waiting=True)
         return await pending_request.response
 
@@ -185,7 +204,7 @@ class Client:
         return message
 
     async def _write_mtproto_socket(self, message: tl.Value, timeout: int, parent_is_waiting: bool):
-        write_coro = self._mtproto.write_encrypted(message)
+        write_coro = self._mtproto.write_encrypted(message, await self._get_auth_key())
 
         if parent_is_waiting:
             await asyncio.wait_for(write_coro, timeout)
@@ -206,7 +225,7 @@ class Client:
 
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=2)
-        get_future_salts_request = PendingRequest(self._loop, get_future_salts_message, self._get_next_odd_seqno, False)
+        get_future_salts_request = PendingRequest(self._loop.create_future(), get_future_salts_message, self._get_next_odd_seqno, False)
 
         if pending_future_salt := self._pending_future_salt:
             pending_future_salt.cancel()
@@ -222,7 +241,7 @@ class Client:
         self._pending_pongs[random_ping_id] = self._loop.call_later(10, self.disconnect)
 
         ping_message = dict(_cons="ping", ping_id=random_ping_id)
-        ping_request = PendingRequest(self._loop, ping_message, self._get_next_odd_seqno, False)
+        ping_request = PendingRequest(self._loop.create_future(), ping_message, self._get_next_odd_seqno, False)
 
         await self._rpc_call(ping_request, parent_is_waiting=False)
 
@@ -242,10 +261,20 @@ class Client:
         if pending_request := self._pending_requests.pop(msg_id, False):
             pending_request.finalize()
 
+    async def _get_auth_key(self) -> AuthKey:
+        async with self._auth_key_lock:
+            auth_key = self._auth_key
+
+            if auth_key.is_empty():
+                new_key = await self._mtproto_key_exchange.create_perm_auth_key()
+                new_key.copy_to(auth_key)
+
+            return auth_key
+
     async def _mtproto_loop(self):
         while mtproto_link := self._mtproto:
             try:
-                message = await mtproto_link.read_encrypted()
+                message = await mtproto_link.read_encrypted(await self._get_auth_key())
             except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
                 raise
             except:
@@ -433,7 +462,7 @@ class Client:
         msgids_to_ack = self._msgids_to_ack[:1024]
 
         msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=msgids_to_ack)
-        msgids_to_ack_request = PendingRequest(self._loop, msgids_to_ack_message, self._get_next_even_seqno, False)
+        msgids_to_ack_request = PendingRequest(self._loop.create_future(), msgids_to_ack_message, self._get_next_even_seqno, False)
         msgids_to_ack_message_id = await self._rpc_call(msgids_to_ack_request, parent_is_waiting=False)
 
         if pending_msgids_to_ack_request := self._pending_requests.pop(msgids_to_ack_message_id, False):

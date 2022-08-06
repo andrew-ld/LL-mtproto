@@ -1,6 +1,7 @@
 import asyncio
 
-from ll_mtproto.network.transport import TransportCodecBase, TransportCodecFactory
+from . import TransportCodecBase
+from . import TransportCodecFactory
 
 __all__ = ("TransportCodecAbridged",)
 

@@ -30,6 +30,17 @@ class AuthKey:
         self.auth_key_id = self.generate_auth_key_id(auth_key)
         self.session_id = self.generate_new_session_id()
 
+    def is_empty(self) -> bool:
+        return self.auth_key is None or self.auth_key_id is None
+
+    def get_or_assert_empty(self) -> tuple[bytes, int]:
+        auth_key, auth_key_id = self.auth_key, self.auth_key_id
+
+        if auth_key is None or auth_key_id is None:
+            raise AssertionError("Auth key is empty")
+
+        return auth_key, auth_key_id
+
     def copy_to(self, auth_key: "AuthKey"):
         auth_key.auth_key = self.auth_key
         auth_key.auth_key_id = self.auth_key_id

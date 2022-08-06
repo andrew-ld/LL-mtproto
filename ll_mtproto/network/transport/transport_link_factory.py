@@ -1,13 +1,9 @@
 import abc
-import typing
 
-from .transport_link_base import TransportLinkBase
+from . import TransportLinkBase
+from ..datacenter_info import DatacenterInfo
 
 __all__ = ("TransportLinkFactory",)
-
-
-if typing.TYPE_CHECKING:
-    from ..datacenter_info import DatacenterInfo
 
 
 class TransportLinkFactory(abc.ABC):

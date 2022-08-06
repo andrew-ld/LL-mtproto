@@ -17,12 +17,12 @@ class PendingRequest:
 
     def __init__(
             self,
-            loop: asyncio.AbstractEventLoop,
+            response: asyncio.Future[TlMessageBody],
             message: TlRequestBody,
             seq_no_func: SeqNoGenerator,
             allow_container: bool
     ):
-        self.response = loop.create_future()
+        self.response = response
         self.request = message
         self.cleaner = None
         self.retries = 0
