@@ -149,7 +149,6 @@ class MTProto:
             server_auth_key_id = int.from_bytes(server_auth_key_id, "little", signed=False)
 
             if server_auth_key_id != auth_key_id:
-                print(server_auth_key_id, auth_key_id)
                 raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
 
             msg_key = await self._link.readn(16)
