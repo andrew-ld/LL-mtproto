@@ -61,7 +61,7 @@ class MTProtoKeyExchange:
         q_string = to_bytes(q)
 
         if temp:
-            temp_key_expires_in = self.TEMP_AUTH_KEY_EXPIRE_TIME + int(time.time())
+            temp_key_expires_in = self.TEMP_AUTH_KEY_EXPIRE_TIME + self._datacenter.get_synchronized_time()
         else:
             temp_key_expires_in = None
 
@@ -135,6 +135,8 @@ class MTProtoKeyExchange:
 
         if not hmac.compare_digest(params2.server_nonce, server_nonce):
             raise RuntimeError("Diffie–Hellman exchange failed: params2 server nonce mismatch")
+
+        self._datacenter.set_synchronized_time(params2.server_time)
 
         dh_prime = int.from_bytes(params2.dh_prime, "big")
         g = params2.g

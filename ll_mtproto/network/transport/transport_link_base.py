@@ -19,4 +19,3 @@ class TransportLinkBase(abc.ABC):
     @abc.abstractmethod
     def stop(self):
         raise NotImplementedError
-

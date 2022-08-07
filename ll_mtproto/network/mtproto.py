@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import logging
 import secrets
-import time
 
 from .datacenter_info import DatacenterInfo
 from .transport import TransportLinkBase, TransportLinkFactory
@@ -72,12 +71,16 @@ class MTProto:
         self._in_thread = in_thread
 
     def get_next_message_id(self) -> int:
-        message_id = (int(time.time() * 2 ** 30) | secrets.randbits(12)) * 4
+        message_id = self._datacenter.get_synchronized_time() * 4294967296
 
         if message_id <= self._last_message_id:
-            message_id = self._last_message_id + 4
+            message_id = self._last_message_id + 1
+
+        while message_id % 4 != 0:
+            message_id += 1
 
         self._last_message_id = message_id
+
         return message_id
 
     async def read_unencrypted_message(self) -> Structure:
@@ -189,8 +192,8 @@ class MTProto:
             else:
                 self._last_msg_ids.append(msg_msg_id)
 
-            if (message.message.msg_id - self.get_next_message_id()) not in range(-(300 * (2 ** 32)), (30 * (2 ** 32))):
-                raise RuntimeError("Client time is not synchronised with telegram time!")
+            if (int(message.message.msg_id / 4294967296) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
+                raise RuntimeError("Time is not synchronised with telegram time!")
 
             if (msg_salt := message.salt) != auth_key.server_salt:
                 logging.error("received a message with unknown salt! %d", msg_salt)

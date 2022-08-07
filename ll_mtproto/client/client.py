@@ -434,6 +434,8 @@ class Client:
         if pending_future_salt := self._pending_future_salt:
             pending_future_salt.cancel()
 
+        self._datacenter.set_synchronized_time(body.now)
+
         if valid_salt := next((salt for salt in body.salts if salt.valid_since <= body.now), False):
             self._bound_auth_key.server_salt = valid_salt.salt
 
