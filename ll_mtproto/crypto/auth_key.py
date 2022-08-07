@@ -15,7 +15,7 @@ class AuthKey:
     seq_no: int
 
     @staticmethod
-    def generate_auth_key_id(auth_key: bytes) -> int | None:
+    def generate_auth_key_id(auth_key: bytes | None) -> int | None:
         auth_key_id = sha1(auth_key)[-8:] if auth_key else None
         return int.from_bytes(auth_key_id, "little", signed=False) if auth_key_id else None
 
