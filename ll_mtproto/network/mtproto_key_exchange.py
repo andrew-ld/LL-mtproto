@@ -2,7 +2,6 @@ import asyncio
 import hashlib
 import hmac
 import secrets
-import time
 import typing
 
 from ..crypto import AesIge
