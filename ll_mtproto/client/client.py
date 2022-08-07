@@ -28,7 +28,7 @@ class Client:
         "_seqno_increment",
         "_mtproto_loop_task",
         "_pending_requests",
-        "_pending_pongs",
+        "_pending_pong",
         "_datacenter",
         "_perm_auth_key",
         "_pending_ping",
@@ -54,7 +54,7 @@ class Client:
     _seqno_increment: int
     _mtproto_loop_task: asyncio.Task | None
     _pending_requests: dict[int, PendingRequest]
-    _pending_pongs: dict[int, asyncio.TimerHandle]
+    _pending_pong: asyncio.TimerHandle | None
     _datacenter: DatacenterInfo
     _perm_auth_key: AuthKey
     _pending_ping: asyncio.TimerHandle | None
@@ -98,7 +98,7 @@ class Client:
         self._layer_init_required = True
 
         self._pending_requests = dict()
-        self._pending_pongs = dict()
+        self._pending_pong = None
         self._pending_ping = None
 
         self._mtproto_loop_task = None
@@ -256,7 +256,11 @@ class Client:
 
     async def _create_ping_request(self):
         random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
-        self._pending_pongs[random_ping_id] = self._loop.call_later(10, self.disconnect)
+
+        if pending_pong := self._pending_pong:
+            pending_pong.cancel()
+
+        self._pending_pong = self._loop.call_later(10, self.disconnect)
 
         ping_message = dict(_cons="ping", ping_id=random_ping_id)
         ping_request = PendingRequest(self._loop.create_future(), ping_message, self._get_next_odd_seqno, False)
@@ -270,10 +274,6 @@ class Client:
     def _get_next_even_seqno(self) -> int:
         self._bound_auth_key.seq_no = (self._bound_auth_key.seq_no // 2 + 1) * 2
         return self._bound_auth_key.seq_no
-
-    def _cancel_pending_pong(self, ping_id: int):
-        if pending_pong := self._pending_pongs.pop(ping_id, False):
-            pending_pong.cancel()
 
     def _cancel_pending_request(self, msg_id: int):
         if pending_request := self._pending_requests.pop(msg_id, False):
@@ -467,7 +467,9 @@ class Client:
     def _process_pong(self, pong: TlMessageBody):
         logging.debug("pong message: %d", pong.ping_id)
 
-        self._cancel_pending_pong(pong.ping_id)
+        if pending_pong := self._pending_pong:
+            pending_pong.cancel()
+            self._pending_pong = None
 
         if pending_request := self._pending_requests.pop(pong.msg_id, False):
             pending_request.response.set_result(pong)
@@ -578,10 +580,10 @@ class Client:
         if not self._no_updates:
             self._updates_queue.put_nowait(None)
 
-        for pending_pong in self._pending_pongs.values():
+        if pending_pong := self._pending_pong:
             pending_pong.cancel()
 
-        self._pending_pongs.clear()
+        self._pending_pong = None
 
         for pending_request in self._pending_requests.values():
             pending_request.finalize()
