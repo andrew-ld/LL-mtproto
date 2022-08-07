@@ -265,6 +265,7 @@ class MTProtoKeyExchange:
 
             for _ in range(10):
                 message = await asyncio.wait_for(self._mtproto.read_encrypted(new_auth_key), 10)
+                new_auth_key.seq_no = max(new_auth_key.seq_no, message.seqno)
 
                 if message.body != "rpc_result":
                     continue
