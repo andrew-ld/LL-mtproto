@@ -3,6 +3,7 @@ import hashlib
 import hmac
 import secrets
 import time
+import typing
 
 from ..crypto import AesIge
 from ..math import primes
@@ -198,6 +199,9 @@ class MTProtoKeyExchange:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
         if temp:
+            perm_auth_key = typing.cast(AuthKey, perm_auth_key)
+            temp_key_expires_in = typing.cast(int, temp_key_expires_in)
+
             bind_temp_auth_nonce = int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True)
 
             bind_temp_auth_inner = self._datacenter.schema.boxed(

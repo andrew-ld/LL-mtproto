@@ -38,4 +38,3 @@ class TransportCodecAbridged(TransportCodecBase, TransportCodecFactory):
 
     async def write_header(self, writer: asyncio.StreamWriter, reader: asyncio.StreamReader):
         writer.write(b"\xef")
-

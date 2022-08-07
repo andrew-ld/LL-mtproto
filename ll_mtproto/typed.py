@@ -19,7 +19,7 @@ __all__ = (
     "TlRequestBody"
 )
 
-InThread = typing.Callable[..., typing.Awaitable[any]]
+InThread = typing.Callable[..., typing.Awaitable[typing.Any]]
 ByteReader = typing.Callable[[int], typing.Awaitable[bytes]]
 SyncByteReader = typing.Callable[[int], bytes]
 PartialByteReader = typing.Callable[[], typing.Awaitable[bytes]]

@@ -1,6 +1,8 @@
 from ..crypto import PublicRSA
 from ..tl.tl import Schema
 
+__all__ = ("DatacenterInfo",)
+
 
 class DatacenterInfo:
     __slots__ = ("address", "port", "public_rsa", "schema", "datacenter_id")

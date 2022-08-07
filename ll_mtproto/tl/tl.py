@@ -4,6 +4,7 @@ import gzip
 import re
 import struct
 import sys
+import typing
 
 from .byteutils import (
     long_hex,
@@ -259,7 +260,7 @@ class Schema:
 
             cons = self.cons_numbers.get(cons_number, False)
 
-            if not cons:
+            if not isinstance(cons, Constructor):
                 raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
 
             if parameter.type is not None and cons not in self.types[parameter.type]:
@@ -267,14 +268,14 @@ class Schema:
         else:
             cons = self.constructors.get(parameter.type, False)
 
-            if not cons:
+            if not isinstance(cons, Constructor):
                 raise ValueError(f"Unknown constructor in parameter `{parameter!r}`")
 
         return cons.deserialize_bare_data(bytereader)
 
     def serialize(self, boxed: bool, _cons: str, **kwargs) -> "Value":
         if cons := self.constructors.get(_cons, False):
-            return cons.serialize(boxed=boxed, **kwargs)
+            return typing.cast(Constructor, cons).serialize(boxed=boxed, **kwargs)
         else:
             raise NotImplementedError(f"Constructor `{_cons}` not present in schema.")
 
@@ -374,7 +375,7 @@ class Structure:
         return Structure._get_dict(self)
 
     @staticmethod
-    def _get_dict(anything: any):
+    def _get_dict(anything: typing.Any) -> typing.Any:
         if isinstance(anything, Structure):
             ret = dict(_cons=anything.constructor_name)
 
@@ -401,7 +402,7 @@ class Parameter:
     __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name")
 
     name: str
-    type: str
+    type: str | None
     flag_number: int | None
     flag_name: int | None
     is_vector: bool
@@ -412,9 +413,9 @@ class Parameter:
     def __init__(
             self,
             pname: str,
-            ptype: str,
+            ptype: str | None,
             is_boxed: bool,
-            flag_number: int = None,
+            flag_number: int | None = None,
             is_vector: bool = False,
             is_flag: bool = False,
             flag_name: int | None = None,
@@ -465,7 +466,7 @@ class Constructor:
     def __repr__(self):
         return f"{self.name} {''.join('%r ' % p for p in self._parameters)}= {self.type};"
 
-    def _serialize_argument(self, data: Value, parameter: Parameter, argument: any):
+    def _serialize_argument(self, data: Value, parameter: Parameter, argument: typing.Any) -> bytes | typing.NoReturn:
         if isinstance(argument, str):
             argument = argument.encode("utf-8")
 
@@ -566,7 +567,7 @@ class Constructor:
 
         return data
 
-    def _deserialize_argument(self, bytereader: SyncByteReader, parameter: Parameter) -> any:
+    def _deserialize_argument(self, bytereader: SyncByteReader, parameter: Parameter) -> typing.Any:
         match parameter.type:
             case "int":
                 return int.from_bytes(bytereader(4), "little", signed=True)
@@ -631,7 +632,7 @@ class Constructor:
         else:
             return self.schema.deserialize(bytereader, parameter)
 
-    def deserialize_bare_data(self, bytedata: SyncByteReader) -> Structure:
+    def deserialize_bare_data(self, bytereader: SyncByteReader) -> Structure:
         result = Structure(self.name)
         fields = result._fields
 
@@ -640,18 +641,18 @@ class Constructor:
 
             for parameter in self._parameters:
                 if parameter.is_flag:
-                    flags[parameter.flag_name] = self._deserialize_argument(bytedata, parameter)
+                    flags[parameter.flag_name] = unpack_flags(int.from_bytes(bytereader(4), "little", signed=False))
 
                 elif parameter.flag_number is not None:
                     if parameter.flag_number in flags[parameter.flag_name]:
-                        fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
+                        fields[parameter.name] = self._deserialize_argument(bytereader, parameter)
                     else:
                         fields[parameter.name] = None
 
                 else:
-                    fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
+                    fields[parameter.name] = self._deserialize_argument(bytereader, parameter)
         else:
             for parameter in self._parameters:
-                fields[parameter.name] = self._deserialize_argument(bytedata, parameter)
+                fields[parameter.name] = self._deserialize_argument(bytereader, parameter)
 
         return result

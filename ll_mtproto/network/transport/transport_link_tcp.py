@@ -70,7 +70,7 @@ class TransportLinkTcp(TransportLinkBase):
         reader, _, codec = await self._reconnect_if_needed()
 
         while len(self._read_buffer) < n:
-            self._read_buffer += await codec.read_packet(reader)
+            self._read_buffer += bytearray(await codec.read_packet(reader))
 
         result = self._read_buffer[:n]
         del self._read_buffer[:n]

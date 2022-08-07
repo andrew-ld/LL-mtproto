@@ -79,7 +79,7 @@ class GzipStreamReader:
 
     _parent: SyncByteReader
     _buffer: bytearray
-    _decompressor: zlib.decompress
+    # _decompressor: zlib.Decompress
 
     def __init__(self, parent: SyncByteReader):
         self._parent = parent
@@ -88,7 +88,7 @@ class GzipStreamReader:
 
     def __call__(self, nbytes: int) -> bytes:
         while len(self._buffer) < nbytes:
-            self._buffer += self._decompressor.decompress(self._parent(4096))
+            self._buffer += bytearray(self._decompressor.decompress(self._parent(4096)))
 
         result = self._buffer[:nbytes]
         del self._buffer[:nbytes]
@@ -104,7 +104,7 @@ def to_reader(buffer: bytes) -> _SyncByteReaderByteUtilsImpl:
 
 def _get_reader_parent(bytereader: _SyncByteReaderByteUtilsImpl) -> io.BytesIO:
     # noinspection PyUnresolvedReferences
-    return typing.cast(io.BytesIO, bytereader.__self__)
+    return typing.cast(io.BytesIO, bytereader.__self__)  # pytype: disable=attribute-error
 
 
 def reader_is_empty(reader: _SyncByteReaderByteUtilsImpl) -> bool:
