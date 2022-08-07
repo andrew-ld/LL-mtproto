@@ -23,7 +23,7 @@ class AuthKey:
     def generate_new_session_id() -> int:
         return secrets.randbits(64)
 
-    def __init__(self, auth_key: None | bytes = None, server_salt: None | int = None, seq_no: int = 1):
+    def __init__(self, auth_key: None | bytes = None, server_salt: None | int = None, seq_no: int = 0):
         self.auth_key = auth_key
         self.server_salt = server_salt
         self.seq_no = seq_no
@@ -56,7 +56,7 @@ class AuthKey:
         return self.auth_key, self.server_salt
 
     def __setstate__(self, state: tuple[bytes | None, int | None] | bytes):
-        self.seq_no = -1
+        self.seq_no = 0
 
         if isinstance(state, bytes):
             self.auth_key = state

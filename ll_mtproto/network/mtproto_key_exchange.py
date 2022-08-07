@@ -173,7 +173,7 @@ class MTProtoKeyExchange:
 
         server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
 
-        new_auth_key = AuthKey(auth_key=to_bytes(auth_key), server_salt=server_salt, seq_no=1)
+        new_auth_key = AuthKey(auth_key=to_bytes(auth_key), server_salt=server_salt)
 
         client_dh_inner_data = self._datacenter.schema.boxed(
             _cons="client_DH_inner_data",

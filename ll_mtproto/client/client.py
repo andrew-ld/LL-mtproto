@@ -30,7 +30,7 @@ class Client:
         "_pending_requests",
         "_pending_pongs",
         "_datacenter",
-        "_auth_key",
+        "_perm_auth_key",
         "_pending_ping",
         "_stable_seqno",
         "_updates_queue",
@@ -42,7 +42,8 @@ class Client:
         "_mtproto_key_exchange",
         "_use_perfect_forward_secrecy",
         "_temp_auth_key",
-        "_blocking_executor"
+        "_blocking_executor",
+        "_bound_auth_key"
     )
 
     _mtproto: mtproto.MTProto
@@ -55,7 +56,7 @@ class Client:
     _pending_requests: dict[int, PendingRequest]
     _pending_pongs: dict[int, asyncio.TimerHandle]
     _datacenter: DatacenterInfo
-    _auth_key: AuthKey
+    _perm_auth_key: AuthKey
     _pending_ping: asyncio.TimerHandle | None
     _updates_queue: asyncio.Queue[Update | None]
     _no_updates: bool
@@ -67,6 +68,7 @@ class Client:
     _use_perfect_forward_secrecy: bool
     _temp_auth_key: AuthKey | None
     _blocking_executor: concurrent.futures.Executor
+    _bound_auth_key: AuthKey
 
     def __init__(
             self,
@@ -79,7 +81,7 @@ class Client:
             use_perfect_forward_secrecy: bool = False,
     ):
         self._datacenter = datacenter
-        self._auth_key = auth_key
+        self._perm_auth_key = auth_key
         self._layer_init_info = connection_info
         self._no_updates = no_updates
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
@@ -109,6 +111,7 @@ class Client:
         self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread)
         self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter)
         self._temp_auth_key = AuthKey() if self._use_perfect_forward_secrecy else None
+        self._bound_auth_key = self._temp_auth_key if self._use_perfect_forward_secrecy else self._perm_auth_key
 
     async def _in_thread(self, *args, **kwargs):
         return await self._loop.run_in_executor(self._blocking_executor, *args, **kwargs)
@@ -261,12 +264,12 @@ class Client:
         await self._rpc_call(ping_request, parent_is_waiting=False)
 
     def _get_next_odd_seqno(self) -> int:
-        self._auth_key.seq_no = ((self._auth_key.seq_no + 1) // 2) * 2 + 1
-        return self._auth_key.seq_no
+        self._bound_auth_key.seq_no = ((self._bound_auth_key.seq_no + 1) // 2) * 2 + 1
+        return self._bound_auth_key.seq_no
 
     def _get_next_even_seqno(self) -> int:
-        self._auth_key.seq_no = (self._auth_key.seq_no // 2 + 1) * 2
-        return self._auth_key.seq_no
+        self._bound_auth_key.seq_no = (self._bound_auth_key.seq_no // 2 + 1) * 2
+        return self._bound_auth_key.seq_no
 
     def _cancel_pending_pong(self, ping_id: int):
         if pending_pong := self._pending_pongs.pop(ping_id, False):
@@ -278,7 +281,7 @@ class Client:
 
     async def _get_auth_key(self) -> AuthKey:
         async with self._auth_key_lock:
-            perm_auth_key = self._auth_key
+            perm_auth_key = self._perm_auth_key
 
             if perm_auth_key.is_empty():
                 new_auth_key = await self._mtproto_key_exchange.create_perm_auth_key()
@@ -432,7 +435,7 @@ class Client:
             pending_future_salt.cancel()
 
         if valid_salt := next((salt for salt in body.salts if salt.valid_since <= body.now), False):
-            self._auth_key.server_salt = valid_salt.salt
+            self._bound_auth_key.server_salt = valid_salt.salt
 
             salt_expire = max((valid_salt.valid_until - body.now) - 1800, 10)
 
@@ -443,7 +446,7 @@ class Client:
             logging.debug("scheduling get_future_salts, current salt is valid for %i seconds", salt_expire)
 
     async def _process_new_session_created(self, body: TlMessageBody):
-        self._auth_key.server_salt = body.server_salt
+        self._bound_auth_key.server_salt = body.server_salt
 
         bad_requests = dict((i, r) for i, r in self._pending_requests.items() if i < body.first_msg_id)
 
@@ -498,13 +501,13 @@ class Client:
         any(map(self._msgids_to_ack.remove, msgids_to_ack))
 
     def _update_last_seqno_from_incoming_message(self, message: Structure):
-        self._auth_key.seq_no = max(self._auth_key.seq_no, message.seqno)
+        self._bound_auth_key.seq_no = max(self._bound_auth_key.seq_no, message.seqno)
 
     async def _process_bad_server_salt(self, body: TlMessageBody):
-        if self._auth_key.server_salt:
+        if self._bound_auth_key.server_salt:
             self._stable_seqno = False
 
-        self._auth_key.server_salt = body.new_server_salt
+        self._bound_auth_key.server_salt = body.new_server_salt
         logging.debug("updating salt: %d", body.new_server_salt)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
@@ -515,6 +518,8 @@ class Client:
     async def _process_bad_msg_notification(self, body: TlMessageBody):
         if body.error_code == 32:
             await self._process_bad_msg_notification_msg_seqno_too_low(body)
+        elif body.error_code == 33:
+            await self._process_bad_msg_notification_msg_seqno_too_high(body)
         else:
             self._process_bad_msg_notification_reject_message(body)
 
@@ -525,11 +530,17 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
+    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: TlRequestBody):
+        if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
+            await self._rpc_call(bad_request, parent_is_waiting=False)
+        else:
+            logging.debug("bad_msg_id %d not found", body.bad_msg_id)
+
     async def _process_bad_msg_notification_msg_seqno_too_low(self, body: TlMessageBody):
         self._seqno_increment = min(2 ** 31 - 1, self._seqno_increment << 1)
-        self._auth_key.seq_no += self._seqno_increment
+        self._bound_auth_key.seq_no += self._seqno_increment
 
-        logging.debug("updating seqno by %d to %d", self._seqno_increment, self._auth_key.seq_no)
+        logging.debug("updating seqno by %d to %d", self._seqno_increment, self._bound_auth_key.seq_no)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
             await self._rpc_call(bad_request, parent_is_waiting=False)
