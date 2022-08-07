@@ -55,7 +55,7 @@ class AesIgeAsyncStream:
         self._parent = parent
         self._plain_buffer = bytearray()
 
-    async def __call__(self, nbytes: int):
+    async def __call__(self, nbytes: int) -> bytes:
         while len(self._plain_buffer) < nbytes:
             self._plain_buffer += await self._in_thread(self._aes.decrypt, await self._parent())
 

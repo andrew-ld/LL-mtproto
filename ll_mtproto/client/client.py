@@ -90,7 +90,7 @@ class Client:
         self._loop = asyncio.get_event_loop()
 
         self._msgids_to_ack = []
-        self._last_time_acks_flushed = time.time()
+        self._last_time_acks_flushed = time.perf_counter()
 
         self._stable_seqno = False
         self._seqno_increment = 1
@@ -333,7 +333,7 @@ class Client:
         if not self._msgids_to_ack:
             return
 
-        if len(self._msgids_to_ack) >= 32 or (time.time() - self._last_time_acks_flushed) > 10:
+        if len(self._msgids_to_ack) >= 32 or (time.perf_counter() - self._last_time_acks_flushed) > 10:
             await self._flush_msgids_to_ack()
 
     async def _process_telegram_message(self, message: Structure):
@@ -486,7 +486,7 @@ class Client:
             await self._flush_msgids_to_ack()
 
     async def _flush_msgids_to_ack(self):
-        self._last_time_acks_flushed = time.time()
+        self._last_time_acks_flushed = time.perf_counter()
 
         if not self._msgids_to_ack or not self._stable_seqno:
             return
