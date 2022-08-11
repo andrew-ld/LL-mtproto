@@ -5,6 +5,7 @@ import random
 import time
 import traceback
 import typing
+import warnings
 
 from . import PendingRequest, Update
 from . import ConnectionInfo
@@ -112,6 +113,9 @@ class Client:
         self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter)
         self._temp_auth_key = AuthKey() if self._use_perfect_forward_secrecy else None
         self._bound_auth_key = typing.cast(AuthKey, self._temp_auth_key) if self._use_perfect_forward_secrecy else self._perm_auth_key
+
+        if use_perfect_forward_secrecy:
+            warnings.warn("The use_perfect_forward_secrecy is currently a unstable API don't use it in production", FutureWarning)
 
     async def _in_thread(self, *args, **kwargs):
         return await self._loop.run_in_executor(self._blocking_executor, *args, **kwargs)
