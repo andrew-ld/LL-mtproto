@@ -258,17 +258,17 @@ class Schema:
                     for _ in range(int.from_bytes(bytereader(4), "little", signed=False))
                 ]
 
-            cons = self.cons_numbers.get(cons_number, False)
+            cons = self.cons_numbers.get(cons_number, None)
 
-            if not isinstance(cons, Constructor):
+            if not cons:
                 raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
 
             if parameter.type is not None and cons not in self.types[parameter.type]:
                 raise ValueError(f"type mismatch, constructor `{cons.name}` not in type `{parameter.type}`")
         else:
-            cons = self.constructors.get(parameter.type, False)
+            cons = self.constructors.get(parameter.type, None)
 
-            if not isinstance(cons, Constructor):
+            if not cons:
                 raise ValueError(f"Unknown constructor in parameter `{parameter!r}`")
 
         return cons.deserialize_bare_data(bytereader)

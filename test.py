@@ -148,7 +148,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     session.disconnect()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__" or __name__ == "uwsgi_file_test":
     _parser = argparse.ArgumentParser()
     _parser.add_argument("--api-id", type=int, required=True)
     _parser.add_argument("--api-hash", type=str, required=True)

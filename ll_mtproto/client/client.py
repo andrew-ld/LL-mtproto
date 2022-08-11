@@ -111,7 +111,7 @@ class Client:
         self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread)
         self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter)
         self._temp_auth_key = AuthKey() if self._use_perfect_forward_secrecy else None
-        self._bound_auth_key = self._temp_auth_key if self._use_perfect_forward_secrecy else self._perm_auth_key
+        self._bound_auth_key = typing.cast(AuthKey, self._temp_auth_key) if self._use_perfect_forward_secrecy else self._perm_auth_key
 
     async def _in_thread(self, *args, **kwargs):
         return await self._loop.run_in_executor(self._blocking_executor, *args, **kwargs)
@@ -159,7 +159,7 @@ class Client:
         else:
             container_request_exception = False
 
-        if pending_container_request := self._pending_requests.pop(container_message_id, False):
+        if pending_container_request := self._pending_requests.pop(container_message_id, None):
             pending_container_request.finalize()
 
         if container_request_exception:
@@ -276,7 +276,7 @@ class Client:
         return self._bound_auth_key.seq_no
 
     def _cancel_pending_request(self, msg_id: int):
-        if pending_request := self._pending_requests.pop(msg_id, False):
+        if pending_request := self._pending_requests.pop(msg_id, None):
             pending_request.finalize()
 
     async def _get_auth_key(self) -> AuthKey:
@@ -414,12 +414,12 @@ class Client:
         logging.debug("received msgs_ack %r", body.msg_ids)
 
     def _process_msgs_state_info(self, body: TlMessageBody):
-        if pending_request := self._pending_requests.pop(body.req_msg_id, False):
+        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             pending_request.response.set_result(body)
             pending_request.finalize()
 
     def _process_msg_new_detailed_info(self, body: TlMessageBody):
-        if pending_request := self._pending_requests.pop(body.answer_msg_id, False):
+        if pending_request := self._pending_requests.pop(body.answer_msg_id, None):
             pending_request.finalize()
 
     def _process_msg_detailed_info(self, body: TlMessageBody):
@@ -427,7 +427,7 @@ class Client:
         self._msgids_to_ack.append(body.msg_id)
 
     def _process_future_salts(self, body: TlMessageBody):
-        if pending_request := self._pending_requests.pop(body.req_msg_id, False):
+        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             pending_request.response.set_result(body)
             pending_request.finalize()
 
@@ -436,7 +436,7 @@ class Client:
 
         self._datacenter.set_synchronized_time(body.now)
 
-        if valid_salt := next((salt for salt in body.salts if salt.valid_since <= body.now), False):
+        if valid_salt := next((salt for salt in body.salts if salt.valid_since <= body.now), None):
             self._bound_auth_key.server_salt = valid_salt.salt
 
             salt_expire = max((valid_salt.valid_until - body.now) - 1800, 10)
@@ -473,7 +473,7 @@ class Client:
             pending_pong.cancel()
             self._pending_pong = None
 
-        if pending_request := self._pending_requests.pop(pong.msg_id, False):
+        if pending_request := self._pending_requests.pop(pong.msg_id, None):
             pending_request.response.set_result(pong)
             pending_request.finalize()
 
@@ -499,7 +499,7 @@ class Client:
         msgids_to_ack_request = PendingRequest(self._loop.create_future(), msgids_to_ack_message, self._get_next_even_seqno, False)
         msgids_to_ack_message_id = await self._rpc_call(msgids_to_ack_request, parent_is_waiting=False)
 
-        if pending_msgids_to_ack_request := self._pending_requests.pop(msgids_to_ack_message_id, False):
+        if pending_msgids_to_ack_request := self._pending_requests.pop(msgids_to_ack_message_id, None):
             pending_msgids_to_ack_request.finalize()
 
         any(map(self._msgids_to_ack.remove, msgids_to_ack))
@@ -514,7 +514,7 @@ class Client:
         self._bound_auth_key.server_salt = body.new_server_salt
         logging.debug("updating salt: %d", body.new_server_salt)
 
-        if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
+        if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request, parent_is_waiting=False)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
@@ -528,14 +528,14 @@ class Client:
             self._process_bad_msg_notification_reject_message(body)
 
     def _process_bad_msg_notification_reject_message(self, body: TlMessageBody):
-        if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
+        if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             bad_request.response.set_exception(RpcError(body.error_code, "BAD_MSG_NOTIFICATION"))
             bad_request.finalize()
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
     async def _process_bad_msg_notification_msg_seqno_too_high(self, body: TlRequestBody):
-        if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
+        if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request, parent_is_waiting=False)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
@@ -546,7 +546,7 @@ class Client:
 
         logging.debug("updating seqno by %d to %d", self._seqno_increment, self._bound_auth_key.seq_no)
 
-        if bad_request := self._pending_requests.pop(body.bad_msg_id, False):
+        if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request, parent_is_waiting=False)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
@@ -555,7 +555,7 @@ class Client:
         self._stable_seqno = True
         self._seqno_increment = 1
 
-        if pending_request := self._pending_requests.pop(body.req_msg_id, False):
+        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             if body.result == "gzip_packed":
                 result = body.result.packed_data
             else:
