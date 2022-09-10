@@ -34,7 +34,7 @@ class TelegramDatacenter:
     AURORA = DatacenterInfo("149.154.175.100", 443, _telegram_public_rsa, _telegram_api_schema, 3)
     VESTA = DatacenterInfo("149.154.167.91", 443, _telegram_public_rsa, _telegram_api_schema, 4)
     FLORA = DatacenterInfo("91.108.56.130", 443, _telegram_public_rsa, _telegram_api_schema, 5)
-    ALL_MAIN_DATACENTERS = [PLUTO, VENUS, AURORA, VENUS, FLORA]
+    ALL_MAIN_DATACENTERS = [PLUTO, VENUS, AURORA, VESTA, FLORA]
 
     VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _telegram_public_rsa, _telegram_api_schema, 2)
     VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _telegram_public_rsa, _telegram_api_schema, 4)
