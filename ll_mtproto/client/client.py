@@ -223,6 +223,10 @@ class Client:
     def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
         message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.dict())
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
+
+        if self._no_updates:
+            message = dict(_cons="invokeWithoutUpdates", _wrapped=message)
+
         return message
 
     async def _write_mtproto_socket(self, message: tl.Value, timeout: int, parent_is_waiting: bool):
