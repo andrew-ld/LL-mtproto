@@ -58,23 +58,6 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         "bot_auth_token": bot_token
     })
 
-    multiple_requests_test = await session.rpc_call_multi([
-        {
-            "_cons": "contacts.resolveUsername",
-            "username": "hackernews"
-        },
-        {
-            "_cons": "contacts.resolveUsername",
-            "username": "linuxita"
-        },
-        {
-            "_cons": "contacts.resolveUsername",
-            "username": "infosecita"
-        },
-    ])
-
-    print(multiple_requests_test)
-
     peer = await session.rpc_call({
         "_cons": "contacts.resolveUsername",
         "username": "eqf3wefwe"
