@@ -14,6 +14,7 @@ from ..network import mtproto, DatacenterInfo
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
+from ..tl.tl import Value
 from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
 
 __all__ = ("Client",)
@@ -44,7 +45,9 @@ class Client:
         "_temp_auth_key",
         "_blocking_executor",
         "_bound_auth_key",
-        "_write_queue"
+        "_write_queue",
+        "_pending_multirpc_requests",
+        "_pending_multirpc_reverse_index"
     )
 
     _mtproto: mtproto.MTProto
@@ -55,6 +58,8 @@ class Client:
     _seqno_increment: int
     _mtproto_loop_task: asyncio.Task | None
     _pending_requests: dict[int, PendingRequest]
+    _pending_multirpc_requests: dict[int, tuple[PendingRequest, list[int]]]
+    _pending_multirpc_reverse_index: dict[int, int]
     _pending_pong: asyncio.TimerHandle | None
     _datacenter: DatacenterInfo
     _perm_auth_key: AuthKey
@@ -100,6 +105,9 @@ class Client:
         self._layer_init_required = True
 
         self._pending_requests = dict()
+        self._pending_multirpc_requests = dict()
+        self._pending_multirpc_reverse_index = dict()
+
         self._pending_pong = None
         self._pending_ping = None
 
@@ -240,7 +248,7 @@ class Client:
         await self._flush_msgids_to_ack_if_needed()
 
     async def _process_outbound_multirpc_message(self, messages: list[PendingRequest]):
-        boxed_messages = []
+        boxed_messages: list[tuple[Value, int]] = []
 
         for message in messages:
             if message.response.done():
@@ -256,6 +264,7 @@ class Client:
 
             boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=message.next_seq_no(), **request_body)
             logging.debug("writing message (packed) %d (%s)", boxed_message_id, message.request["_cons"])
+
             self._pending_requests[boxed_message_id] = message
 
             if pending_cancellation := message.cleaner:
@@ -263,11 +272,19 @@ class Client:
 
             message.cleaner = self._loop.call_later(120, lambda: self._cancel_pending_request(boxed_message_id))
 
-            boxed_messages.append(boxed_message)
+            boxed_messages.append((boxed_message, boxed_message_id))
 
-        container_message = dict(_cons="msg_container", messages=boxed_messages)
+        container_message = dict(_cons="msg_container", messages=[m for m, _ in boxed_messages])
         container_request = PendingRequest(self._loop.create_future(), container_message, self._get_next_even_seqno, False)
-        await self._rpc_call(container_request)
+
+        boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=container_request.next_seq_no(), **container_message)
+
+        for _, message_id in boxed_messages:
+            self._pending_multirpc_reverse_index[message_id] = boxed_message_id
+
+        self._pending_multirpc_requests[boxed_message_id] = (container_request, [m_id for _, m_id in boxed_messages])
+
+        await self._mtproto.write_encrypted(boxed_message, self._bound_auth_key)
 
     async def _process_outbound_message(self, message: PendingRequest):
         if isinstance(message, list):
@@ -569,6 +586,23 @@ class Client:
         self._stable_seqno = True
         self._seqno_increment = 1
 
+        if multirpc_message_id := self._pending_multirpc_reverse_index.pop(body.req_msg_id, None):
+            if pending_multirpc_answer := self._pending_multirpc_requests.get(multirpc_message_id, None):
+                _, pending_multirpc_messages = pending_multirpc_answer
+                pending_multirpc_messages.remove(body.req_msg_id)
+
+                if not pending_multirpc_messages:
+                    self._pending_multirpc_requests.pop(multirpc_message_id, None)
+
+        if pending_container := self._pending_multirpc_requests.pop(body.req_msg_id, None):
+            pending_request, pending_requests = pending_container
+
+            for pending_request_message_id in pending_requests:
+                if pending_subrequest := self._pending_requests.pop(pending_request_message_id, None):
+                    await self._rpc_call(pending_subrequest)
+
+            pending_request.finalize()
+
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             if body.result == "gzip_packed":
                 result = body.result.packed_data
@@ -630,6 +664,9 @@ class Client:
                     submessage.finalize()
             else:
                 message.finalize()
+
+        self._pending_multirpc_requests.clear()
+        self._pending_multirpc_reverse_index.clear()
 
         self._mtproto_loop_task = None
 
