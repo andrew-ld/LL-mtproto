@@ -241,6 +241,12 @@ class Client:
         boxed_messages = []
 
         for message in messages:
+            if message.response.done():
+                raise asyncio.InvalidStateError("request %r already completed", message.request)
+
+            if not message.allow_container and self._layer_init_required:
+                raise asyncio.InvalidStateError("message cannot be writen because layer init is impossible")
+
             request_body = message.request
 
             if self._layer_init_required:
