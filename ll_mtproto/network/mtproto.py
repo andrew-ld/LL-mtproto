@@ -62,7 +62,7 @@ class MTProto:
     _in_thread: InThread
 
     def __init__(self, datacenter: DatacenterInfo, transport_link_factory: TransportLinkFactory, in_thread: InThread):
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         self._link = transport_link_factory.new_transport_link(datacenter)
         self._read_message_lock = asyncio.Lock()
         self._last_message_id = 0

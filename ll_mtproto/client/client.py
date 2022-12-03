@@ -94,7 +94,7 @@ class Client:
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
         self._blocking_executor = blocking_executor
 
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
 
         self._msgids_to_ack = []
         self._last_time_acks_flushed = time.perf_counter()
