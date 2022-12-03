@@ -265,7 +265,8 @@ class Client:
             boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=message.next_seq_no(), **request_body)
             logging.debug("writing message (packed) %d (%s)", boxed_message_id, message.request["_cons"])
 
-            self._pending_requests[boxed_message_id] = message
+            if message.expect_answer:
+                self._pending_requests[boxed_message_id] = message
 
             if pending_cancellation := message.cleaner:
                 pending_cancellation.cancel()
@@ -308,7 +309,9 @@ class Client:
 
         boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=message.next_seq_no(), **request_body)
 
-        self._pending_requests[boxed_message_id] = message
+        if message.expect_answer:
+            self._pending_requests[boxed_message_id] = message
+
         message.cleaner = self._loop.call_later(120, self._cancel_pending_request, boxed_message_id)
 
         logging.debug("writing message %d (%s)", boxed_message_id, message.request["_cons"])
@@ -528,7 +531,8 @@ class Client:
             self._loop.create_future(),
             msgids_to_ack_message,
             self._get_next_even_seqno,
-            False
+            False,
+            expect_answer=False
         )
 
         await self._rpc_call(msgids_to_ack_request)
