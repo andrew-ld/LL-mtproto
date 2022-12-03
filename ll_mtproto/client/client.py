@@ -134,6 +134,7 @@ class Client:
 
         for payload in payloads:
             pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
+            pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
             pending_requests.append(pending_request)
 
         await self._start_mtproto_loop_if_needed()
@@ -143,6 +144,7 @@ class Client:
 
     async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
         pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
+        pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
         await self._rpc_call(pending_request)
         return await pending_request.response
 
