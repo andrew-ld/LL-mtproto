@@ -247,6 +247,7 @@ class Client:
                 request_body = self._wrap_request_in_layer_init(request_body)
 
             boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=message.next_seq_no(), **request_body)
+            logging.debug("writing message %d (%s)", boxed_message_id, message.request["_cons"])
             self._pending_requests[boxed_message_id] = message
 
             if pending_cancellation := message.cleaner:
