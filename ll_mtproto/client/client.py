@@ -592,11 +592,12 @@ class Client:
 
         if multirpc_message_id := self._pending_multirpc_reverse_index.pop(body.req_msg_id, None):
             if pending_multirpc_answer := self._pending_multirpc_requests.get(multirpc_message_id, None):
-                _, pending_multirpc_messages = pending_multirpc_answer
+                pending_multirpc_request, pending_multirpc_messages = pending_multirpc_answer
                 pending_multirpc_messages.remove(body.req_msg_id)
 
                 if not pending_multirpc_messages:
                     self._pending_multirpc_requests.pop(multirpc_message_id, None)
+                    pending_multirpc_request.finalize()
 
         if pending_container := self._pending_multirpc_requests.pop(body.req_msg_id, None):
             pending_request, pending_requests = pending_container
