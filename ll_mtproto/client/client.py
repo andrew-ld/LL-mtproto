@@ -613,6 +613,15 @@ class Client:
         if mtproto_loop := self._mtproto_loop_task:
             mtproto_loop.cancel()
 
+        while not self._write_queue.empty():
+            message = self._write_queue.get_nowait()
+
+            if isinstance(message, list):
+                for submessage in message:
+                    submessage.finalize()
+            else:
+                message.finalize()
+
         self._mtproto_loop_task = None
 
     def __del__(self):
