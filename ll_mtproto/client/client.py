@@ -7,15 +7,14 @@ import traceback
 import typing
 import warnings
 
-from . import PendingRequest, Update
 from . import ConnectionInfo
-from ..network import mtproto, DatacenterInfo
+from . import PendingRequest, Update
 from ..crypto import AuthKey
+from ..network import mtproto, DatacenterInfo
 from ..network.mtproto import MTProto
-from ..network.transport import TransportLinkFactory
-from ..tl import tl
-from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
+from ..network.transport import TransportLinkFactory
+from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
 
 __all__ = ("Client",)
 
@@ -71,7 +70,7 @@ class Client:
     _temp_auth_key: AuthKey | None
     _blocking_executor: concurrent.futures.Executor
     _bound_auth_key: AuthKey
-    _write_queue: asyncio.Queue[PendingRequest]
+    _write_queue: asyncio.Queue[PendingRequest | list[PendingRequest]]
 
     def __init__(
             self,
@@ -130,8 +129,17 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call_multi(self, payloads: typing.Iterable[TlRequestBody]) -> tuple[TlMessageBody | BaseException]:
-        raise NotImplementedError("TODO: re-implement multi call rpc container")
+    async def rpc_call_multi(self, payloads: typing.Iterable[TlRequestBody]) -> list[asyncio.Future[TlMessageBody]]:
+        pending_requests = []
+
+        for payload in payloads:
+            pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
+            pending_requests.append(pending_request)
+
+        await self._start_mtproto_loop_if_needed()
+        await self._write_queue.put(pending_requests)
+
+        return [p.response for p in pending_requests]
 
     async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
         pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
@@ -151,14 +159,6 @@ class Client:
             message = dict(_cons="invokeWithoutUpdates", _wrapped=message)
 
         return message
-
-    async def _write_mtproto_socket(self, message: tl.Value, timeout: int, parent_is_waiting: bool):
-        write_coro = self._mtproto.write_encrypted(message, await self._get_auth_key())
-
-        if parent_is_waiting:
-            await asyncio.wait_for(write_coro, timeout)
-        else:
-            await write_coro
 
     async def _start_mtproto_loop(self):
         self.disconnect()
@@ -237,9 +237,32 @@ class Client:
         await self._process_telegram_message(message)
         await self._flush_msgids_to_ack_if_needed()
 
-    async def _process_outbound_message(self, message: PendingRequest | list[PendingRequest]):
+    async def _process_outbound_multirpc_message(self, messages: list[PendingRequest]):
+        boxed_messages = []
+
+        for message in messages:
+            request_body = message.request
+
+            if self._layer_init_required:
+                request_body = self._wrap_request_in_layer_init(request_body)
+
+            boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=message.next_seq_no(), **request_body)
+            self._pending_requests[boxed_message_id] = message
+
+            if pending_cancellation := message.cleaner:
+                pending_cancellation.cancel()
+
+            message.cleaner = self._loop.call_later(120, lambda: self._cancel_pending_request(boxed_message_id))
+
+            boxed_messages.append(boxed_message)
+
+        container_message = dict(_cons="msg_container", messages=boxed_messages)
+        container_request = PendingRequest(self._loop.create_future(), container_message, self._get_next_even_seqno, False)
+        await self._rpc_call(container_request)
+
+    async def _process_outbound_message(self, message: PendingRequest):
         if isinstance(message, list):
-            raise NotImplementedError("message_container not already supported by write queue")
+            raise NotImplementedError("message_container not supported")
 
         if message.response.done():
             raise asyncio.InvalidStateError("request %r already completed", message.request)
@@ -262,7 +285,6 @@ class Client:
         self._pending_requests[boxed_message_id] = message
         message.cleaner = self._loop.call_later(120, self._cancel_pending_request, boxed_message_id)
 
-
         logging.debug("writing message %d (%s)", boxed_message_id, message.request["_cons"])
 
         await self._mtproto.write_encrypted(boxed_message, self._bound_auth_key)
@@ -277,7 +299,12 @@ class Client:
 
         async def _write_loop():
             while True:
-                await self._process_outbound_message(await self._write_queue.get())
+                message = await self._write_queue.get()
+
+                if isinstance(message, list):
+                    await self._process_outbound_multirpc_message(message)
+                else:
+                    await self._process_outbound_message(message)
 
         async def _read_loop():
             while True:

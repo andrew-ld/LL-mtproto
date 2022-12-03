@@ -58,6 +58,18 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         "bot_auth_token": bot_token
     })
 
+    multi_call_test_actor = await session.rpc_call_multi([
+        {
+            "_cons": "help.getConfig"
+        },
+        {
+            "_cons": "contacts.resolveUsername",
+            "username": "eqf3wefwe"
+        }
+    ])
+
+    print(await asyncio.gather(*multi_call_test_actor))
+
     peer = await session.rpc_call({
         "_cons": "contacts.resolveUsername",
         "username": "eqf3wefwe"
