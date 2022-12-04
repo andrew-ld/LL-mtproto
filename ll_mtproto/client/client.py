@@ -157,7 +157,6 @@ class Client:
         return await pending_request.response
 
     async def _rpc_call(self, request: PendingRequest):
-        request.retries += 1
         await self._start_mtproto_loop_if_needed()
         await self._write_queue.put(request)
 
@@ -251,6 +250,8 @@ class Client:
         boxed_messages: list[tuple[Value, int]] = []
 
         for message in messages:
+            message.retries += 1
+
             if message.response.done():
                 raise asyncio.InvalidStateError("request %r already completed", message.request)
 
@@ -288,6 +289,8 @@ class Client:
         await self._mtproto.write_encrypted(boxed_message, self._bound_auth_key)
 
     async def _process_outbound_message(self, message: PendingRequest):
+        message.retries += 1
+
         if isinstance(message, list):
             raise NotImplementedError("message_container not supported")
 
