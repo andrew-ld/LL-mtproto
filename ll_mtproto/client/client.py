@@ -562,7 +562,7 @@ class Client:
         logging.debug("updating salt: %d", body.new_server_salt)
 
         if await self._process_bad_multirpc_call(body.bad_msg_id):
-            return logging.debug("bad_server_salt for multirpc %d", )
+            return logging.debug("bad_server_salt for multirpc %d", body.bad_msg_id)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
