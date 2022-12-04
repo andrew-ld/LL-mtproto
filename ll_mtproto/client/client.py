@@ -318,39 +318,42 @@ class Client:
 
         await self._mtproto.write_encrypted(boxed_message, self._bound_auth_key)
 
+    async def _mtproto_write_loop(self):
+        while True:
+            message = await self._write_queue.get()
+
+            if isinstance(message, list):
+                await self._process_outbound_multirpc_message(message)
+            else:
+                await self._process_outbound_message(message)
+
+    async def _mtproto_read_loop(self):
+        while True:
+            await self._process_inbound_message(await self._mtproto.read_encrypted(self._bound_auth_key))
+
     async def _mtproto_loop(self):
         try:
-            auth_key = await self._get_auth_key()
+            await self._get_auth_key()
         except:
             logging.debug("unable to generate mtproto auth key: %s", traceback.format_exc())
             self.disconnect()
             raise asyncio.CancelledError()
 
-        async def _write_loop():
-            while True:
-                message = await self._write_queue.get()
-
-                if isinstance(message, list):
-                    await self._process_outbound_multirpc_message(message)
-                else:
-                    await self._process_outbound_message(message)
-
-        async def _read_loop():
-            while True:
-                await self._process_inbound_message(await self._mtproto.read_encrypted(auth_key))
-
-        write_task = self._loop.create_task(_write_loop())
-        read_task = self._loop.create_task(_read_loop())
+        write_task = self._loop.create_task(self._mtproto_write_loop())
+        read_task = self._loop.create_task(self._mtproto_read_loop())
 
         try:
             await asyncio.gather(write_task, read_task)
-        except (KeyboardInterrupt, asyncio.CancelledError):
+        except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
             raise
         except:
             logging.error("unable to process message in consumer: %s", traceback.format_exc())
         finally:
             write_task.cancel()
             read_task.cancel()
+
+        self.disconnect()
+        raise asyncio.CancelledError()
 
     async def _start_mtproto_loop_if_needed(self):
         if mtproto_loop_task := self._mtproto_loop_task:
