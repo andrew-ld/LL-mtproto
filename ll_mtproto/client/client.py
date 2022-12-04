@@ -546,7 +546,8 @@ class Client:
 
         await self._rpc_call(msgids_to_ack_request)
 
-        any(map(self._msgids_to_ack.remove, msgids_to_ack))
+        for msgid_to_ack in msgids_to_ack:
+            self._msgids_to_ack.remove(msgid_to_ack)
 
     def _update_last_seqno_from_incoming_message(self, message: Structure):
         self._bound_auth_key.seq_no = max(self._bound_auth_key.seq_no, message.seqno)
