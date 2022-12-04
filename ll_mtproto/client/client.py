@@ -673,6 +673,10 @@ class Client:
             else:
                 message.finalize()
 
+        for pending_multirpc in self._pending_multirpc_requests:
+            pending_request, _ = pending_multirpc
+            pending_request.finalize()
+
         self._pending_multirpc_requests.clear()
         self._pending_multirpc_reverse_index.clear()
 
