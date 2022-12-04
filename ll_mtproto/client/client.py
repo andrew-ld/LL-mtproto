@@ -14,7 +14,6 @@ from ..network import mtproto, DatacenterInfo
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
-from ..tl.tl import Value
 from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
 
 __all__ = ("Client",)
