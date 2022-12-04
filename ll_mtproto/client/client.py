@@ -623,7 +623,8 @@ class Client:
                     self._pending_multirpc_requests.pop(multirpc_message_id, None)
                     pending_multirpc_request.finalize()
 
-        await self._process_bad_multirpc_call(body.req_msg_id)
+        if await self._process_bad_multirpc_call(body.req_msg_id):
+            return logging.debug("received an rpc_result for a multirpc call ??? %d", body.req_msg_id)
 
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             if body.result == "gzip_packed":
