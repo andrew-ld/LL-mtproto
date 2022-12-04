@@ -145,6 +145,7 @@ class Client:
             pending_requests.append(pending_request)
 
         await self._start_mtproto_loop_if_needed()
+        self._ensure_mtproto_loop()
         await self._write_queue.put(pending_requests)
 
         return [p.response for p in pending_requests]
@@ -157,6 +158,7 @@ class Client:
         return await pending_request.response
 
     async def _rpc_call(self, request: PendingRequest):
+        self._ensure_mtproto_loop()
         await self._write_queue.put(request)
 
     def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
@@ -219,6 +221,8 @@ class Client:
             pending_request.finalize()
 
     async def _get_auth_key(self) -> AuthKey:
+        self._ensure_mtproto_loop()
+
         async with self._auth_key_lock:
             perm_auth_key = self._perm_auth_key
 
@@ -355,6 +359,13 @@ class Client:
 
         self.disconnect()
         raise asyncio.CancelledError()
+
+    def _ensure_mtproto_loop(self):
+        if mtproto_loop_task := self._mtproto_loop_task:
+            if mtproto_loop_task.done():
+                raise asyncio.InvalidStateError("mtproto loop closed")
+        else:
+            raise asyncio.InvalidStateError("mtproto loop closed")
 
     async def _start_mtproto_loop_if_needed(self):
         if mtproto_loop_task := self._mtproto_loop_task:
