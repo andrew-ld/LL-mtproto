@@ -291,9 +291,6 @@ class Client:
     async def _process_outbound_message(self, message: PendingRequest):
         message.retries += 1
 
-        if isinstance(message, list):
-            raise NotImplementedError("message_container not supported")
-
         if message.response.done():
             raise asyncio.InvalidStateError("request %r already completed", message.request)
 
