@@ -152,11 +152,11 @@ class Client:
     async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
         pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
         pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
+        await self._start_mtproto_loop_if_needed()
         await self._rpc_call(pending_request)
         return await pending_request.response
 
     async def _rpc_call(self, request: PendingRequest):
-        await self._start_mtproto_loop_if_needed()
         await self._write_queue.put(request)
 
     def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
