@@ -71,7 +71,7 @@ class MTProto:
         self._in_thread = in_thread
 
     def get_next_message_id(self) -> int:
-        message_id = self._datacenter.get_synchronized_time() * 4294967296
+        message_id = self._datacenter.get_synchronized_time() << 32
 
         if message_id <= self._last_message_id:
             message_id = self._last_message_id + 1
@@ -192,7 +192,7 @@ class MTProto:
             else:
                 self._last_msg_ids.append(msg_msg_id)
 
-            if (int(message.message.msg_id / 4294967296) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
+            if ((message.message.msg_id >> 32) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
                 raise RuntimeError("Time is not synchronised with telegram time!")
 
             if (msg_salt := message.salt) != auth_key.server_salt:
