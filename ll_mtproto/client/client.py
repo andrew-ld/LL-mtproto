@@ -263,7 +263,7 @@ class Client:
             if self._layer_init_required:
                 request_body = self._wrap_request_in_layer_init(request_body)
 
-            boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=message.next_seq_no(), **request_body)
+            boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
             logging.debug("writing message (packed) %d (%s)", boxed_message_id, message.request["_cons"])
 
             if message.expect_answer:
@@ -280,7 +280,7 @@ class Client:
         container_message = dict(_cons="msg_container", messages=boxed_messages)
         container_request = PendingRequest(self._loop.create_future(), container_message, self._get_next_even_seqno, False)
 
-        boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=container_request.next_seq_no(), **container_message)
+        boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=container_request.next_seq_no(), **container_message)
 
         for message_id in boxed_messages_ids:
             self._pending_multirpc_reverse_index[message_id] = boxed_message_id
@@ -308,7 +308,7 @@ class Client:
         if layer_init_boxing_required:
             request_body = self._wrap_request_in_layer_init(request_body)
 
-        boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=message.next_seq_no(), **request_body)
+        boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
 
         if message.expect_answer:
             self._pending_requests[boxed_message_id] = message

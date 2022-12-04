@@ -207,17 +207,17 @@ class MTProto:
 
             return message.message
 
-    def box_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
-        message_id = self.get_next_message_id()
+    def prepare_message_for_write(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
+        boxed_message_id = self.get_next_message_id()
 
-        message = self._datacenter.schema.bare(
+        boxed_message = self._datacenter.schema.bare(
             _cons="message",
-            msg_id=message_id,
+            msg_id=boxed_message_id,
             seqno=seq_no,
             body=self._datacenter.schema.boxed(**kwargs),
         )
 
-        return message, message_id
+        return boxed_message, boxed_message_id
 
     def stop(self):
         self._link.stop()
