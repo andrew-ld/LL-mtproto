@@ -247,7 +247,8 @@ class Client:
         await self._flush_msgids_to_ack_if_needed()
 
     async def _process_outbound_multirpc_message(self, messages: list[PendingRequest]):
-        boxed_messages: list[tuple[Value, int]] = []
+        boxed_messages: list[PendingRequest] = []
+        boxed_messages_ids: list[int] = []
 
         for message in messages:
             message.retries += 1
@@ -274,17 +275,18 @@ class Client:
 
             message.cleaner = self._loop.call_later(120, lambda: self._cancel_pending_request(boxed_message_id))
 
-            boxed_messages.append((boxed_message, boxed_message_id))
+            boxed_messages.append(boxed_message)
+            boxed_messages_ids.append(boxed_message_id)
 
-        container_message = dict(_cons="msg_container", messages=[m for m, _ in boxed_messages])
+        container_message = dict(_cons="msg_container", messages=boxed_messages)
         container_request = PendingRequest(self._loop.create_future(), container_message, self._get_next_even_seqno, False)
 
         boxed_message, boxed_message_id = self._mtproto.box_message(seq_no=container_request.next_seq_no(), **container_message)
 
-        for _, message_id in boxed_messages:
+        for message_id in boxed_messages_ids:
             self._pending_multirpc_reverse_index[message_id] = boxed_message_id
 
-        self._pending_multirpc_requests[boxed_message_id] = (container_request, [m_id for _, m_id in boxed_messages])
+        self._pending_multirpc_requests[boxed_message_id] = (container_request, boxed_messages_ids)
 
         await self._mtproto.write_encrypted(boxed_message, self._bound_auth_key)
 
