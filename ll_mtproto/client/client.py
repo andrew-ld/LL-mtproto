@@ -483,12 +483,6 @@ class Client:
     async def _process_new_session_created(self, body: TlMessageBody):
         self._bound_auth_key.server_salt = body.server_salt
 
-        bad_requests = dict((i, r) for i, r in self._pending_requests.items() if i < body.first_msg_id)
-
-        for bad_msg_id, bad_request in bad_requests.items():
-            self._pending_requests.pop(bad_msg_id, None)
-            await self._rpc_call(bad_request)
-
     async def _process_updates(self, body: TlMessageBody):
         if self._no_updates:
             return
@@ -545,12 +539,29 @@ class Client:
     def _update_last_seqno_from_incoming_message(self, message: Structure):
         self._bound_auth_key.seq_no = max(self._bound_auth_key.seq_no, message.seqno)
 
+    async def _process_bad_multirpc_call(self, req_msg_id: int) -> bool:
+        if pending_container := self._pending_multirpc_requests.pop(req_msg_id, None):
+            pending_request, pending_requests = pending_container
+
+            for pending_request_message_id in pending_requests:
+                if pending_subrequest := self._pending_requests.pop(pending_request_message_id, None):
+                    await self._rpc_call(pending_subrequest)
+
+            pending_request.finalize()
+
+            return bool(pending_requests)
+
+        return False
+
     async def _process_bad_server_salt(self, body: TlMessageBody):
         if self._bound_auth_key.server_salt:
             self._stable_seqno = False
 
         self._bound_auth_key.server_salt = body.new_server_salt
         logging.debug("updating salt: %d", body.new_server_salt)
+
+        if await self._process_bad_multirpc_call(body.bad_msg_id):
+            return logging.debug("bad_server_salt for multirpc %d", )
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
@@ -563,9 +574,12 @@ class Client:
         elif body.error_code == 33:
             await self._process_bad_msg_notification_msg_seqno_too_high(body)
         else:
-            self._process_bad_msg_notification_reject_message(body)
+            await self._process_bad_msg_notification_reject_message(body)
 
-    def _process_bad_msg_notification_reject_message(self, body: TlMessageBody):
+    async def _process_bad_msg_notification_reject_message(self, body: TlMessageBody):
+        if await self._process_bad_multirpc_call(body.bad_msg_id):
+            return logging.debug("bad_msg_notification for multirpc %d", body.bad_msg_id)
+
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             bad_request.response.set_exception(RpcError(body.error_code, "BAD_MSG_NOTIFICATION"))
             bad_request.finalize()
@@ -573,6 +587,9 @@ class Client:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
     async def _process_bad_msg_notification_msg_seqno_too_high(self, body: TlRequestBody):
+        if await self._process_bad_multirpc_call(body.bad_msg_id):
+            return logging.debug("bad_msg_notification for multirpc %d", body.bad_msg_id)
+
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
         else:
@@ -583,6 +600,9 @@ class Client:
         self._bound_auth_key.seq_no += self._seqno_increment
 
         logging.debug("updating seqno by %d to %d", self._seqno_increment, self._bound_auth_key.seq_no)
+
+        if await self._process_bad_multirpc_call(body.bad_msg_id):
+            return logging.debug("bad_msg_notification_msg_seqno_too_low for multirpc %d", body.bad_msg_id)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
@@ -602,14 +622,7 @@ class Client:
                     self._pending_multirpc_requests.pop(multirpc_message_id, None)
                     pending_multirpc_request.finalize()
 
-        if pending_container := self._pending_multirpc_requests.pop(body.req_msg_id, None):
-            pending_request, pending_requests = pending_container
-
-            for pending_request_message_id in pending_requests:
-                if pending_subrequest := self._pending_requests.pop(pending_request_message_id, None):
-                    await self._rpc_call(pending_subrequest)
-
-            pending_request.finalize()
+        await self._process_bad_multirpc_call(body.req_msg_id)
 
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             if body.result == "gzip_packed":
