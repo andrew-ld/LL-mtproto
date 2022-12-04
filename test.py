@@ -6,7 +6,7 @@ import logging
 import argparse
 
 from ll_mtproto import Client, AuthKey, TelegramDatacenter, ConnectionInfo
-from ll_mtproto.network.transport.transport_codec_abridged import TransportCodecAbridged
+from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediate
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 
@@ -34,7 +34,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         lang_pack=""
     )
 
-    transport_link_factory = TransportLinkTcpFactory(TransportCodecAbridged())
+    transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediate())
 
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 
