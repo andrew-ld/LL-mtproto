@@ -309,7 +309,12 @@ class Client:
         if layer_init_boxing_required:
             request_body = self._wrap_request_in_layer_init(request_body)
 
-        boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
+        try:
+            boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
+        except Exception as serialization_exception:
+            message.response.set_exception(serialization_exception)
+            message.finalize()
+            return
 
         if message.expect_answer:
             self._pending_requests[boxed_message_id] = message
