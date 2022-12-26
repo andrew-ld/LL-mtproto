@@ -103,7 +103,7 @@ class MTProto:
         message = self._datacenter.schema.bare(
             _cons="unencrypted_message",
             auth_key_id=0,
-            message_id=0,
+            message_id=self.get_next_message_id(),
             body=self._datacenter.schema.boxed(**kwargs),
         )
 
