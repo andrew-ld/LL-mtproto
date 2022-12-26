@@ -68,9 +68,13 @@ class PublicRSA:
 
     def encrypt_with_rsa_pad(self, data: bytes) -> bytes:
         if len(data) > 144:
-            raise TypeError("Plain data length is more that 144 bytes")
+            raise ValueError("Plain data length is more that 144 bytes")
 
         data_with_padding = data + secrets.token_bytes(-len(data) % 192)
+
+        if len(data_with_padding) != 192:
+            raise RuntimeError("Plain padded data length isn't 192 bytes")
+
         data_pad_reversed = data_with_padding[::-1]
 
         while True:
@@ -85,6 +89,9 @@ class PublicRSA:
 
             if self.n > int.from_bytes(key_aes_encrypted, "big", signed=False):
                 break
+
+        if len(key_aes_encrypted) != 256:
+            raise RuntimeError("Generated RSA OAEP payload length isn't 256 bytes")
 
         return key_aes_encrypted
 
