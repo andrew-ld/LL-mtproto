@@ -1,7 +1,6 @@
 import asyncio
 import concurrent.futures
 import logging
-import random
 import traceback
 import typing
 import warnings
@@ -192,14 +191,14 @@ class Client:
         await self._rpc_call(get_future_salts_request)
 
     async def _create_ping_request(self):
-        random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
+        ping_id = self._mtproto.get_next_message_id()
 
         if pending_pong := self._pending_pong:
             pending_pong.cancel()
 
         self._pending_pong = self._loop.call_later(10, self.disconnect)
 
-        ping_message = dict(_cons="ping", ping_id=random_ping_id)
+        ping_message = dict(_cons="ping", ping_id=ping_id)
         ping_request = PendingRequest(self._loop.create_future(), ping_message, self._get_next_odd_seqno, False)
 
         await self._rpc_call(ping_request)
