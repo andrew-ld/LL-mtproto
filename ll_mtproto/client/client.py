@@ -66,7 +66,7 @@ class Client:
     _temp_auth_key: AuthKey | None
     _blocking_executor: concurrent.futures.Executor
     _bound_auth_key: AuthKey
-    _write_queue: asyncio.Queue[PendingRequest | list[PendingRequest]]
+    _write_queue: asyncio.Queue[PendingRequest]
 
     def __init__(
             self,
@@ -124,20 +124,6 @@ class Client:
 
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
-
-    async def rpc_call_multi(self, payloads: typing.Iterable[TlRequestBody]) -> list[asyncio.Future[TlMessageBody]]:
-        pending_requests = []
-
-        for payload in payloads:
-            pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
-            pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
-            pending_requests.append(pending_request)
-
-        await self._start_mtproto_loop_if_needed()
-        self._ensure_mtproto_loop()
-        await self._write_queue.put(pending_requests)
-
-        return [p.response for p in pending_requests]
 
     async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
         pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
@@ -235,54 +221,6 @@ class Client:
         await self._process_telegram_message(message)
         await self._flush_msgids_to_ack()
 
-    async def _process_outbound_multirpc_message(self, messages: list[PendingRequest]):
-        boxed_messages: list[PendingRequest] = []
-        boxed_messages_ids: list[int] = []
-
-        for message in messages:
-            message.retries += 1
-
-            if message.response.done():
-                raise asyncio.InvalidStateError("request %r already completed", message.request)
-
-            if not message.allow_container and self._layer_init_required:
-                raise asyncio.InvalidStateError("message cannot be writen because layer init is impossible")
-
-            request_body = message.request
-
-            if self._layer_init_required:
-                request_body = self._wrap_request_in_layer_init(request_body)
-
-            try:
-                boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
-            except Exception as serialization_exception:
-                message.response.set_exception(serialization_exception)
-                message.finalize()
-                continue
-
-            logging.debug("writing message (packed) %d (%s)", boxed_message_id, message.request["_cons"])
-
-            if message.expect_answer:
-                self._pending_requests[boxed_message_id] = message
-
-            if pending_cancellation := message.cleaner:
-                pending_cancellation.cancel()
-
-            message.cleaner = self._loop.call_later(120, lambda: self._cancel_pending_request(boxed_message_id))
-
-            boxed_messages.append(boxed_message)
-            boxed_messages_ids.append(boxed_message_id)
-
-        if not boxed_messages:
-            return
-
-        container_message = dict(_cons="msg_container", messages=boxed_messages)
-        container_request = PendingRequest(self._loop.create_future(), container_message, self._get_next_even_seqno, False)
-
-        boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=container_request.next_seq_no(), **container_message)
-
-        await self._mtproto.write_encrypted(boxed_message, self._bound_auth_key)
-
     async def _process_outbound_message(self, message: PendingRequest):
         message.retries += 1
 
@@ -321,11 +259,7 @@ class Client:
     async def _mtproto_write_loop(self):
         while True:
             message = await self._write_queue.get()
-
-            if isinstance(message, list):
-                await self._process_outbound_multirpc_message(message)
-            else:
-                await self._process_outbound_message(message)
+            await self._process_outbound_message(message)
 
     async def _mtproto_read_loop(self):
         while True:

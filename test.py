@@ -57,18 +57,6 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         "bot_auth_token": bot_token
     })
 
-    multi_call_test_actor = await session.rpc_call_multi([
-        {
-            "_cons": "help.getConfig"
-        },
-        {
-            "_cons": "contacts.resolveUsername",
-            "username": "eqf3wefwe"
-        }
-    ])
-
-    print(await asyncio.gather(*multi_call_test_actor))
-
     peer = await session.rpc_call({
         "_cons": "contacts.resolveUsername",
         "username": "eqf3wefwe"
@@ -77,19 +65,11 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     # I deliberately break the auth_key status to see if the client can restore it
     session._bound_auth_key.seq_no = -1
     session._bound_auth_key.server_salt = -1
-    await asyncio.gather(*await session.rpc_call_multi([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
+    await session.rpc_call({"_cons": "help.getConfig"})
 
     # I voluntarily write a non-serializable message to check if the error is propagated correctly
     try:
         await session.rpc_call({"_cons": "lol"})
-    except:
-        print("ok serialization error received")
-    else:
-        raise asyncio.InvalidStateError("error not received")
-
-    # I voluntarily write a non-serializable message to check if the error is propagated correctly
-    try:
-        await asyncio.gather(*await session.rpc_call_multi([{"_cons": "lol"}]))
     except:
         print("ok serialization error received")
     else:
