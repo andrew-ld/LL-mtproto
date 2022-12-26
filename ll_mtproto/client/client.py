@@ -2,7 +2,6 @@ import asyncio
 import concurrent.futures
 import logging
 import random
-import time
 import traceback
 import typing
 import warnings
@@ -24,7 +23,6 @@ class Client:
         "_mtproto",
         "_loop",
         "_msgids_to_ack",
-        "_last_time_acks_flushed",
         "_seqno_increment",
         "_mtproto_loop_task",
         "_pending_requests",
@@ -52,7 +50,6 @@ class Client:
     _mtproto: mtproto.MTProto
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
-    _last_time_acks_flushed: float
     _stable_seqno: bool
     _seqno_increment: int
     _mtproto_loop_task: asyncio.Task | None
@@ -96,7 +93,6 @@ class Client:
         self._loop = asyncio.get_running_loop()
 
         self._msgids_to_ack = []
-        self._last_time_acks_flushed = time.perf_counter()
 
         self._stable_seqno = False
         self._seqno_increment = 1
@@ -244,7 +240,7 @@ class Client:
     async def _process_inbound_message(self, message: TlMessageBody):
         logging.debug("received message (%s) %d from mtproto", message.body.constructor_name, message.msg_id)
         await self._process_telegram_message(message)
-        await self._flush_msgids_to_ack_if_needed()
+        await self._flush_msgids_to_ack()
 
     async def _process_outbound_multirpc_message(self, messages: list[PendingRequest]):
         boxed_messages: list[PendingRequest] = []
@@ -375,13 +371,6 @@ class Client:
                 await self._start_mtproto_loop()
         else:
             await self._start_mtproto_loop()
-
-    async def _flush_msgids_to_ack_if_needed(self):
-        if not self._msgids_to_ack:
-            return
-
-        if len(self._msgids_to_ack) >= 32 or (time.perf_counter() - self._last_time_acks_flushed) > 10:
-            await self._flush_msgids_to_ack()
 
     async def _process_telegram_message(self, message: Structure):
         self._update_last_seqno_from_incoming_message(message)
@@ -526,30 +515,16 @@ class Client:
     async def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
             self._msgids_to_ack.append(message.msg_id)
-            await self._flush_msgids_to_ack()
 
     async def _flush_msgids_to_ack(self):
-        self._last_time_acks_flushed = time.perf_counter()
-
         if not self._msgids_to_ack or not self._stable_seqno:
             return
 
-        msgids_to_ack = self._msgids_to_ack[:1024]
-
-        msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=msgids_to_ack)
-
-        msgids_to_ack_request = PendingRequest(
-            self._loop.create_future(),
-            msgids_to_ack_message,
-            self._get_next_even_seqno,
-            False,
-            expect_answer=False
-        )
+        msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
+        msgids_to_ack_request = PendingRequest(self._loop.create_future(), msgids_to_ack_message, self._get_next_even_seqno, False, expect_answer=False)
+        self._msgids_to_ack.clear()
 
         await self._rpc_call(msgids_to_ack_request)
-
-        for msgid_to_ack in msgids_to_ack:
-            self._msgids_to_ack.remove(msgid_to_ack)
 
     def _update_last_seqno_from_incoming_message(self, message: Structure):
         self._bound_auth_key.seq_no = max(self._bound_auth_key.seq_no, message.seqno)
