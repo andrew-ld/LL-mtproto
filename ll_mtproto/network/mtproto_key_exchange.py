@@ -33,9 +33,6 @@ class MTProtoKeyExchange:
         return await self._create_auth_key(False, None)
 
     async def _create_auth_key(self, temp: bool, perm_auth_key: AuthKey | None) -> AuthKey:
-        if self._datacenter.is_media:
-            raise ValueError("You can't get a key on media datacenter")
-
         if temp and perm_auth_key is None:
             raise ValueError("You can't get a temporary key without having the permanent one")
 
@@ -76,7 +73,7 @@ class MTProtoKeyExchange:
             server_nonce=server_nonce,
             new_nonce=new_nonce,
             expires_in=temp_key_expires_in,
-            dc=self._datacenter.datacenter_id
+            dc=-self._datacenter.datacenter_id if self._datacenter.is_media else self._datacenter.datacenter_id
         )
 
         p_q_inner_data_rsa_pad = await self._in_thread(self._datacenter.public_rsa.encrypt_with_rsa_pad, p_q_inner_data.get_flat_bytes())
