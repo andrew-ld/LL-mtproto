@@ -79,6 +79,22 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     session._bound_auth_key.server_salt = -1
     await asyncio.gather(*await session.rpc_call_multi([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
 
+    # I voluntarily write a non-serializable message to check if the error is propagated correctly
+    try:
+        await session.rpc_call({"_cons": "lol"})
+    except:
+        print("ok serialization error received")
+    else:
+        raise asyncio.InvalidStateError("error not received")
+
+    # I voluntarily write a non-serializable message to check if the error is propagated correctly
+    try:
+        await asyncio.gather(*await session.rpc_call_multi([{"_cons": "lol"}]))
+    except:
+        print("ok serialization error received")
+    else:
+        raise asyncio.InvalidStateError("error not received")
+
     messages = await session.rpc_call({
         "_cons": "channels.getMessages",
         "channel": {

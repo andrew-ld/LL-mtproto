@@ -259,7 +259,13 @@ class Client:
             if self._layer_init_required:
                 request_body = self._wrap_request_in_layer_init(request_body)
 
-            boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
+            try:
+                boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
+            except Exception as serialization_exception:
+                message.response.set_exception(serialization_exception)
+                message.finalize()
+                continue
+
             logging.debug("writing message (packed) %d (%s)", boxed_message_id, message.request["_cons"])
 
             if message.expect_answer:
@@ -272,6 +278,9 @@ class Client:
 
             boxed_messages.append(boxed_message)
             boxed_messages_ids.append(boxed_message_id)
+
+        if not boxed_messages:
+            return
 
         container_message = dict(_cons="msg_container", messages=boxed_messages)
         container_request = PendingRequest(self._loop.create_future(), container_message, self._get_next_even_seqno, False)
