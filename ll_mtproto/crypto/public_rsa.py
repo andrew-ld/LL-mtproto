@@ -75,17 +75,16 @@ class PublicRSA:
 
         while True:
             temp_key = secrets.token_bytes(32)
+            temp_key_aes = AesIge(temp_key, b"\0" * 32)
 
-            if self.n > int.from_bytes(temp_key, "big", signed=False):
+            data_with_hash = data_pad_reversed + sha256(temp_key + data_with_padding)
+            encrypted_data_with_hash = temp_key_aes.encrypt(data_with_hash)
+
+            temp_key_xor = xor(temp_key, sha256(encrypted_data_with_hash))
+            key_aes_encrypted = temp_key_xor + encrypted_data_with_hash
+
+            if self.n > int.from_bytes(key_aes_encrypted, "big", signed=False):
                 break
-
-        temp_key_aes = AesIge(temp_key, b"\0" * 32)
-
-        data_with_hash = data_pad_reversed + sha256(temp_key + data_with_padding)
-        encrypted_data_with_hash = temp_key_aes.encrypt(data_with_hash)
-
-        temp_key_xor = xor(temp_key, sha256(encrypted_data_with_hash))
-        key_aes_encrypted = temp_key_xor + encrypted_data_with_hash
 
         return key_aes_encrypted
 
