@@ -62,7 +62,7 @@ class MTProto:
     _in_thread: InThread
 
     def __init__(self, datacenter: DatacenterInfo, transport_link_factory: TransportLinkFactory, in_thread: InThread):
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
         self._link = transport_link_factory.new_transport_link(datacenter)
         self._read_message_lock = asyncio.Lock()
         self._last_message_id = 0
@@ -71,7 +71,7 @@ class MTProto:
         self._in_thread = in_thread
 
     def get_next_message_id(self) -> int:
-        message_id = self._datacenter.get_synchronized_time() * 4294967296
+        message_id = self._datacenter.get_synchronized_time() << 32
 
         if message_id <= self._last_message_id:
             message_id = self._last_message_id + 1
@@ -103,7 +103,7 @@ class MTProto:
         message = self._datacenter.schema.bare(
             _cons="unencrypted_message",
             auth_key_id=0,
-            message_id=0,
+            message_id=self.get_next_message_id(),
             body=self._datacenter.schema.boxed(**kwargs),
         )
 
@@ -192,7 +192,7 @@ class MTProto:
             else:
                 self._last_msg_ids.append(msg_msg_id)
 
-            if (int(message.message.msg_id / 4294967296) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
+            if ((message.message.msg_id >> 32) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
                 raise RuntimeError("Time is not synchronised with telegram time!")
 
             if (msg_salt := message.salt) != auth_key.server_salt:
@@ -207,17 +207,17 @@ class MTProto:
 
             return message.message
 
-    def box_message(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
-        message_id = self.get_next_message_id()
+    def prepare_message_for_write(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
+        boxed_message_id = self.get_next_message_id()
 
-        message = self._datacenter.schema.bare(
+        boxed_message = self._datacenter.schema.bare(
             _cons="message",
-            msg_id=message_id,
+            msg_id=boxed_message_id,
             seqno=seq_no,
             body=self._datacenter.schema.boxed(**kwargs),
         )
 
-        return message, message_id
+        return boxed_message, boxed_message_id
 
     def stop(self):
         self._link.stop()

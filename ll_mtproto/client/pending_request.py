@@ -6,7 +6,7 @@ __all__ = ("PendingRequest",)
 
 
 class PendingRequest:
-    __slots__ = ("response", "request", "cleaner", "retries", "next_seq_no", "allow_container")
+    __slots__ = ("response", "request", "cleaner", "retries", "next_seq_no", "allow_container", "expect_answer")
 
     response: asyncio.Future[TlMessageBody]
     request: TlRequestBody
@@ -14,13 +14,15 @@ class PendingRequest:
     retries: int
     next_seq_no: SeqNoGenerator
     allow_container: bool
+    expect_answer: bool
 
     def __init__(
             self,
             response: asyncio.Future[TlMessageBody],
             message: TlRequestBody,
             seq_no_func: SeqNoGenerator,
-            allow_container: bool
+            allow_container: bool,
+            expect_answer: bool = True
     ):
         self.response = response
         self.request = message
@@ -28,6 +30,7 @@ class PendingRequest:
         self.retries = 0
         self.next_seq_no = seq_no_func
         self.allow_container = allow_container
+        self.expect_answer = expect_answer
 
     def finalize(self):
         if not (response := self.response).done():

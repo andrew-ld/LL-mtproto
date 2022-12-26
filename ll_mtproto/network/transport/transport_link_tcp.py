@@ -30,7 +30,7 @@ class TransportLinkTcp(TransportLinkBase):
     _transport_codec_factory: TransportCodecFactory
 
     def __init__(self, datacenter: DatacenterInfo, transport_codec_factory: TransportCodecFactory):
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
 
         self._datacenter = datacenter
         self._transport_codec_factory = transport_codec_factory

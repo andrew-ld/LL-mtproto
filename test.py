@@ -1,12 +1,11 @@
+import argparse
 import asyncio
-import collections
 import concurrent.futures
 import copy
 import logging
-import argparse
 
 from ll_mtproto import Client, AuthKey, TelegramDatacenter, ConnectionInfo
-from ll_mtproto.network.transport.transport_codec_abridged import TransportCodecAbridged
+from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediate
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 
@@ -34,7 +33,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         lang_pack=""
     )
 
-    transport_link_factory = TransportLinkTcpFactory(TransportCodecAbridged())
+    transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediate())
 
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 
@@ -58,27 +57,23 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         "bot_auth_token": bot_token
     })
 
-    multiple_requests_test = await session.rpc_call_multi([
-        {
-            "_cons": "contacts.resolveUsername",
-            "username": "hackernews"
-        },
-        {
-            "_cons": "contacts.resolveUsername",
-            "username": "linuxita"
-        },
-        {
-            "_cons": "contacts.resolveUsername",
-            "username": "infosecita"
-        },
-    ])
-
-    print(multiple_requests_test)
-
     peer = await session.rpc_call({
         "_cons": "contacts.resolveUsername",
         "username": "eqf3wefwe"
     })
+
+    # I deliberately break the auth_key status to see if the client can restore it
+    session._bound_auth_key.seq_no = -1
+    session._bound_auth_key.server_salt = -1
+    await session.rpc_call({"_cons": "help.getConfig"})
+
+    # I voluntarily write a non-serializable message to check if the error is propagated correctly
+    try:
+        await session.rpc_call({"_cons": "lol"})
+    except:
+        print("ok serialization error received")
+    else:
+        raise asyncio.InvalidStateError("error not received")
 
     messages = await session.rpc_call({
         "_cons": "channels.getMessages",
@@ -92,20 +87,15 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     media = messages.messages[0].media.document
 
-    media_sessions = collections.deque()
-
-    for _ in range(2):
-        media_session = Client(
-            TelegramDatacenter.VESTA_MEDIA,
-            copy.copy(auth_key),
-            connection_info,
-            transport_link_factory,
-            blocking_executor,
-            use_perfect_forward_secrecy=True,
-            no_updates=True
-        )
-
-        media_sessions.append(media_session)
+    media_session = Client(
+        TelegramDatacenter.VESTA_MEDIA,
+        copy.copy(auth_key),
+        connection_info,
+        transport_link_factory,
+        blocking_executor,
+        use_perfect_forward_secrecy=True,
+        no_updates=True
+    )
 
     get_file_request = {
         "_cons": "upload.getFile",
@@ -120,30 +110,11 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         }
     }
 
-    pending_results = []
-
     while get_file_request["offset"] < media.size:
-        media_sessions.rotate(1)
-        media_session = media_sessions[0]
-
-        get_file_task = asyncio.ensure_future(media_session.rpc_call(get_file_request))
+        await media_session.rpc_call(get_file_request)
         get_file_request["offset"] += get_file_request["limit"]
 
-        pending_results.append(get_file_task)
-
-        if len(pending_results) == len(media_sessions):
-            completed, _ = await asyncio.wait(pending_results, return_when=asyncio.FIRST_COMPLETED)
-
-            for task in completed:
-                pending_results.remove(task)
-                task.exception()
-
-    if pending_results:
-        await asyncio.gather(*pending_results, return_exceptions=True)
-
-    for media_session in media_sessions:
-        media_session.disconnect()
-
+    media_session.disconnect()
     get_updates_task.cancel()
     session.disconnect()
 

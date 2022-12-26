@@ -38,9 +38,13 @@ class MTProtoKeyExchange:
 
         nonce = await self._in_thread(secrets.token_bytes, 16)
 
-        await self._mtproto.write_unencrypted_message(_cons="req_pq", nonce=nonce)
+        await self._mtproto.write_unencrypted_message(_cons="req_pq_multi", nonce=nonce)
 
-        res_pq = (await self._mtproto.read_unencrypted_message()).body
+        res_pq_container = await self._mtproto.read_unencrypted_message()
+
+        await self._mtproto.write_unencrypted_message(_cons="msgs_ack", msg_ids=[res_pq_container.message_id])
+
+        res_pq = res_pq_container.body
 
         if res_pq != "resPQ":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", res_pq)
@@ -65,15 +69,19 @@ class MTProtoKeyExchange:
             temp_key_expires_in = None
 
         p_q_inner_data = self._datacenter.schema.boxed(
-            _cons="p_q_inner_data_temp" if temp else "p_q_inner_data",
+            _cons="p_q_inner_data_temp_dc" if temp else "p_q_inner_data_dc",
             pq=res_pq.pq,
             p=p_string,
             q=q_string,
             nonce=nonce,
             server_nonce=server_nonce,
             new_nonce=new_nonce,
-            expires_in=temp_key_expires_in
-        ).get_flat_bytes()
+            expires_in=temp_key_expires_in,
+            dc=-self._datacenter.datacenter_id if self._datacenter.is_media else self._datacenter.datacenter_id
+        )
+
+        p_q_inner_data_rsa_pad = await self._in_thread(self._datacenter.public_rsa.encrypt_with_rsa_pad, p_q_inner_data.get_flat_bytes())
+        p_q_inner_data_encrypted = await self._in_thread(self._datacenter.public_rsa.encrypt, p_q_inner_data_rsa_pad)
 
         await self._mtproto.write_unencrypted_message(
             _cons="req_DH_params",
@@ -82,10 +90,14 @@ class MTProtoKeyExchange:
             p=p_string,
             q=q_string,
             public_key_fingerprint=self._datacenter.public_rsa.fingerprint,
-            encrypted_data=await self._in_thread(self._datacenter.public_rsa.encrypt_with_hash, p_q_inner_data),
+            encrypted_data=p_q_inner_data_encrypted,
         )
 
-        params = (await self._mtproto.read_unencrypted_message()).body
+        params_container = await self._mtproto.read_unencrypted_message()
+
+        await self._mtproto.write_unencrypted_message(_cons="msgs_ack", msg_ids=[params_container.message_id])
+
+        params = params_container.body
 
         if params != "server_DH_params_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params)
@@ -194,7 +206,11 @@ class MTProtoKeyExchange:
             encrypted_data=await self._in_thread(tmp_aes.encrypt_with_hash, client_dh_inner_data),
         )
 
-        params3 = (await self._mtproto.read_unencrypted_message()).body
+        params3_container = await self._mtproto.read_unencrypted_message()
+
+        await self._mtproto.write_unencrypted_message(_cons="msgs_ack", msg_ids=[params3_container.message_id])
+
+        params3 = params3_container.body
 
         if params3 != "dh_gen_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)

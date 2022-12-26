@@ -1,21 +1,18 @@
 import asyncio
 import concurrent.futures
 import logging
-import random
-import time
 import traceback
 import typing
 import warnings
 
-from . import PendingRequest, Update
 from . import ConnectionInfo
-from ..network import mtproto, DatacenterInfo
+from . import PendingRequest, Update
 from ..crypto import AuthKey
+from ..network import mtproto, DatacenterInfo
 from ..network.mtproto import MTProto
-from ..network.transport import TransportLinkFactory
-from ..tl import tl
-from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
+from ..network.transport import TransportLinkFactory
+from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
 
 __all__ = ("Client",)
 
@@ -25,7 +22,6 @@ class Client:
         "_mtproto",
         "_loop",
         "_msgids_to_ack",
-        "_last_time_acks_flushed",
         "_seqno_increment",
         "_mtproto_loop_task",
         "_pending_requests",
@@ -44,13 +40,13 @@ class Client:
         "_use_perfect_forward_secrecy",
         "_temp_auth_key",
         "_blocking_executor",
-        "_bound_auth_key"
+        "_bound_auth_key",
+        "_write_queue"
     )
 
     _mtproto: mtproto.MTProto
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
-    _last_time_acks_flushed: float
     _stable_seqno: bool
     _seqno_increment: int
     _mtproto_loop_task: asyncio.Task | None
@@ -70,6 +66,7 @@ class Client:
     _temp_auth_key: AuthKey | None
     _blocking_executor: concurrent.futures.Executor
     _bound_auth_key: AuthKey
+    _write_queue: asyncio.Queue[PendingRequest]
 
     def __init__(
             self,
@@ -88,10 +85,9 @@ class Client:
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
         self._blocking_executor = blocking_executor
 
-        self._loop = asyncio.get_event_loop()
+        self._loop = asyncio.get_running_loop()
 
         self._msgids_to_ack = []
-        self._last_time_acks_flushed = time.perf_counter()
 
         self._stable_seqno = False
         self._seqno_increment = 1
@@ -99,6 +95,7 @@ class Client:
         self._layer_init_required = True
 
         self._pending_requests = dict()
+
         self._pending_pong = None
         self._pending_ping = None
 
@@ -106,6 +103,7 @@ class Client:
         self._pending_future_salt = None
 
         self._updates_queue = asyncio.Queue()
+        self._write_queue = asyncio.Queue()
 
         self._auth_key_lock = asyncio.Lock()
 
@@ -127,98 +125,16 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call_multi(self, payloads: typing.Iterable[TlRequestBody]) -> tuple[TlMessageBody | BaseException]:
-        messages = []
-        messages_ids = []
-        responses = []
-
-        await self._start_mtproto_loop_if_needed()
-
-        if self._layer_init_required:
-            await self.rpc_call(dict(_cons="help.getConfig"))
-
-        for payload in payloads:
-            request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
-            request_message, request_message_id = self._mtproto.box_message(request.next_seq_no(), **payload)
-
-            self._pending_requests[request_message_id] = request
-
-            messages.append(request_message)
-            messages_ids.append(request_message_id)
-            responses.append(request.response)
-
-        if not messages:
-            raise ValueError("this method expects the `payloads` iterator to return at least one element")
-
-        container_message = dict(_cons="msg_container", messages=messages)
-        container_request = PendingRequest(self._loop.create_future(), container_message, self._get_next_even_seqno, False)
-        container_message_id = await self._rpc_call(container_request, parent_is_waiting=True)
-
-        await asyncio.wait((*responses, container_request.response), return_when=asyncio.FIRST_COMPLETED)
-
-        container_request_exception: False | BaseException
-
-        if (container_request_response := container_request.response).done():
-            container_request_exception = container_request_response.exception()
-        else:
-            container_request_exception = False
-
-        if pending_container_request := self._pending_requests.pop(container_message_id, None):
-            pending_container_request.finalize()
-
-        if container_request_exception:
-            any(map(self._cancel_pending_request, messages_ids))
-            raise container_request_exception from container_request_exception
-
-        results = await asyncio.gather(*responses, return_exceptions=True)
-
-        return typing.cast(tuple[TlMessageBody | BaseException], results)
-
     async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
         pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
-        await self._rpc_call(pending_request, parent_is_waiting=True)
+        pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
+        await self._start_mtproto_loop_if_needed()
+        await self._rpc_call(pending_request)
         return await pending_request.response
 
-    async def _rpc_call(self, request: PendingRequest, *, parent_is_waiting: bool) -> int:
-        request.retries += 1
-
-        if parent_is_waiting:
-            await self._start_mtproto_loop_if_needed()
-
-        if request.allow_container:
-            layer_init_boxing_required = self._layer_init_required
-        else:
-            layer_init_boxing_required = False
-
-        request_body = request.request
-
-        if layer_init_boxing_required:
-            request_body = self._wrap_request_in_layer_init(request_body)
-
-        message, message_id = self._mtproto.box_message(request.next_seq_no(), **request_body)
-
-        logging.debug("sending message (%s) %d to mtproto", request.request["_cons"], message_id)
-
-        if cleaner := request.cleaner:
-            cleaner.cancel()
-
-        request.cleaner = self._loop.call_later(120, self._cancel_pending_request, message_id)
-
-        self._pending_requests[message_id] = request
-
-        try:
-            await self._write_mtproto_socket(message, 120, parent_is_waiting)
-        except (KeyboardInterrupt, asyncio.CancelledError):
-            self._cancel_pending_request(message_id)
-            raise
-        except:
-            logging.error("failure while write tl payload to mtproto: %s", traceback.format_exc())
-            self.disconnect()
-
-            if (response := request.response).exception():
-                await response
-
-        return message_id
+    async def _rpc_call(self, request: PendingRequest):
+        self._ensure_mtproto_loop()
+        await self._write_queue.put(request)
 
     def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
         message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.dict())
@@ -228,14 +144,6 @@ class Client:
             message = dict(_cons="invokeWithoutUpdates", _wrapped=message)
 
         return message
-
-    async def _write_mtproto_socket(self, message: tl.Value, timeout: int, parent_is_waiting: bool):
-        write_coro = self._mtproto.write_encrypted(message, await self._get_auth_key())
-
-        if parent_is_waiting:
-            await asyncio.wait_for(write_coro, timeout)
-        else:
-            await write_coro
 
     async def _start_mtproto_loop(self):
         self.disconnect()
@@ -260,20 +168,20 @@ class Client:
             30,
             lambda: self._loop.create_task(self._create_future_salt_request()))
 
-        await self._rpc_call(get_future_salts_request, parent_is_waiting=False)
+        await self._rpc_call(get_future_salts_request)
 
     async def _create_ping_request(self):
-        random_ping_id = random.randrange(-2 ** 63, 2 ** 63)
+        ping_id = self._mtproto.get_next_message_id()
 
         if pending_pong := self._pending_pong:
             pending_pong.cancel()
 
         self._pending_pong = self._loop.call_later(10, self.disconnect)
 
-        ping_message = dict(_cons="ping", ping_id=random_ping_id)
+        ping_message = dict(_cons="ping", ping_id=ping_id)
         ping_request = PendingRequest(self._loop.create_future(), ping_message, self._get_next_odd_seqno, False)
 
-        await self._rpc_call(ping_request, parent_is_waiting=False)
+        await self._rpc_call(ping_request)
 
     def _get_next_odd_seqno(self) -> int:
         self._bound_auth_key.seq_no = ((self._bound_auth_key.seq_no + 1) // 2) * 2 + 1
@@ -288,15 +196,14 @@ class Client:
             pending_request.finalize()
 
     async def _get_auth_key(self) -> AuthKey:
+        self._ensure_mtproto_loop()
+
         async with self._auth_key_lock:
             perm_auth_key = self._perm_auth_key
 
             if perm_auth_key.is_empty():
                 new_auth_key = await self._mtproto_key_exchange.create_perm_auth_key()
                 new_auth_key.copy_to(perm_auth_key)
-
-                if self._use_perfect_forward_secrecy:
-                    self._mtproto.stop()
 
             if self._use_perfect_forward_secrecy:
                 temp_auth_key = self._temp_auth_key
@@ -309,26 +216,85 @@ class Client:
 
             return perm_auth_key
 
+    async def _process_inbound_message(self, message: TlMessageBody):
+        logging.debug("received message (%s) %d from mtproto", message.body.constructor_name, message.msg_id)
+        await self._process_telegram_message(message)
+        await self._flush_msgids_to_ack()
+
+    async def _process_outbound_message(self, message: PendingRequest):
+        message.retries += 1
+
+        if message.response.done():
+            raise asyncio.InvalidStateError("request %r already completed", message.request)
+
+        if cleaner := message.cleaner:
+            cleaner.cancel()
+
+        if message.allow_container:
+            layer_init_boxing_required = self._layer_init_required
+        else:
+            layer_init_boxing_required = False
+
+        request_body = message.request
+
+        if layer_init_boxing_required:
+            request_body = self._wrap_request_in_layer_init(request_body)
+
+        try:
+            boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
+        except Exception as serialization_exception:
+            message.response.set_exception(serialization_exception)
+            message.finalize()
+            return
+
+        if message.expect_answer:
+            self._pending_requests[boxed_message_id] = message
+
+        message.cleaner = self._loop.call_later(120, self._cancel_pending_request, boxed_message_id)
+
+        logging.debug("writing message %d (%s)", boxed_message_id, message.request["_cons"])
+
+        await self._mtproto.write_encrypted(boxed_message, self._bound_auth_key)
+
+    async def _mtproto_write_loop(self):
+        while True:
+            message = await self._write_queue.get()
+            await self._process_outbound_message(message)
+
+    async def _mtproto_read_loop(self):
+        while True:
+            await self._process_inbound_message(await self._mtproto.read_encrypted(self._bound_auth_key))
+
     async def _mtproto_loop(self):
-        while mtproto_link := self._mtproto:
-            try:
-                message = await mtproto_link.read_encrypted(await self._get_auth_key())
-            except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
-                raise
-            except:
-                logging.error("failure while read message from mtproto: %s", traceback.format_exc())
-                self.disconnect()
-                break
+        try:
+            await self._get_auth_key()
+        except:
+            logging.debug("unable to generate mtproto auth key: %s", traceback.format_exc())
+            self.disconnect()
+            raise asyncio.CancelledError()
 
-            logging.debug("received message (%s) %d from mtproto", message.body.constructor_name, message.msg_id)
+        write_task = self._loop.create_task(self._mtproto_write_loop())
+        read_task = self._loop.create_task(self._mtproto_read_loop())
 
-            try:
-                await self._process_telegram_message(message)
-                await self._flush_msgids_to_ack_if_needed()
-            except (KeyboardInterrupt, asyncio.CancelledError):
-                raise
-            except:
-                logging.error("failure while process message from mtproto: %s", traceback.format_exc())
+        try:
+            await asyncio.gather(write_task, read_task)
+        except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
+            raise
+        except:
+            logging.error("unable to process message in consumer: %s", traceback.format_exc())
+        finally:
+            write_task.cancel()
+            read_task.cancel()
+
+        self.disconnect()
+        raise asyncio.CancelledError()
+
+    def _ensure_mtproto_loop(self):
+        if mtproto_loop_task := self._mtproto_loop_task:
+            if mtproto_loop_task.done():
+                raise asyncio.InvalidStateError("mtproto loop closed")
+        else:
+            raise asyncio.InvalidStateError("mtproto loop closed")
 
     async def _start_mtproto_loop_if_needed(self):
         if mtproto_loop_task := self._mtproto_loop_task:
@@ -336,13 +302,6 @@ class Client:
                 await self._start_mtproto_loop()
         else:
             await self._start_mtproto_loop()
-
-    async def _flush_msgids_to_ack_if_needed(self):
-        if not self._msgids_to_ack:
-            return
-
-        if len(self._msgids_to_ack) >= 32 or (time.perf_counter() - self._last_time_acks_flushed) > 10:
-            await self._flush_msgids_to_ack()
 
     async def _process_telegram_message(self, message: Structure):
         self._update_last_seqno_from_incoming_message(message)
@@ -458,12 +417,6 @@ class Client:
     async def _process_new_session_created(self, body: TlMessageBody):
         self._bound_auth_key.server_salt = body.server_salt
 
-        bad_requests = dict((i, r) for i, r in self._pending_requests.items() if i < body.first_msg_id)
-
-        for bad_msg_id, bad_request in bad_requests.items():
-            self._pending_requests.pop(bad_msg_id, None)
-            await self._rpc_call(bad_request, parent_is_waiting=False)
-
     async def _process_updates(self, body: TlMessageBody):
         if self._no_updates:
             return
@@ -493,24 +446,16 @@ class Client:
     async def _acknowledge_telegram_message(self, message: Structure):
         if message.seqno % 2 == 1:
             self._msgids_to_ack.append(message.msg_id)
-            await self._flush_msgids_to_ack()
 
     async def _flush_msgids_to_ack(self):
-        self._last_time_acks_flushed = time.perf_counter()
-
         if not self._msgids_to_ack or not self._stable_seqno:
             return
 
-        msgids_to_ack = self._msgids_to_ack[:1024]
+        msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
+        msgids_to_ack_request = PendingRequest(self._loop.create_future(), msgids_to_ack_message, self._get_next_even_seqno, False, expect_answer=False)
+        self._msgids_to_ack.clear()
 
-        msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=msgids_to_ack)
-        msgids_to_ack_request = PendingRequest(self._loop.create_future(), msgids_to_ack_message, self._get_next_even_seqno, False)
-        msgids_to_ack_message_id = await self._rpc_call(msgids_to_ack_request, parent_is_waiting=False)
-
-        if pending_msgids_to_ack_request := self._pending_requests.pop(msgids_to_ack_message_id, None):
-            pending_msgids_to_ack_request.finalize()
-
-        any(map(self._msgids_to_ack.remove, msgids_to_ack))
+        await self._rpc_call(msgids_to_ack_request)
 
     def _update_last_seqno_from_incoming_message(self, message: Structure):
         self._bound_auth_key.seq_no = max(self._bound_auth_key.seq_no, message.seqno)
@@ -523,7 +468,7 @@ class Client:
         logging.debug("updating salt: %d", body.new_server_salt)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            await self._rpc_call(bad_request, parent_is_waiting=False)
+            await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -533,9 +478,9 @@ class Client:
         elif body.error_code == 33:
             await self._process_bad_msg_notification_msg_seqno_too_high(body)
         else:
-            self._process_bad_msg_notification_reject_message(body)
+            await self._process_bad_msg_notification_reject_message(body)
 
-    def _process_bad_msg_notification_reject_message(self, body: TlMessageBody):
+    async def _process_bad_msg_notification_reject_message(self, body: TlMessageBody):
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             bad_request.response.set_exception(RpcError(body.error_code, "BAD_MSG_NOTIFICATION"))
             bad_request.finalize()
@@ -544,7 +489,7 @@ class Client:
 
     async def _process_bad_msg_notification_msg_seqno_too_high(self, body: TlRequestBody):
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            await self._rpc_call(bad_request, parent_is_waiting=False)
+            await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -555,7 +500,7 @@ class Client:
         logging.debug("updating seqno by %d to %d", self._seqno_increment, self._bound_auth_key.seq_no)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            await self._rpc_call(bad_request, parent_is_waiting=False)
+            await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -574,7 +519,7 @@ class Client:
 
             if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
-                await self._rpc_call(pending_request, parent_is_waiting=False)
+                await self._rpc_call(pending_request)
 
             elif result == "rpc_error":
                 pending_request.response.set_exception(RpcError(result.error_code, result.error_message))
@@ -615,6 +560,15 @@ class Client:
 
         if mtproto_loop := self._mtproto_loop_task:
             mtproto_loop.cancel()
+
+        while not self._write_queue.empty():
+            message = self._write_queue.get_nowait()
+
+            if isinstance(message, list):
+                for submessage in message:
+                    submessage.finalize()
+            else:
+                message.finalize()
 
         self._mtproto_loop_task = None
 

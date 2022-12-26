@@ -3,7 +3,8 @@ import hashlib
 import re
 import secrets
 
-from ..tl.byteutils import to_reader, pack_binary_string, reader_is_empty, to_bytes, sha1
+from . import AesIge
+from ..tl.byteutils import to_reader, pack_binary_string, reader_is_empty, to_bytes, sha1, xor, sha256
 from ..typed import SyncByteReader
 
 __all__ = ("PublicRSA",)
@@ -35,7 +36,7 @@ class PublicRSA:
             signed=True,
         )
 
-        self.n = int.from_bytes(n, "big")
+        self.n = int.from_bytes(n, "big", signed=False)
         self.e = int.from_bytes(e, "big")
 
     @staticmethod
@@ -64,6 +65,28 @@ class PublicRSA:
         m = int.from_bytes(data + secrets.token_bytes(padding_length), "big")
         x = pow(m, self.e, self.n)
         return to_bytes(x)
+
+    def encrypt_with_rsa_pad(self, data: bytes) -> bytes:
+        if len(data) > 144:
+            raise TypeError("Plain data length is more that 144 bytes")
+
+        data_with_padding = data + secrets.token_bytes(-len(data) % 192)
+        data_pad_reversed = data_with_padding[::-1]
+
+        while True:
+            temp_key = secrets.token_bytes(32)
+            temp_key_aes = AesIge(temp_key, b"\0" * 32)
+
+            data_with_hash = data_pad_reversed + sha256(temp_key + data_with_padding)
+            encrypted_data_with_hash = temp_key_aes.encrypt(data_with_hash)
+
+            temp_key_xor = xor(temp_key, sha256(encrypted_data_with_hash))
+            key_aes_encrypted = temp_key_xor + encrypted_data_with_hash
+
+            if self.n > int.from_bytes(key_aes_encrypted, "big", signed=False):
+                break
+
+        return key_aes_encrypted
 
     def encrypt_with_hash(self, plain: bytes) -> bytes:
         return self.encrypt(sha1(plain) + plain)
