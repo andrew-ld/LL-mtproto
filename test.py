@@ -96,7 +96,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
             connection_info,
             transport_link_factory,
             blocking_executor,
-            use_perfect_forward_secrecy=True,
+            use_perfect_forward_secrecy=False,
             no_updates=True
         )
 

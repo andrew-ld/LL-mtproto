@@ -33,12 +33,15 @@ class MTProtoKeyExchange:
         return await self._create_auth_key(False, None)
 
     async def _create_auth_key(self, temp: bool, perm_auth_key: AuthKey | None) -> AuthKey:
+        if self._datacenter.is_media:
+            raise ValueError("You can't get a key on media datacenter")
+
         if temp and perm_auth_key is None:
             raise ValueError("You can't get a temporary key without having the permanent one")
 
         nonce = await self._in_thread(secrets.token_bytes, 16)
 
-        await self._mtproto.write_unencrypted_message(_cons="req_pq", nonce=nonce)
+        await self._mtproto.write_unencrypted_message(_cons="req_pq_multi", nonce=nonce)
 
         res_pq = (await self._mtproto.read_unencrypted_message()).body
 
@@ -65,15 +68,19 @@ class MTProtoKeyExchange:
             temp_key_expires_in = None
 
         p_q_inner_data = self._datacenter.schema.boxed(
-            _cons="p_q_inner_data_temp" if temp else "p_q_inner_data",
+            _cons="p_q_inner_data_temp_dc" if temp else "p_q_inner_data_dc",
             pq=res_pq.pq,
             p=p_string,
             q=q_string,
             nonce=nonce,
             server_nonce=server_nonce,
             new_nonce=new_nonce,
-            expires_in=temp_key_expires_in
-        ).get_flat_bytes()
+            expires_in=temp_key_expires_in,
+            dc=self._datacenter.datacenter_id
+        )
+
+        p_q_inner_data_rsa_pad = await self._in_thread(self._datacenter.public_rsa.encrypt_with_rsa_pad, p_q_inner_data.get_flat_bytes())
+        p_q_inner_data_encrypted = await self._in_thread(self._datacenter.public_rsa.encrypt, p_q_inner_data_rsa_pad)
 
         await self._mtproto.write_unencrypted_message(
             _cons="req_DH_params",
@@ -82,7 +89,7 @@ class MTProtoKeyExchange:
             p=p_string,
             q=q_string,
             public_key_fingerprint=self._datacenter.public_rsa.fingerprint,
-            encrypted_data=await self._in_thread(self._datacenter.public_rsa.encrypt_with_hash, p_q_inner_data),
+            encrypted_data=p_q_inner_data_encrypted,
         )
 
         params = (await self._mtproto.read_unencrypted_message()).body
