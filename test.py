@@ -74,6 +74,11 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         "username": "eqf3wefwe"
     })
 
+    # I deliberately break the auth_key status to see if the client can restore it
+    session._bound_auth_key.seq_no = -1
+    session._bound_auth_key.server_salt = -1
+    await asyncio.gather(*await session.rpc_call_multi([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
+
     messages = await session.rpc_call({
         "_cons": "channels.getMessages",
         "channel": {
