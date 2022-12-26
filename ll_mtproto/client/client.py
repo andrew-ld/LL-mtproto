@@ -244,8 +244,7 @@ class Client:
             boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
         except Exception as serialization_exception:
             message.response.set_exception(serialization_exception)
-            message.finalize()
-            return
+            return message.finalize()
 
         if message.expect_answer:
             self._pending_requests[boxed_message_id] = message
@@ -258,8 +257,7 @@ class Client:
 
     async def _mtproto_write_loop(self):
         while True:
-            message = await self._write_queue.get()
-            await self._process_outbound_message(message)
+            await self._process_outbound_message(await self._write_queue.get())
 
     async def _mtproto_read_loop(self):
         while True:
