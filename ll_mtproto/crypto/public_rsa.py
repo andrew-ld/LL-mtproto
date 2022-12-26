@@ -36,7 +36,7 @@ class PublicRSA:
             signed=True,
         )
 
-        self.n = int.from_bytes(n, "big")
+        self.n = int.from_bytes(n, "big", signed=False)
         self.e = int.from_bytes(e, "big")
 
     @staticmethod
@@ -73,7 +73,12 @@ class PublicRSA:
         data_with_padding = data + secrets.token_bytes(-len(data) % 192)
         data_pad_reversed = data_with_padding[::-1]
 
-        temp_key = secrets.token_bytes(32)
+        while True:
+            temp_key = secrets.token_bytes(32)
+
+            if self.n > int.from_bytes(temp_key, "big", signed=False):
+                break
+
         temp_key_aes = AesIge(temp_key, b"\0" * 32)
 
         data_with_hash = data_pad_reversed + sha256(temp_key + data_with_padding)
