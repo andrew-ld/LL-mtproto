@@ -36,8 +36,6 @@ class MTProtoKeyExchange:
         if temp and perm_auth_key is None:
             raise ValueError("You can't get a temporary key without having the permanent one")
 
-        await self._mtproto.write_unencrypted_message(_cons="ping", ping_id=self._mtproto.get_next_message_id())
-
         nonce = await self._in_thread(secrets.token_bytes, 16)
 
         await self._mtproto.write_unencrypted_message(_cons="req_pq_multi", nonce=nonce)
