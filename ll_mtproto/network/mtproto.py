@@ -10,7 +10,7 @@ from .transport import TransportLinkBase, TransportLinkFactory
 from ..crypto import AuthKey
 from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ..tl import tl
-from ..tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1
+from ..tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
 from ..tl.tl import Structure
 from ..typed import InThread
 
@@ -91,8 +91,7 @@ class MTProto:
             body_len = int.from_bytes(body_len_envelope, signed=False, byteorder="little")
             body_envelope = await self._link.readn(body_len)
 
-            full_message = unencrypted_message_header_envelope + body_len_envelope + body_envelope
-            full_message_reader = to_reader(full_message)
+            full_message_reader = to_composed_reader(unencrypted_message_header_envelope, body_len_envelope, body_envelope)
 
             try:
                 return await self._in_thread(self._datacenter.schema.read, full_message_reader, False, "unencrypted_message")

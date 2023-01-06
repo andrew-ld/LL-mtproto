@@ -27,7 +27,8 @@ __all__ = (
     "reader_is_empty",
     "reader_discard",
     "GzipStreamReader",
-    "to_reader"
+    "to_reader",
+    "to_composed_reader"
 )
 
 
@@ -96,6 +97,17 @@ class GzipStreamReader:
 
 
 _SyncByteReaderByteUtilsImpl: typing.TypeAlias = SyncByteReader
+
+
+def to_composed_reader(*buffers: bytes) -> _SyncByteReaderByteUtilsImpl:
+    result = io.BytesIO()
+
+    for buffer in buffers:
+        result.write(buffer)
+
+    result.seek(0)
+
+    return result.read
 
 
 def to_reader(buffer: bytes) -> _SyncByteReaderByteUtilsImpl:
