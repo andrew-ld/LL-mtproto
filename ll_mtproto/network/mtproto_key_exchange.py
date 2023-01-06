@@ -63,6 +63,9 @@ class MTProtoKeyExchange:
         p_string = to_bytes(p)
         q_string = to_bytes(q)
 
+        if len(p_string) + len(q_string) != 8:
+            raise RuntimeError("Diffie–Hellman exchange failed: p q length is invalid, `%r`", pq)
+
         if temp:
             temp_key_expires_in = self.TEMP_AUTH_KEY_EXPIRE_TIME + self._datacenter.get_synchronized_time()
         else:
