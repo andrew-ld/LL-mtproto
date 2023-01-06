@@ -80,7 +80,7 @@ class MTProtoKeyExchange:
             dc=-self._datacenter.datacenter_id if self._datacenter.is_media else self._datacenter.datacenter_id
         )
 
-        p_q_inner_data_rsa_pad = await self._in_thread(self._datacenter.public_rsa.encrypt_with_rsa_pad, p_q_inner_data.get_flat_bytes())
+        p_q_inner_data_rsa_pad = await self._in_thread(self._datacenter.public_rsa.rsa_pad, p_q_inner_data.get_flat_bytes())
         p_q_inner_data_encrypted = await self._in_thread(self._datacenter.public_rsa.encrypt, p_q_inner_data_rsa_pad)
 
         await self._mtproto.write_unencrypted_message(

@@ -66,7 +66,7 @@ class PublicRSA:
         x = pow(m, self.e, self.n)
         return to_bytes(x)
 
-    def encrypt_with_rsa_pad(self, data: bytes) -> bytes:
+    def rsa_pad(self, data: bytes) -> bytes:
         if len(data) > 144:
             raise TypeError("Plain data length is more that 144 bytes")
 
