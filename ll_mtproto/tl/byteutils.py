@@ -169,7 +169,7 @@ class SyncByteReaderApply:
     _parent: SyncByteReader
     _apply_function: ByteConsumer
 
-    def __init__(self, parent: ByteReader, apply_function: ByteConsumer):
+    def __init__(self, parent: SyncByteReader, apply_function: ByteConsumer):
         self._parent = parent
         self._apply_function = apply_function
 
