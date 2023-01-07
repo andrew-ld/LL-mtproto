@@ -14,7 +14,7 @@ def _get_schema(resources_path: str) -> Schema:
 
     merged_schema = "\n".join((auth_schema, application_schema, service_schema))
 
-    return Schema(merged_schema, 143)
+    return Schema(merged_schema, 151)
 
 
 def _get_public_rsa(resources_path: str) -> PublicRSA:
