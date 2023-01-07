@@ -164,11 +164,10 @@ class ByteReaderApply:
 
 
 class SyncByteReaderApply:
-    __slots__ = ("_parent", "_apply_function", "_in_thread")
+    __slots__ = ("_parent", "_apply_function")
 
     _parent: SyncByteReader
     _apply_function: ByteConsumer
-    _in_thread: InThread
 
     def __init__(self, parent: ByteReader, apply_function: ByteConsumer):
         self._parent = parent
