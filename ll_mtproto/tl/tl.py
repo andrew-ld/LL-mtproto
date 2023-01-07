@@ -77,6 +77,10 @@ _flagRE = re.compile(
     r"flags(?P<flag_name>\d+)?:#"
 )
 
+_layerRE = re.compile(
+    r"// LAYER (?P<layer>\d+)"
+)
+
 
 class Schema:
     __slots__ = ("constructors", "types", "cons_numbers", "layer")
@@ -86,12 +90,11 @@ class Schema:
     cons_numbers: dict[bytes, "Constructor"]
     layer: int
 
-    def __init__(self, parsable_schema: str, layer: int):
+    def __init__(self, parsable_schema: str):
         self.constructors = dict()
         self.types = dict()
         self.cons_numbers = dict()
         self._parse_file(parsable_schema)
-        self.layer = layer
 
     def __repr__(self):
         return "\n".join(repr(cons) for cons in self.constructors.values())
@@ -116,6 +119,11 @@ class Schema:
             raise SyntaxError("Error in schema: `%s`" % line)
 
         if "cons" not in cons_parsed:
+            layer_parsed = self._parse_token(_layerRE, line)
+
+            if layer_parsed and "layer" in layer_parsed:
+                self.layer = int(layer_parsed["layer"])
+
             return
 
         parameter_tokens: list[str] = cons_parsed["parameters"].split(" ")[1:]
