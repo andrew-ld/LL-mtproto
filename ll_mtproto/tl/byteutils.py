@@ -28,7 +28,8 @@ __all__ = (
     "reader_discard",
     "GzipStreamReader",
     "to_reader",
-    "to_composed_reader"
+    "to_composed_reader",
+    "SyncByteReaderApply"
 )
 
 
@@ -159,6 +160,23 @@ class ByteReaderApply:
     async def __call__(self, nbytes: int):
         result = await self._parent(nbytes)
         await self._in_thread(self._apply_function, result)
+        return result
+
+
+class SyncByteReaderApply:
+    __slots__ = ("_parent", "_apply_function", "_in_thread")
+
+    _parent: SyncByteReader
+    _apply_function: ByteConsumer
+    _in_thread: InThread
+
+    def __init__(self, parent: ByteReader, apply_function: ByteConsumer):
+        self._parent = parent
+        self._apply_function = apply_function
+
+    def __call__(self, nbytes: int):
+        result = self._parent(nbytes)
+        self._apply_function(result)
         return result
 
 
