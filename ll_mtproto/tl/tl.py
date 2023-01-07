@@ -78,7 +78,7 @@ _flagRE = re.compile(
 )
 
 _layerRE = re.compile(
-    r"// LAYER (?P<layer>\d+)"
+    r"^// LAYER (?P<layer>\d+)$"
 )
 
 
