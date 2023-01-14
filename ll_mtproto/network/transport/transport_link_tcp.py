@@ -1,6 +1,6 @@
 import asyncio
 
-from . import TransportCodecBase, TransportLinkBase, TransportLinkFactory, TransportCodecFactory
+from . import TransportCodecBase, TransportLinkBase, TransportLinkFactory, TransportCodecFactory, TransportAddressResolverBase
 from .. import DatacenterInfo
 
 __all__ = ("TransportLinkTcp", "TransportLinkTcpFactory")
@@ -16,7 +16,8 @@ class TransportLinkTcp(TransportLinkBase):
         "_write_lock",
         "_read_buffer",
         "_transport_codec_factory",
-        "_transport_codec"
+        "_transport_codec",
+        "_resolver"
     )
 
     _loop: asyncio.AbstractEventLoop
@@ -28,12 +29,14 @@ class TransportLinkTcp(TransportLinkBase):
     _read_buffer: bytearray
     _transport_codec: TransportCodecBase | None
     _transport_codec_factory: TransportCodecFactory
+    _resolver: TransportAddressResolverBase
 
-    def __init__(self, datacenter: DatacenterInfo, transport_codec_factory: TransportCodecFactory):
+    def __init__(self, datacenter: DatacenterInfo, transport_codec_factory: TransportCodecFactory, resolver: TransportAddressResolverBase):
         self._loop = asyncio.get_running_loop()
 
         self._datacenter = datacenter
         self._transport_codec_factory = transport_codec_factory
+        self._resolver = resolver
 
         self._connect_lock = asyncio.Lock()
         self._write_lock = asyncio.Lock()
@@ -49,7 +52,8 @@ class TransportLinkTcp(TransportLinkBase):
             reader, writer, transport_codec = self._reader, self._writer, self._transport_codec
 
             if reader is None or writer is None or transport_codec is None:
-                reader, writer = await asyncio.open_connection(self._datacenter.address, self._datacenter.port)
+                address, port = await self._resolver.get_address(self._datacenter)
+                reader, writer = await asyncio.open_connection(address, port)
                 transport_codec = self._transport_codec_factory.new_codec()
                 self._reader, self._writer, self._transport_codec = reader, writer, transport_codec
 
@@ -99,12 +103,14 @@ class TransportLinkTcp(TransportLinkBase):
 
 
 class TransportLinkTcpFactory(TransportLinkFactory):
-    __slots__ = ("_transport_codec_factory",)
+    __slots__ = ("_transport_codec_factory", "_resolver")
 
     _transport_codec_factory: TransportCodecFactory
+    _resolver: TransportAddressResolverBase
 
-    def __init__(self, transport_codec_factory: TransportCodecFactory):
+    def __init__(self, transport_codec_factory: TransportCodecFactory, resolver: TransportAddressResolverBase):
         self._transport_codec_factory = transport_codec_factory
+        self._resolver = resolver
 
     def new_transport_link(self, datacenter: DatacenterInfo) -> TransportLinkBase:
-        return TransportLinkTcp(datacenter, self._transport_codec_factory)
+        return TransportLinkTcp(datacenter, self._transport_codec_factory, self._resolver)

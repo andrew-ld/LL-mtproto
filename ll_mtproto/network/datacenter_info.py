@@ -7,10 +7,10 @@ __all__ = ("DatacenterInfo",)
 
 
 class DatacenterInfo:
-    __slots__ = ("address", "port", "public_rsa", "schema", "datacenter_id", "is_media", "_time_difference")
+    __slots__ = ("default_direct_address", "default_direct_port", "public_rsa", "schema", "datacenter_id", "is_media", "_time_difference")
 
-    address: str
-    port: int
+    default_direct_address: str
+    default_direct_port: int
     public_rsa: PublicRSA
     schema: Schema
     datacenter_id: int
@@ -19,8 +19,8 @@ class DatacenterInfo:
     _time_difference: int
 
     def __init__(self, address: str, port: int, public_rsa: PublicRSA, schema: Schema, datacenter_id: int, is_media: bool):
-        self.address = address
-        self.port = port
+        self.default_direct_address = address
+        self.default_direct_port = port
         self.public_rsa = public_rsa
         self.schema = schema
         self.datacenter_id = datacenter_id
@@ -34,7 +34,7 @@ class DatacenterInfo:
         return int(time.time()) + self._time_difference
 
     def __copy__(self):
-        return DatacenterInfo(self.address, self.port, self.public_rsa, self.schema, self.datacenter_id, self.is_media)
+        return DatacenterInfo(self.default_direct_address, self.default_direct_port, self.public_rsa, self.schema, self.datacenter_id, self.is_media)
 
     def __str__(self):
-        return f"{self.address}:{self.port} (layer {self.schema.layer}, datacenter {'media' if self.is_media else 'main'} {self.datacenter_id})"
+        return f"{self.default_direct_address}:{self.default_direct_port} (layer {self.schema.layer}, datacenter {'media' if self.is_media else 'main'} {self.datacenter_id})"
