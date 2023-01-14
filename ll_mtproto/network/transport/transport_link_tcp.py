@@ -52,7 +52,6 @@ class TransportLinkTcp(TransportLinkBase):
                 reader, writer = await asyncio.open_connection(self._datacenter.address, self._datacenter.port)
                 transport_codec = self._transport_codec_factory.new_codec()
                 self._reader, self._writer, self._transport_codec = reader, writer, transport_codec
-                await transport_codec.write_header(writer, reader)
 
             return reader, writer, transport_codec
 

@@ -12,7 +12,3 @@ class TransportCodecBase(abc.ABC):
     @abc.abstractmethod
     async def write_packet(self, writer: asyncio.StreamWriter, data: bytes):
         raise NotImplementedError()
-
-    @abc.abstractmethod
-    async def write_header(self, writer: asyncio.StreamWriter, reader: asyncio.StreamReader):
-        raise NotImplementedError()

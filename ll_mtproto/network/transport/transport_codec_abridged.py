@@ -7,8 +7,15 @@ __all__ = ("TransportCodecAbridged",)
 
 
 class TransportCodecAbridged(TransportCodecBase, TransportCodecFactory):
+    __slots__ = ("_must_write_transport_type",)
+
+    _must_write_transport_type: bool
+
+    def __init__(self):
+        self._must_write_transport_type = True
+
     def new_codec(self) -> TransportCodecBase:
-        return self
+        return TransportCodecAbridged()
 
     async def read_packet(self, reader: asyncio.StreamReader) -> bytes:
         packet_data_length = ord(await reader.readexactly(1))
@@ -22,19 +29,22 @@ class TransportCodecAbridged(TransportCodecBase, TransportCodecFactory):
         return await reader.readexactly(packet_data_length * 4)
 
     async def write_packet(self, writer: asyncio.StreamWriter, data: bytes):
+        packet_header = bytearray()
+
+        if self._must_write_transport_type:
+            packet_header += b"\xef"
+            self._must_write_transport_type = False
+
         packet_data_length = len(data) >> 2
 
         if packet_data_length < 0x7F:
-            writer.write(packet_data_length.to_bytes(1, "little"))
+            packet_header += packet_data_length.to_bytes(1, "little")
 
         elif packet_data_length <= 0x7FFFFF:
-            writer.write(b"\x7f")
-            writer.write(packet_data_length.to_bytes(3, "little"))
+            packet_header += b"\x7f"
+            packet_header += packet_data_length.to_bytes(3, "little")
 
         else:
             raise OverflowError("Packet data is too long")
 
-        writer.write(data)
-
-    async def write_header(self, writer: asyncio.StreamWriter, reader: asyncio.StreamReader):
-        writer.write(b"\xef")
+        writer.write(packet_header + data)
