@@ -3,19 +3,16 @@ import asyncio
 from . import TransportCodecBase
 from . import TransportCodecFactory
 
-__all__ = ("TransportCodecAbridged",)
+__all__ = ("TransportCodecAbridgedFactory", "TransportCodecAbridged")
 
 
-class TransportCodecAbridged(TransportCodecBase, TransportCodecFactory):
+class TransportCodecAbridged(TransportCodecBase):
     __slots__ = ("_must_write_transport_type",)
 
     _must_write_transport_type: bool
 
     def __init__(self):
         self._must_write_transport_type = True
-
-    def new_codec(self) -> TransportCodecBase:
-        return TransportCodecAbridged()
 
     async def read_packet(self, reader: asyncio.StreamReader) -> bytes:
         packet_data_length = ord(await reader.readexactly(1))
@@ -48,3 +45,8 @@ class TransportCodecAbridged(TransportCodecBase, TransportCodecFactory):
             raise OverflowError("Packet data is too long")
 
         writer.write(packet_header + data)
+
+
+class TransportCodecAbridgedFactory(TransportCodecFactory):
+    def new_codec(self) -> TransportCodecBase:
+        return TransportCodecAbridgedFactory()

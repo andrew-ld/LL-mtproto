@@ -5,9 +5,7 @@ import copy
 import logging
 
 from ll_mtproto import Client, AuthKey, TelegramDatacenter, ConnectionInfo
-from ll_mtproto.network.transport import CachedTransportAddressResolver
-from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediate
-from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
+from ll_mtproto.network.transport import CachedTransportAddressResolver, TransportLinkTcpFactory, TransportCodecIntermediateFactory
 
 
 async def get_updates(client: Client):
@@ -35,7 +33,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     )
 
     address_resolver = CachedTransportAddressResolver()
-    transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediate(), address_resolver)
+    transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediateFactory(), address_resolver)
 
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 

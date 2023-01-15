@@ -4,19 +4,16 @@ import struct
 from . import TransportCodecBase
 from . import TransportCodecFactory
 
-__all__ = ("TransportCodecIntermediate",)
+__all__ = ("TransportCodecIntermediate", "TransportCodecIntermediateFactory")
 
 
-class TransportCodecIntermediate(TransportCodecBase, TransportCodecFactory):
+class TransportCodecIntermediate(TransportCodecBase):
     __slots__ = ("_must_write_transport_type",)
 
     _must_write_transport_type: bool
 
     def __init__(self):
         self._must_write_transport_type = True
-
-    def new_codec(self) -> TransportCodecBase:
-        return TransportCodecIntermediate()
 
     async def read_packet(self, reader: asyncio.StreamReader) -> bytes:
         packet_data_length = struct.unpack("<i", await reader.readexactly(4))
@@ -32,3 +29,8 @@ class TransportCodecIntermediate(TransportCodecBase, TransportCodecFactory):
         packet_header += struct.pack("<i", len(data))
 
         writer.write(packet_header + data)
+
+
+class TransportCodecIntermediateFactory(TransportCodecFactory):
+    def new_codec(self) -> TransportCodecBase:
+        return TransportCodecIntermediate()
