@@ -21,18 +21,23 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
     def get_cache_copy(self) -> dict[DatacenterInfo, tuple[str, int]]:
         return copy.deepcopy(self._cached_resolved)
 
-    def apply_telegram_config(self, datacenters: list[DatacenterInfo], config: Structure):
+    def apply_telegram_config(self, datacenters: list[DatacenterInfo], config: Structure, allow_ipv6: bool = False):
         if config.constructor_name != "config":
             raise TypeError(f"Expected: config, Found: {config!r}")
 
-        for dc_option in filter(lambda dc_option: not dc_option.ipv6, config.dc_options):
-            found_dc = next(
+        supported_dc_options = config.dc_options
+
+        if not allow_ipv6:
+            supported_dc_options = filter(lambda dc_option: not dc_option.ipv6, supported_dc_options)
+
+        for dc_option in supported_dc_options:
+            found_datacenter = next(
                 datacenter
                 for datacenter in datacenters
                 if datacenter.datacenter_id == dc_option.id and datacenter.is_media == bool(dc_option.media_only)
             )
 
-            self.on_new_address(found_dc, dc_option.ip_address, dc_option.port)
+            self.on_new_address(found_datacenter, dc_option.ip_address, dc_option.port)
 
     async def get_address(self, datacenter_info: DatacenterInfo) -> tuple[str, int]:
         if cached_address := self._cached_resolved.get(datacenter_info, None):
