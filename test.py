@@ -5,8 +5,7 @@ import copy
 import logging
 
 from ll_mtproto import Client, AuthKey, TelegramDatacenter, ConnectionInfo
-from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediate
-from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
+from ll_mtproto.network.transport import CachedTransportAddressResolver, TransportLinkTcpFactory, TransportCodecIntermediateFactory
 
 
 async def get_updates(client: Client):
@@ -33,7 +32,8 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         lang_pack=""
     )
 
-    transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediate())
+    address_resolver = CachedTransportAddressResolver()
+    transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediateFactory(), address_resolver)
 
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 
@@ -48,6 +48,10 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     )
 
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
+
+    address_resolver.apply_telegram_config(TelegramDatacenter.ALL_DATACENTERS, await session.rpc_call({"_cons": "help.getConfig"}))
+
+    session.disconnect()
 
     await session.rpc_call({
         "_cons": "auth.importBotAuthorization",
