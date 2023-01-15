@@ -55,6 +55,8 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     CachedTransportAddressResolver.apply_help_getconfig(address_resolver, TelegramDatacenter.ALL_DATACENTERS, config)
 
+    session.disconnect()
+
     await session.rpc_call({
         "_cons": "auth.importBotAuthorization",
         "api_id": api_id,

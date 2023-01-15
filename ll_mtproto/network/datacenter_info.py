@@ -37,4 +37,4 @@ class DatacenterInfo:
         return DatacenterInfo(self.default_direct_address, self.default_direct_port, self.public_rsa, self.schema, self.datacenter_id, self.is_media)
 
     def __str__(self):
-        return f"{self.default_direct_address}:{self.default_direct_port} (layer {self.schema.layer}, datacenter {'media' if self.is_media else 'main'} {self.datacenter_id})"
+        return f"{'media' if self.is_media else 'main'} datacenter {self.datacenter_id} with layer {self.schema.layer}"
