@@ -38,6 +38,6 @@ class TelegramDatacenter:
     VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _telegram_public_rsa, _telegram_api_schema, 2, True)
     VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _telegram_public_rsa, _telegram_api_schema, 4, True)
 
-    ALL_MAIN_DATACENTERS = [PLUTO, VENUS, AURORA, VESTA, FLORA]
-    ALL_MEDIA_DATACENTERS = [VENUS_MEDIA, VESTA_MEDIA]
-    ALL_DATACENTERS = [*ALL_MAIN_DATACENTERS, *ALL_MEDIA_DATACENTERS]
+    ALL_MAIN_DATACENTERS = frozenset((PLUTO, VENUS, AURORA, VESTA, FLORA))
+    ALL_MEDIA_DATACENTERS = frozenset((VENUS_MEDIA, VESTA_MEDIA))
+    ALL_DATACENTERS = frozenset((*ALL_MAIN_DATACENTERS, *ALL_MEDIA_DATACENTERS))
