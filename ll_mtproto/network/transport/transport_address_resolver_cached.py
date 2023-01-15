@@ -16,7 +16,7 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
     def on_new_address(self, datacenter_info: DatacenterInfo, direct_address: str, direct_port: int):
         self._cached_resolved[datacenter_info] = (direct_address, direct_port)
 
-    def apply_help_getconfig(self, datacenters: list[DatacenterInfo], config: Structure):
+    def apply_telegram_config(self, datacenters: list[DatacenterInfo], config: Structure):
         if config.constructor_name != "config":
             raise TypeError(f"Expected: config, Found: {config!r}")
 
