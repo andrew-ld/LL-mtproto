@@ -10,25 +10,24 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
 
     _cached_resolved: dict[DatacenterInfo, tuple[str, int]]
 
-    @staticmethod
-    def apply_help_getconfig(it: "CachedTransportAddressResolver", datacenters: list[DatacenterInfo], config: Structure):
+    def __init__(self):
+        self._cached_resolved = dict()
+
+    def on_new_address(self, datacenter_info: DatacenterInfo, direct_address: str, direct_port: int):
+        self._cached_resolved[datacenter_info] = (direct_address, direct_port)
+
+    def apply_help_getconfig(self, datacenters: list[DatacenterInfo], config: Structure):
         if config.constructor_name != "config":
             raise TypeError(f"Expected: config, Found: {config!r}")
 
-        for dc_option in filter(lambda c: not c.ipv6, config.dc_options):
+        for dc_option in filter(lambda dc_option: not dc_option.ipv6, config.dc_options):
             found_dc = next(
                 datacenter
                 for datacenter in datacenters
                 if datacenter.datacenter_id == dc_option.id and datacenter.is_media == bool(dc_option.media_only)
             )
 
-            it.on_new_address(found_dc, dc_option.ip_address, dc_option.port)
-
-    def __init__(self):
-        self._cached_resolved = dict()
-
-    def on_new_address(self, datacenter_info: DatacenterInfo, direct_address: str, direct_port: int):
-        self._cached_resolved[datacenter_info] = (direct_address, direct_port)
+            self.on_new_address(found_dc, dc_option.ip_address, dc_option.port)
 
     async def get_address(self, datacenter_info: DatacenterInfo) -> tuple[str, int]:
         if cached_address := self._cached_resolved.get(datacenter_info, None):
