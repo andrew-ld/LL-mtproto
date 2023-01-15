@@ -1,9 +1,9 @@
 import abc
 
-from ll_mtproto.network import DatacenterInfo
-
+from ...network import DatacenterInfo
 
 __all__ = ("TransportAddressResolverBase",)
+
 
 class TransportAddressResolverBase(abc.ABC):
     @abc.abstractmethod
