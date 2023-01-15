@@ -52,7 +52,8 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
 
     config = await session.rpc_call({"_cons": "help.getConfig"})
-    address_resolver.import_help_config(config, TelegramDatacenter.ALL_DATACENTERS)
+
+    CachedTransportAddressResolver.apply_help_getconfig(address_resolver, TelegramDatacenter.ALL_DATACENTERS, config)
 
     await session.rpc_call({
         "_cons": "auth.importBotAuthorization",
