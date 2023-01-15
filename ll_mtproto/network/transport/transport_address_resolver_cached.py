@@ -1,3 +1,5 @@
+import copy
+
 from ...network import DatacenterInfo
 from ...network.transport import TransportAddressResolverBase
 from ...typed import Structure
@@ -15,6 +17,9 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
 
     def on_new_address(self, datacenter_info: DatacenterInfo, direct_address: str, direct_port: int):
         self._cached_resolved[datacenter_info] = (direct_address, direct_port)
+
+    def get_cache_copy(self) -> dict[DatacenterInfo, tuple[str, int]]:
+        return copy.deepcopy(self._cached_resolved)
 
     def apply_telegram_config(self, datacenters: list[DatacenterInfo], config: Structure):
         if config.constructor_name != "config":
