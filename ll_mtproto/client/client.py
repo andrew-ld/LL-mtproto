@@ -249,8 +249,7 @@ class Client:
 
         if message.expect_answer:
             self._pending_requests[boxed_message_id] = message
-
-        message.cleaner = self._loop.call_later(120, self._cancel_pending_request, boxed_message_id)
+            message.cleaner = self._loop.call_later(120, self._cancel_pending_request, boxed_message_id)
 
         logging.debug("writing message %d (%s)", boxed_message_id, message.request["_cons"])
 
