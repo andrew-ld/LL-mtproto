@@ -225,7 +225,7 @@ class Client:
         message.retries += 1
 
         if message.response.done():
-            raise asyncio.InvalidStateError("request %r already completed", message.request)
+            return logging.warning("request %r already completed", message.request)
 
         if cleaner := message.cleaner:
             cleaner.cancel()
@@ -258,8 +258,7 @@ class Client:
 
     async def _mtproto_write_loop(self):
         while True:
-            message = await self._write_queue.get()
-            await self._process_outbound_message(message)
+            await self._process_outbound_message(await self._write_queue.get())
 
     async def _mtproto_read_loop(self):
         while True:
