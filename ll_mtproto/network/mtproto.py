@@ -85,13 +85,18 @@ class MTProto:
 
     async def read_unencrypted_message(self) -> Structure:
         async with self._read_message_lock:
-            unencrypted_message_header_envelope = await self._link.readn(8 + 8)
+            server_auth_key_id = await self._link.readn(8)
+
+            if server_auth_key_id != b"\0\0\0\0\0\0\0\0":
+                raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
+
+            message_id = await self._link.readn(8)
 
             body_len_envelope = await self._link.readn(4)
             body_len = int.from_bytes(body_len_envelope, signed=False, byteorder="little")
             body_envelope = await self._link.readn(body_len)
 
-            full_message_reader = to_composed_reader(unencrypted_message_header_envelope, body_len_envelope, body_envelope)
+            full_message_reader = to_composed_reader(server_auth_key_id, message_id, body_len_envelope, body_envelope)
 
             try:
                 return await self._in_thread(self._datacenter.schema.read, full_message_reader, False, "unencrypted_message")
