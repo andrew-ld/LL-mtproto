@@ -49,4 +49,4 @@ class TransportCodecAbridged(TransportCodecBase):
 
 class TransportCodecAbridgedFactory(TransportCodecFactory):
     def new_codec(self) -> TransportCodecBase:
-        return TransportCodecAbridgedFactory()
+        return TransportCodecAbridged()
