@@ -195,7 +195,7 @@ class Client:
         if pending_request := self._pending_requests.pop(msg_id, None):
             pending_request.finalize()
 
-    async def _get_auth_key(self) -> AuthKey:
+    async def _start_auth_key_exchange_if_needed(self) -> AuthKey:
         self._ensure_mtproto_loop()
 
         async with self._auth_key_lock:
@@ -265,7 +265,9 @@ class Client:
 
     async def _mtproto_loop(self):
         try:
-            await self._get_auth_key()
+            await self._start_auth_key_exchange_if_needed()
+        except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
+            raise
         except:
             logging.debug("unable to generate mtproto auth key: %s", traceback.format_exc())
             self.disconnect()
