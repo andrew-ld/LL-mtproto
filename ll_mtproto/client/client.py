@@ -274,6 +274,7 @@ class Client:
             raise asyncio.CancelledError()
 
         if self._bound_auth_key.is_empty():
+            self.disconnect()
             raise asyncio.InvalidStateError("bound auth key is empty after key exchange")
 
         write_task = self._loop.create_task(self._mtproto_write_loop())
