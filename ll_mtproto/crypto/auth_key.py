@@ -37,8 +37,8 @@ class AuthKey:
     def get_or_assert_empty(self) -> tuple[bytes, int]:
         auth_key, auth_key_id = self.auth_key, self.auth_key_id
 
-        if auth_key is None or auth_key_id is None:
-            raise AssertionError("Auth key is empty")
+        if self.is_empty():
+            raise AssertionError("auth key is empty")
 
         return auth_key, auth_key_id
 
