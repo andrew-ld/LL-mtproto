@@ -1,6 +1,6 @@
-__all__ = ("factorize", "is_safe_dh_prime")
-
 import cryptg
+
+__all__ = ("factorize", "is_safe_dh_prime")
 
 
 def factorize(pq: int) -> tuple[int, int]:

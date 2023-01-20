@@ -491,7 +491,7 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: TlRequestBody):
+    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: TlMessageBody):
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
         else:
