@@ -2,6 +2,7 @@ import base64
 import functools
 import hashlib
 import io
+import secrets
 import typing
 import zlib
 
@@ -29,7 +30,8 @@ __all__ = (
     "GzipStreamReader",
     "to_reader",
     "to_composed_reader",
-    "SyncByteReaderApply"
+    "SyncByteReaderApply",
+    "pack_long_binary_string_padded"
 )
 
 
@@ -222,6 +224,12 @@ def unpack_binary_string(bytereader: SyncByteReader) -> bytes:
 
 def pack_long_binary_string(data: bytes) -> bytes:
     return len(data).to_bytes(4, "little", signed=False) + data
+
+
+def pack_long_binary_string_padded(data: bytes) -> bytes:
+    padding_len = -len(data) & 15
+    padding_len += 16 * (secrets.randbits(64) % 16)
+    return (len(data) + padding_len).to_bytes(4, "little", signed=False) + data + secrets.token_bytes(padding_len)
 
 
 @functools.lru_cache()

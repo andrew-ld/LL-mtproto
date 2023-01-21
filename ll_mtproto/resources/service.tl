@@ -3,7 +3,7 @@ msg_container#73f1f8dc messages:vector<message> = MessageContainer;
 message msg_id:ulong seqno:uint body:object = Message;
 message_from_server msg_id:ulong seqno:uint = Message;
 
-unencrypted_message auth_key_id:ulong message_id:ulong body:object = DataToSend;
+unencrypted_message auth_key_id:ulong message_id:ulong body:padded_object = DataToSend;
 encrypted_message auth_key_id:ulong msg_key:int128 encrypted_data:encrypted = DataToSend;
 
 message_inner_data salt:long session_id:ulong message:message = DataToEncrypt;

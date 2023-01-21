@@ -14,6 +14,7 @@ from .byteutils import (
     unpack_binary_string_stream,
     unpack_long_binary_string_stream,
     GzipStreamReader,
+    pack_long_binary_string_padded,
 )
 from ..typed import TlMessageBody, SyncByteReader
 
@@ -530,6 +531,9 @@ class Constructor:
             case "object":
                 return data.append_serialized_tl(pack_long_binary_string(argument.get_flat_bytes()))
 
+            case "padded_object":
+                return data.append_serialized_tl(pack_long_binary_string_padded(argument.get_flat_bytes()))
+
             case "rawobject":
                 argument.boxed = True
                 return data.append_serialized_tl(argument)
@@ -616,6 +620,9 @@ class Constructor:
                 return self.schema.read(bytereader)
 
             case "object":
+                return self.schema.read(unpack_long_binary_string_stream(bytereader))
+
+            case "padded_object":
                 return self.schema.read(unpack_long_binary_string_stream(bytereader))
 
             case "bytesobject":
