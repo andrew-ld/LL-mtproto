@@ -28,6 +28,9 @@ def factorize(pq: int) -> tuple[int, int]:
 
 @functools.lru_cache
 def is_safe_dh_prime(g: int, n: int) -> bool:
+    if n.bit_length() != 2048:
+        return False
+
     match g:
         case 2:
             if n % 8 != 7:
