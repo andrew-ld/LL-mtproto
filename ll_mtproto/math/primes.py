@@ -15,6 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
+import functools
+
 import cryptg
 
 __all__ = ("factorize", "is_safe_dh_prime")
@@ -24,6 +26,7 @@ def factorize(pq: int) -> tuple[int, int]:
     return cryptg.factorize_pq_pair(pq)
 
 
+@functools.lru_cache
 def is_safe_dh_prime(g: int, n: int) -> bool:
     match g:
         case 2:
