@@ -64,6 +64,9 @@ def is_safe_dh_prime(g: int, n: int) -> bool:
     if not miller_rabin(n, 15):
         return False
 
+    if not miller_rabin((n - 1) // 2, 15):
+        return False
+
     match g:
         case 2:
             if n % 8 != 7:
