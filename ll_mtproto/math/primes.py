@@ -16,19 +16,52 @@
 
 
 import functools
+import random
 
 import cryptg
 
-__all__ = ("factorize", "is_safe_dh_prime")
+__all__ = ("factorize", "is_safe_dh_prime", "miller_rabin")
 
 
 def factorize(pq: int) -> tuple[int, int]:
     return cryptg.factorize_pq_pair(pq)
 
 
-@functools.lru_cache
+@functools.lru_cache()
+def miller_rabin(num: int, trials: int) -> bool:
+    s = num - 1
+    t = 0
+
+    while s % 2 == 0:
+        s = s // 2
+        t += 1
+
+    for _ in range(trials):
+        a = random.randrange(2, num - 1)
+        v = pow(a, s, num)
+
+        if v != 1:
+            i = 0
+
+            while v != (num - 1):
+                if i == t - 1:
+                    return False
+                else:
+                    i = i + 1
+                    v = (v ** 2) % num
+
+    return True
+
+
+@functools.lru_cache()
 def is_safe_dh_prime(g: int, n: int) -> bool:
+    if n < 0:
+        return False
+
     if n.bit_length() != 2048:
+        return False
+
+    if not miller_rabin(n, 15):
         return False
 
     match g:
