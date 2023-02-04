@@ -71,7 +71,12 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     session._bound_auth_key.server_salt = -1
     await session.rpc_call({"_cons": "help.getConfig"})
 
-    # I voluntarily write a non-serializable message to check if the error is propagated correctly
+    # I deliberately break the auth_key status to see if the client can restore it
+    session._bound_auth_key.seq_no = 6969
+    session._bound_auth_key.server_salt = -1
+    await session.rpc_call({"_cons": "help.getConfig"})
+
+    # I deliberately write a non-serializable message to check if the error is propagated correctly
     try:
         await session.rpc_call({"_cons": "lol"})
     except:
