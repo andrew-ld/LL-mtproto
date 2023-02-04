@@ -169,7 +169,7 @@ class MTProtoKeyExchange:
         g = params2.g
         g_a = int.from_bytes(params2.g_a, "big")
 
-        if not primes.is_safe_dh_prime(g, dh_prime):
+        if not await self._in_thread(primes.is_safe_dh_prime, g, dh_prime):
             raise RuntimeError("Diffie–Hellman exchange failed: unknown dh_prime")
 
         if g_a <= 1:
