@@ -247,7 +247,9 @@ def pack_long_binary_string(data: bytes) -> bytes:
 def pack_long_binary_string_padded(data: bytes) -> bytes:
     padding_len = -len(data) & 15
     padding_len += 16 * (secrets.randbits(64) % 16)
-    return (len(data) + padding_len).to_bytes(4, "little", signed=False) + data + secrets.token_bytes(padding_len)
+    padding = secrets.token_bytes(padding_len)
+    header = (len(data) + len(padding)).to_bytes(4, "little", signed=False)
+    return header + data + padding
 
 
 @functools.lru_cache()
