@@ -18,8 +18,8 @@
 import copy
 import random
 
-from ...network import DatacenterInfo
-from ...network.transport import TransportAddressResolverBase
+from .. import DatacenterInfo
+from . import TransportAddressResolverBase
 from ...typed import Structure
 
 __all__ = ("CachedTransportAddressResolver",)
@@ -46,7 +46,7 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
         supported_dc_options = config.dc_options
 
         if not allow_ipv6:
-            supported_dc_options = filter(lambda dc_option: not dc_option.ipv6, supported_dc_options)
+            supported_dc_options = filter(lambda option: not option.ipv6, supported_dc_options)
 
         for datacenter in datacenters:
             self._cached_resolved.pop(datacenter, None)

@@ -5,7 +5,9 @@ import copy
 import logging
 
 from ll_mtproto import Client, AuthKey, TelegramDatacenter, ConnectionInfo
-from ll_mtproto.network.transport import CachedTransportAddressResolver, TransportLinkTcpFactory, TransportCodecIntermediateFactory
+from ll_mtproto.network.transport import CachedTransportAddressResolver, \
+    TransportLinkTcpFactory, TransportCodecIntermediateFactory
+from ll_mtproto.crypto.providers import CryptoProviderCryptg
 
 
 async def get_updates(client: Client):
@@ -19,9 +21,6 @@ async def get_updates(client: Client):
 async def test(api_id: int, api_hash: str, bot_token: str):
     logging.getLogger().setLevel(level=logging.DEBUG)
 
-    auth_key = AuthKey()
-    datacenter_info = TelegramDatacenter.VESTA
-
     connection_info = ConnectionInfo(
         api_id=api_id,
         device_model="enterprise desktop computer 2",
@@ -32,10 +31,17 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         lang_pack=""
     )
 
+    auth_key = AuthKey()
+
+    datacenter_info = TelegramDatacenter.VESTA
+
     address_resolver = CachedTransportAddressResolver()
+
     transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediateFactory(), address_resolver)
 
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
+
+    crypto_provider = CryptoProviderCryptg()
 
     session = Client(
         datacenter_info,
@@ -43,13 +49,16 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         connection_info,
         transport_link_factory,
         blocking_executor,
+        crypto_provider,
         use_perfect_forward_secrecy=True,
         no_updates=False
     )
 
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
 
-    address_resolver.apply_telegram_config(TelegramDatacenter.ALL_DATACENTERS, await session.rpc_call({"_cons": "help.getConfig"}))
+    configuration = await session.rpc_call({"_cons": "help.getConfig"})
+
+    address_resolver.apply_telegram_config(TelegramDatacenter.ALL_DATACENTERS, configuration)
 
     session.disconnect()
 
@@ -102,6 +111,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         connection_info,
         transport_link_factory,
         blocking_executor,
+        crypto_provider,
         use_perfect_forward_secrecy=True,
         no_updates=True
     )

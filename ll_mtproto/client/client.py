@@ -25,6 +25,7 @@ import warnings
 from . import ConnectionInfo
 from . import PendingRequest, Update
 from ..crypto import AuthKey
+from ..crypto.providers import CryptoProviderBase
 from ..network import mtproto, DatacenterInfo
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
@@ -58,7 +59,7 @@ class Client:
         "_temp_auth_key",
         "_blocking_executor",
         "_bound_auth_key",
-        "_write_queue"
+        "_write_queue",
     )
 
     _mtproto: mtproto.MTProto
@@ -92,6 +93,7 @@ class Client:
             connection_info: ConnectionInfo,
             transport_link_factory: TransportLinkFactory,
             blocking_executor: concurrent.futures.Executor,
+            crypto_provider: CryptoProviderBase,
             no_updates: bool = True,
             use_perfect_forward_secrecy: bool = False,
     ):
@@ -124,8 +126,8 @@ class Client:
 
         self._auth_key_lock = asyncio.Lock()
 
-        self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread)
-        self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter)
+        self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread, crypto_provider)
+        self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter, crypto_provider)
         self._temp_auth_key = AuthKey() if self._use_perfect_forward_secrecy else None
         self._bound_auth_key = typing.cast(AuthKey, self._temp_auth_key) if self._use_perfect_forward_secrecy else self._perm_auth_key
 
@@ -472,11 +474,12 @@ class Client:
         if not self._msgids_to_ack or not self._stable_seqno:
             return
 
-        msgids_to_ack_message = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
-        msgids_to_ack_request = PendingRequest(self._loop.create_future(), msgids_to_ack_message, self._get_next_even_seqno, False, expect_answer=False)
+        message = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
+        request = PendingRequest(self._loop.create_future(), message, self._get_next_even_seqno, False, expect_answer=False)
+
         self._msgids_to_ack.clear()
 
-        await self._rpc_call(msgids_to_ack_request)
+        await self._rpc_call(request)
 
     def _update_last_seqno_from_incoming_message(self, message: Structure):
         self._bound_auth_key.seq_no = max(self._bound_auth_key.seq_no, message.seqno)

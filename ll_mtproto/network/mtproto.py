@@ -26,6 +26,7 @@ from .datacenter_info import DatacenterInfo
 from .transport import TransportLinkBase, TransportLinkFactory
 from ..crypto import AuthKey
 from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
+from ..crypto.providers import CryptoProviderBase
 from ..tl import tl
 from ..tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
 from ..tl.tl import Structure
@@ -42,11 +43,12 @@ class MTProto:
         "_last_message_id",
         "_last_msg_ids",
         "_datacenter",
-        "_in_thread"
+        "_in_thread",
+        "_crypto_provider"
     )
 
     @staticmethod
-    def prepare_key_v2(auth_key: bytes, msg_key: bytes, read: bool) -> AesIge:
+    def prepare_key_v2(auth_key: bytes, msg_key: bytes, read: bool, crypto_provider: CryptoProviderBase) -> AesIge:
         x = 0 if read else 8
 
         sha256a = sha256(msg_key + auth_key[x: x + 36])
@@ -55,10 +57,10 @@ class MTProto:
         aes_key = sha256a[:8] + sha256b[8:24] + sha256a[24:32]
         aes_iv = sha256b[:8] + sha256a[8:24] + sha256b[24:32]
 
-        return AesIge(aes_key, aes_iv)
+        return AesIge(aes_key, aes_iv, crypto_provider)
 
     @staticmethod
-    def prepare_key_v1_write(auth_key: bytes, msg_key: bytes) -> AesIge:
+    def prepare_key_v1_write(auth_key: bytes, msg_key: bytes, crypto_provider: CryptoProviderBase) -> AesIge:
         sha1_a = sha1(msg_key + auth_key[:32])
         sha1_b = sha1(auth_key[32:48] + msg_key + auth_key[48:64])
         sha1_c = sha1(auth_key[64:96] + msg_key)
@@ -67,7 +69,7 @@ class MTProto:
         aes_key = sha1_a[:8] + sha1_b[8:20] + sha1_c[4:16]
         aes_iv = sha1_a[8:20] + sha1_b[:8] + sha1_c[16:20] + sha1_d[:8]
 
-        return AesIge(aes_key, aes_iv)
+        return AesIge(aes_key, aes_iv, crypto_provider)
 
     _loop: asyncio.AbstractEventLoop
     _link: TransportLinkBase
@@ -77,8 +79,15 @@ class MTProto:
     _last_msg_ids: collections.deque[int]
     _datacenter: DatacenterInfo
     _in_thread: InThread
+    _crypto_provider: CryptoProviderBase
 
-    def __init__(self, datacenter: DatacenterInfo, transport_link_factory: TransportLinkFactory, in_thread: InThread):
+    def __init__(
+            self,
+            datacenter: DatacenterInfo,
+            transport_link_factory: TransportLinkFactory,
+            in_thread: InThread,
+            crypto_provider: CryptoProviderBase
+    ):
         self._loop = asyncio.get_running_loop()
         self._link = transport_link_factory.new_transport_link(datacenter)
         self._read_message_lock = asyncio.Lock()
@@ -86,6 +95,7 @@ class MTProto:
         self._last_msg_ids = collections.deque(maxlen=64)
         self._datacenter = datacenter
         self._in_thread = in_thread
+        self._crypto_provider = crypto_provider
 
     def get_next_message_id(self) -> int:
         message_id = self._datacenter.get_synchronized_time() << 32
@@ -144,7 +154,7 @@ class MTProto:
 
         padding = await self._in_thread(secrets.token_bytes, (-(len(message_inner_data_envelope) + 12) % 16 + 12))
         msg_key = (await self._in_thread(sha256, auth_key_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
-        aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, True)
+        aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, True, self._crypto_provider)
         encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
 
         full_message = self._datacenter.schema.bare(
@@ -176,7 +186,7 @@ class MTProto:
                 raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
 
             msg_key = await self._link.readn(16)
-            msg_aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, False)
+            msg_aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, False, self._crypto_provider)
             msg_aes_stream = AesIgeAsyncStream(msg_aes, self._in_thread, self._link.read)
 
             plain_sha256 = hashlib.sha256()

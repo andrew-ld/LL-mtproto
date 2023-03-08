@@ -21,6 +21,7 @@ import re
 import secrets
 
 from . import AesIge
+from .providers import CryptoProviderBase
 from ..tl.byteutils import to_reader, pack_binary_string, reader_is_empty, to_bytes, sha1, xor, sha256
 from ..typed import SyncByteReader
 
@@ -83,7 +84,7 @@ class PublicRSA:
         x = pow(m, self.e, self.n)
         return to_bytes(x)
 
-    def rsa_pad(self, data: bytes) -> bytes:
+    def rsa_pad(self, data: bytes, crypto_provider: CryptoProviderBase) -> bytes:
         if len(data) > 144:
             raise TypeError("Plain data length is more that 144 bytes")
 
@@ -92,7 +93,7 @@ class PublicRSA:
 
         while True:
             temp_key = secrets.token_bytes(32)
-            temp_key_aes = AesIge(temp_key, b"\0" * 32)
+            temp_key_aes = AesIge(temp_key, b"\0" * 32, crypto_provider)
 
             data_with_hash = data_pad_reversed + sha256(temp_key + data_with_padding)
             encrypted_data_with_hash = temp_key_aes.encrypt(data_with_hash)

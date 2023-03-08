@@ -14,16 +14,20 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
 import abc
 
-from . import TransportLinkBase
-from .. import DatacenterInfo
-
-__all__ = ("TransportLinkFactory",)
+__all__ = ("CryptoProviderBase",)
 
 
-class TransportLinkFactory(abc.ABC):
+class CryptoProviderBase(abc.ABC):
     @abc.abstractmethod
-    def new_transport_link(self, datacenter: "DatacenterInfo") -> TransportLinkBase:
-        raise NotImplementedError
+    def factorize_pq(self, pq: int) -> tuple[int, int]:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def decrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes):
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def encrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes):
+        raise NotImplementedError()

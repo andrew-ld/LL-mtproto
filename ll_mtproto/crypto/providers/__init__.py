@@ -14,16 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+from .crypto_provider_base import CryptoProviderBase
+from .crypto_provider_cryptg import CryptoProviderCryptg
 
-import abc
-
-from . import TransportLinkBase
-from .. import DatacenterInfo
-
-__all__ = ("TransportLinkFactory",)
-
-
-class TransportLinkFactory(abc.ABC):
-    @abc.abstractmethod
-    def new_transport_link(self, datacenter: "DatacenterInfo") -> TransportLinkBase:
-        raise NotImplementedError
+__all__ = ("CryptoProviderBase", "CryptoProviderCryptg")

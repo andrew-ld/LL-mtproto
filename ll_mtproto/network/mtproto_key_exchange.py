@@ -23,6 +23,7 @@ import typing
 
 from ..crypto import AesIge
 from ..crypto import AuthKey
+from ..crypto.providers import CryptoProviderBase
 from ..math import primes
 from ..network import MTProto, DatacenterInfo
 from ..tl.byteutils import to_bytes, sha1, to_reader, xor, SyncByteReaderApply
@@ -30,18 +31,20 @@ from ..typed import InThread
 
 
 class MTProtoKeyExchange:
-    __slots__ = ("_mtproto", "_in_thread", "_datacenter")
+    __slots__ = ("_mtproto", "_in_thread", "_datacenter", "_crypto_provider")
 
     TEMP_AUTH_KEY_EXPIRE_TIME = 24 * 60 * 60
 
     _in_thread: InThread
     _mtproto: MTProto
     _datacenter: DatacenterInfo
+    _crypto_provider: CryptoProviderBase
 
-    def __init__(self, mtproto: MTProto, in_thread: InThread, datacenter: DatacenterInfo):
+    def __init__(self, mtproto: MTProto, in_thread: InThread, datacenter: DatacenterInfo, crypto_provider: CryptoProviderBase):
         self._mtproto = mtproto
         self._in_thread = in_thread
         self._datacenter = datacenter
+        self._crypto_provider = crypto_provider
 
     async def create_temp_auth_key(self, perm_auth_key: AuthKey) -> AuthKey:
         return await self._create_auth_key(True, perm_auth_key)
@@ -74,7 +77,7 @@ class MTProtoKeyExchange:
 
         new_nonce, (p, q) = await asyncio.gather(
             self._in_thread(secrets.token_bytes, 32),
-            self._in_thread(primes.factorize, pq),
+            self._in_thread(self._crypto_provider.factorize_pq, pq),
         )
 
         p_string = to_bytes(p)
@@ -100,7 +103,7 @@ class MTProtoKeyExchange:
             dc=-self._datacenter.datacenter_id if self._datacenter.is_media else self._datacenter.datacenter_id
         )
 
-        p_q_inner_data_rsa_pad = await self._in_thread(self._datacenter.public_rsa.rsa_pad, p_q_inner_data.get_flat_bytes())
+        p_q_inner_data_rsa_pad = await self._in_thread(self._datacenter.public_rsa.rsa_pad, p_q_inner_data.get_flat_bytes(), self._crypto_provider)
         p_q_inner_data_encrypted = await self._in_thread(self._datacenter.public_rsa.encrypt, p_q_inner_data_rsa_pad)
 
         await self._mtproto.write_unencrypted_message(
@@ -137,7 +140,7 @@ class MTProtoKeyExchange:
 
         tmp_aes_key = tmp_aes_key_1 + tmp_aes_key_2[:12]
         tmp_aes_iv = tmp_aes_iv_1[12:] + tmp_aes_iv_2 + new_nonce[:4]
-        tmp_aes = AesIge(tmp_aes_key, tmp_aes_iv)
+        tmp_aes = AesIge(tmp_aes_key, tmp_aes_iv, self._crypto_provider)
 
         (answer_hash, answer), b = await asyncio.gather(
             self._in_thread(tmp_aes.decrypt_with_hash, params.encrypted_answer),
@@ -213,7 +216,7 @@ class MTProtoKeyExchange:
             g_b=to_bytes(g_b),
         ).get_flat_bytes()
 
-        tmp_aes = AesIge(tmp_aes_key, tmp_aes_iv)
+        tmp_aes = AesIge(tmp_aes_key, tmp_aes_iv, self._crypto_provider)
 
         await self._mtproto.write_unencrypted_message(
             _cons="set_client_DH_params",
@@ -266,7 +269,8 @@ class MTProtoKeyExchange:
             bind_temp_auth_inner_data_aes: AesIge = await self._in_thread(
                 MTProto.prepare_key_v1_write,
                 perm_auth_key.auth_key,
-                bind_temp_auth_inner_data_msg_key
+                bind_temp_auth_inner_data_msg_key,
+                self._crypto_provider
             )
 
             bind_temp_auth_inner_data_encrypted = await self._in_thread(

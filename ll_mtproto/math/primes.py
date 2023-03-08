@@ -18,13 +18,7 @@
 import functools
 import random
 
-import cryptg
-
-__all__ = ("factorize", "is_safe_dh_prime", "miller_rabin")
-
-
-def factorize(pq: int) -> tuple[int, int]:
-    return cryptg.factorize_pq_pair(pq)
+__all__ = ("is_safe_dh_prime", "miller_rabin")
 
 
 @functools.lru_cache()

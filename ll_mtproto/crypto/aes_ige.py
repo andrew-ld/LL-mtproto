@@ -17,8 +17,7 @@
 
 import secrets
 
-from cryptg import cryptg
-
+from .providers import CryptoProviderBase
 from ..tl.byteutils import short_hex, sha1
 from ..typed import InThread, PartialByteReader
 
@@ -26,12 +25,13 @@ __all__ = ("AesIge", "AesIgeAsyncStream")
 
 
 class AesIge:
-    __slots__ = ("_key", "_iv")
+    __slots__ = ("_key", "_iv", "_crypto_provider")
 
     _key: bytes
     _iv: bytes
+    _crypto_provider: CryptoProviderBase
 
-    def __init__(self, key: bytes, iv: bytes):
+    def __init__(self, key: bytes, iv: bytes, crypto_provider: CryptoProviderBase):
         if len(key) != 32:
             raise ValueError(f"AES key length must be 32 bytes, got {len(key):d} bytes: {short_hex(key)}")
 
@@ -40,15 +40,16 @@ class AesIge:
 
         self._key = key
         self._iv = iv
+        self._crypto_provider = crypto_provider
 
     def decrypt(self, cipher: bytes) -> bytes:
         if len(cipher) % 16 != 0:
             raise ValueError(f"Encrypted length must be divisible by 16 bytes")
 
-        return cryptg.decrypt_ige(cipher, self._key, self._iv)
+        return self._crypto_provider.decrypt_aes_ige(cipher, self._key, self._iv)
 
     def encrypt(self, plain: bytes) -> bytes:
-        return cryptg.encrypt_ige(plain + secrets.token_bytes((-len(plain)) % 16), self._key, self._iv)
+        return self._crypto_provider.encrypt_aes_ige(plain + secrets.token_bytes((-len(plain)) % 16), self._key, self._iv)
 
     def encrypt_with_hash(self, plain: bytes) -> bytes:
         return self.encrypt(sha1(plain) + plain)
