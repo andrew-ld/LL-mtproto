@@ -16,7 +16,6 @@
 
 
 import asyncio
-import collections
 import hashlib
 import hmac
 import logging
@@ -41,7 +40,6 @@ class MTProto:
         "_link",
         "_read_message_lock",
         "_last_message_id",
-        "_last_msg_ids",
         "_datacenter",
         "_in_thread",
         "_crypto_provider"
@@ -76,7 +74,6 @@ class MTProto:
     _read_message_lock: asyncio.Lock
     _auth_key_lock: asyncio.Lock
     _last_message_id: int
-    _last_msg_ids: collections.deque[int]
     _datacenter: DatacenterInfo
     _in_thread: InThread
     _crypto_provider: CryptoProviderBase
@@ -92,7 +89,6 @@ class MTProto:
         self._link = transport_link_factory.new_transport_link(datacenter)
         self._read_message_lock = asyncio.Lock()
         self._last_message_id = 0
-        self._last_msg_ids = collections.deque(maxlen=64)
         self._datacenter = datacenter
         self._in_thread = in_thread
         self._crypto_provider = crypto_provider
@@ -218,11 +214,6 @@ class MTProto:
             if (msg_msg_id := message.message.msg_id) % 2 != 1:
                 raise ValueError("Received message from server to client need odd parity!", msg_msg_id)
 
-            if (msg_msg_id := message.message.msg_id) in self._last_msg_ids:
-                raise ValueError("Received duplicated message from server to client", msg_msg_id)
-            else:
-                self._last_msg_ids.append(msg_msg_id)
-
             if ((message.message.msg_id >> 32) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
                 raise RuntimeError("Time is not synchronised with telegram time!")
 
@@ -232,6 +223,7 @@ class MTProto:
             message_body_reader = to_reader(message_body_envelope)
 
             try:
+                # noinspection PyProtectedMember
                 message.message._fields["body"] = await self._in_thread(self._datacenter.schema.read, message_body_reader)
             finally:
                 reader_discard(message_body_reader)
@@ -252,4 +244,5 @@ class MTProto:
 
     def stop(self):
         self._link.stop()
+        self._last_message_id = 0
         logging.debug("disconnected from Telegram")

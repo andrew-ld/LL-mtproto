@@ -60,6 +60,7 @@ class Client:
         "_blocking_executor",
         "_bound_auth_key",
         "_write_queue",
+        "_ping_id"
     )
 
     _mtproto: mtproto.MTProto
@@ -85,6 +86,7 @@ class Client:
     _blocking_executor: concurrent.futures.Executor
     _bound_auth_key: AuthKey
     _write_queue: asyncio.Queue[PendingRequest]
+    _ping_id: int
 
     def __init__(
             self,
@@ -110,6 +112,8 @@ class Client:
 
         self._stable_seqno = False
         self._seqno_increment = 1
+
+        self._ping_id = 0
 
         self._layer_init_required = True
 
@@ -168,16 +172,17 @@ class Client:
         self.disconnect()
 
         logging.debug("connecting to Telegram at %s", self._datacenter)
+        self._bound_auth_key.reset_session_id()
         self._mtproto_loop_task = self._loop.create_task(self._mtproto_loop())
 
         await self._create_init_requests()
 
     async def _create_init_requests(self):
-        await self._create_ping_request()
         await self._create_future_salt_request()
+        await self._create_ping_request()
 
     async def _create_future_salt_request(self):
-        get_future_salts_message = dict(_cons="get_future_salts", num=2)
+        get_future_salts_message = dict(_cons="get_future_salts", num=32)
         get_future_salts_request = PendingRequest(self._loop.create_future(), get_future_salts_message, self._get_next_odd_seqno, False)
 
         if pending_future_salt := self._pending_future_salt:
@@ -190,25 +195,28 @@ class Client:
         await self._rpc_call(get_future_salts_request)
 
     async def _create_ping_request(self):
-        ping_id = self._mtproto.get_next_message_id()
+        self._ping_id += 1
+        ping_id = self._ping_id
 
         if pending_pong := self._pending_pong:
             pending_pong.cancel()
 
         self._pending_pong = self._loop.call_later(10, self.disconnect)
 
-        ping_message = dict(_cons="ping", ping_id=ping_id)
+        ping_message = dict(_cons="ping_delay_disconnect", ping_id=ping_id, disconnect_delay=35)
         ping_request = PendingRequest(self._loop.create_future(), ping_message, self._get_next_odd_seqno, False)
 
         await self._rpc_call(ping_request)
 
     def _get_next_odd_seqno(self) -> int:
-        self._bound_auth_key.seq_no = ((self._bound_auth_key.seq_no + 1) // 2) * 2 + 1
-        return self._bound_auth_key.seq_no
+        value = self._bound_auth_key.seq_no
+        self._bound_auth_key.seq_no += 1
+        return value * 2 + 1
 
     def _get_next_even_seqno(self) -> int:
-        self._bound_auth_key.seq_no = (self._bound_auth_key.seq_no // 2 + 1) * 2
-        return self._bound_auth_key.seq_no
+        value = self._bound_auth_key.seq_no
+        self._bound_auth_key.seq_no += 1
+        return value * 2
 
     def _cancel_pending_request(self, msg_id: int):
         if pending_request := self._pending_requests.pop(msg_id, None):

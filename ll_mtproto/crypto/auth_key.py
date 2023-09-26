@@ -38,7 +38,7 @@ class AuthKey:
 
     @staticmethod
     def generate_new_session_id() -> int:
-        return secrets.randbits(64)
+        return 0xabcd000000000000 | (secrets.randbits(64) & 0x0000ffffffffffff)
 
     def __init__(self, auth_key: None | bytes = None, server_salt: None | int = None, seq_no: int = 0):
         self.auth_key = auth_key
@@ -50,6 +50,9 @@ class AuthKey:
 
     def is_empty(self) -> bool:
         return self.auth_key is None or self.auth_key_id is None
+
+    def reset_session_id(self):
+        self.session_id = self.generate_new_session_id()
 
     def get_or_assert_empty(self) -> tuple[bytes, int]:
         auth_key, auth_key_id = self.auth_key, self.auth_key_id

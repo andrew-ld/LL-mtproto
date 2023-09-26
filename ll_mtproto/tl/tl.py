@@ -271,17 +271,17 @@ class Schema:
             if argument.boxed:
                 raise TypeError("expected bare, found boxed", self._debug_type_error_msg(parameter, argument))
 
-    def deserialize(self, bytereader: SyncByteReader, parameter: "Parameter") -> TlMessageBody:
+    def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> TlMessageBody:
         if parameter.is_boxed:
             if parameter.type is not None and parameter.type not in self.types:
                 raise ValueError(f"Unknown type `{parameter.type}`")
 
-            cons_number = bytereader(4)
+            cons_number = reader(4)
 
             if cons_number == _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
                 return [
-                    self.deserialize(bytereader, parameter)
-                    for _ in range(int.from_bytes(bytereader(4), "little", signed=False))
+                    self.deserialize(reader, parameter)
+                    for _ in range(int.from_bytes(reader(4), "little", signed=False))
                 ]
 
             cons = self.cons_numbers.get(cons_number, None)
@@ -297,7 +297,7 @@ class Schema:
             if not cons:
                 raise ValueError(f"Unknown constructor in parameter `{parameter!r}`")
 
-        return cons.deserialize_bare_data(bytereader)
+        return cons.deserialize_bare_data(reader)
 
     def serialize(self, boxed: bool, _cons: str, **kwargs) -> "Value":
         if cons := self.constructors.get(_cons, False):
@@ -311,9 +311,9 @@ class Schema:
     def boxed(self, **kwargs) -> "Value":
         return self.serialize(boxed=True, **kwargs)
 
-    def read(self, bytereader: SyncByteReader, is_boxed=True, parameter_type=None) -> "Structure":
+    def read(self, reader: SyncByteReader, is_boxed=True, parameter_type=None) -> "Structure":
         parameter = Parameter("", parameter_type, is_boxed=is_boxed)
-        return self.deserialize(bytereader, parameter)
+        return self.deserialize(reader, parameter)
 
 
 class Flags:
@@ -401,24 +401,32 @@ class Structure:
         return Structure._get_dict(self)
 
     @staticmethod
+    def from_dict(obj: dict[any, any]) -> "Structure":
+        res = Structure(obj["_cons"])
+
+        for k, v in obj.items():
+            if isinstance(v, dict):
+                res._fields[k] = Structure.from_dict(v)
+            elif isinstance(v, (list, tuple)):
+                res._fields[k] = [Structure.from_dict(x) for x in v]
+            else:
+                res._fields[k] = v
+
+        return res
+
+    @staticmethod
     def _get_dict(anything: typing.Any) -> typing.Any:
         if isinstance(anything, Structure):
-            ret = dict(_cons=anything.constructor_name)
-
-            ret.update(
-                {
+            return {
+                "_cons": anything.constructor_name,
+                **{
                     key: Structure._get_dict(value)
                     for key, value in anything._fields.items()
                 }
-            )
-
-            return ret
+            }
 
         elif isinstance(anything, (list, tuple)):
             return [Structure._get_dict(value) for value in anything]
-
-        elif isinstance(anything, bytes):
-            return anything
 
         else:
             return anything
@@ -596,75 +604,76 @@ class Constructor:
 
         return data
 
-    def _deserialize_argument(self, bytereader: SyncByteReader, parameter: Parameter) -> typing.Any:
+    def _deserialize_argument(self, reader: SyncByteReader, parameter: Parameter) -> typing.Any:
         match parameter.type:
             case "int":
-                return int.from_bytes(bytereader(4), "little", signed=True)
+                return int.from_bytes(reader(4), "little", signed=True)
 
             case "uint":
-                return int.from_bytes(bytereader(4), "little", signed=False)
+                return int.from_bytes(reader(4), "little", signed=False)
 
             case "long":
-                return int.from_bytes(bytereader(8), "little", signed=True)
+                return int.from_bytes(reader(8), "little", signed=True)
 
             case "ulong":
-                return int.from_bytes(bytereader(8), "little", signed=False)
+                return int.from_bytes(reader(8), "little", signed=False)
 
             case "int128":
-                return bytereader(16)
+                return reader(16)
 
             case "sha1":
-                return bytereader(20)
+                return reader(20)
 
             case "int256":
-                return bytereader(32)
+                return reader(32)
 
             case "double":
-                return struct.unpack(b"<d", bytereader(8))
+                return struct.unpack(b"<d", reader(8))
 
             case "string":
-                return unpack_binary_string(bytereader).decode()
+                return unpack_binary_string(reader).decode()
 
             case "bytes":
-                return unpack_binary_string(bytereader)
+                return unpack_binary_string(reader)
 
             case "gzip":
-                string_stream = unpack_binary_string_stream(bytereader)
+                string_stream = unpack_binary_string_stream(reader)
                 gzip_stream = GzipStreamReader(string_stream)
                 return self.schema.read(gzip_stream)
 
             case "rawobject":
-                return self.schema.read(bytereader)
+                return self.schema.read(reader)
 
             case "object":
-                return self.schema.read(unpack_long_binary_string_stream(bytereader))
+                return self.schema.read(unpack_long_binary_string_stream(reader))
 
             case "padded_object":
-                return self.schema.read(unpack_long_binary_string_stream(bytereader))
+                return self.schema.read(unpack_long_binary_string_stream(reader))
 
             case "bytesobject":
-                return bytereader(int.from_bytes(bytereader(4), "little", signed=False))
+                return reader(int.from_bytes(reader(4), "little", signed=False))
 
             case "flags":
-                return unpack_flags(int.from_bytes(bytereader(4), "little", signed=False))
+                return unpack_flags(int.from_bytes(reader(4), "little", signed=False))
 
         if parameter.is_vector:
             if parameter.is_boxed:
-                vcons = bytereader(4)
+                vcons = reader(4)
 
                 if vcons != _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
                     raise ValueError(f"Not vector `{long_hex(vcons)}` in `{parameter!r}` in `{self!r}`")
 
-            vector_len = int.from_bytes(bytereader(4), "little", signed=False)
+            vector_len = int.from_bytes(reader(4), "little", signed=False)
 
             return [
-                self._deserialize_argument(bytereader, parameter.element_parameter)
+                self._deserialize_argument(reader, parameter.element_parameter)
                 for _ in range(vector_len)
             ]
         else:
-            return self.schema.deserialize(bytereader, parameter)
+            return self.schema.deserialize(reader, parameter)
 
-    def deserialize_bare_data(self, bytereader: SyncByteReader) -> Structure:
+    # noinspection PyProtectedMember
+    def deserialize_bare_data(self, reader: SyncByteReader) -> Structure:
         result = Structure(self.name)
         fields = result._fields
 
@@ -673,18 +682,18 @@ class Constructor:
 
             for parameter in self._parameters:
                 if parameter.is_flag:
-                    flags[parameter.flag_name] = unpack_flags(int.from_bytes(bytereader(4), "little", signed=False))
+                    flags[parameter.flag_name] = unpack_flags(int.from_bytes(reader(4), "little", signed=False))
 
                 elif parameter.flag_number is not None:
                     if parameter.flag_number in flags[parameter.flag_name]:
-                        fields[parameter.name] = self._deserialize_argument(bytereader, parameter)
+                        fields[parameter.name] = self._deserialize_argument(reader, parameter)
                     else:
                         fields[parameter.name] = None
 
                 else:
-                    fields[parameter.name] = self._deserialize_argument(bytereader, parameter)
+                    fields[parameter.name] = self._deserialize_argument(reader, parameter)
         else:
             for parameter in self._parameters:
-                fields[parameter.name] = self._deserialize_argument(bytereader, parameter)
+                fields[parameter.name] = self._deserialize_argument(reader, parameter)
 
         return result
