@@ -25,7 +25,7 @@ from . import ConnectionInfo
 from . import PendingRequest, Update
 from ..crypto import AuthKey, Key
 from ..crypto.providers import CryptoProviderBase
-from ..network import mtproto, DatacenterInfo
+from ..network import mtproto, DatacenterInfo, AuthKeyExpiredError
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
@@ -318,6 +318,14 @@ class Client:
             await asyncio.gather(write_task, read_task)
         except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
             raise
+        except AuthKeyExpiredError:
+            auth_key_id = self._used_session_key.auth_key_id
+
+            if self._persistent_session_key is not self._used_session_key:
+                self._used_session_key.clear_key()
+                self._used_session_key.flush_changes()
+
+            logging.error("auth key `%r` invalidated, retrying connection", auth_key_id)
         except:
             logging.error("unable to process message in consumer: %s", traceback.format_exc())
         finally:

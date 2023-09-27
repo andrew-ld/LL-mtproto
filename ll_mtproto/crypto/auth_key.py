@@ -166,6 +166,13 @@ class Key:
 
         return auth_key, auth_key_id, session
 
+    def clear_key(self):
+        self.auth_key = None
+        self.auth_key_id = None
+        self.server_salt = None
+        self.session = KeySession()
+        self.unused_sessions.clear()
+
 
 class AuthKey:
     __slots__ = ("persistent_key", "temporary_key", "_update_callback")

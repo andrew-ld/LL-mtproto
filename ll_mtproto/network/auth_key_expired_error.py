@@ -15,9 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from .auth_key_expired_error import AuthKeyExpiredError
-from .datacenter_info import DatacenterInfo
-from .mtproto import MTProto
-from .mtproto_key_exchange import MTProtoKeyExchange
+__all__ = ("AuthKeyExpiredError",)
 
-__all__ = ("DatacenterInfo", "MTProto", "AuthKeyExpiredError")
+
+class AuthKeyExpiredError(BaseException):
+    pass

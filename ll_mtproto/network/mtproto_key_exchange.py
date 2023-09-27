@@ -237,7 +237,7 @@ class MTProtoKeyExchange:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
         if temp:
-            perm_auth_key: Key = typing.cast(Key, perm_auth_key)
+            perm_auth_key_key, perm_auth_key_id, _ = perm_auth_key.get_or_assert_empty()
             temp_key_expires_in = typing.cast(int, temp_key_expires_in)
 
             bind_temp_auth_nonce = int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True)
@@ -246,7 +246,7 @@ class MTProtoKeyExchange:
                 _cons="bind_auth_key_inner",
                 nonce=bind_temp_auth_nonce,
                 temp_auth_key_id=new_auth_key.auth_key_id,
-                perm_auth_key_id=perm_auth_key.auth_key_id,
+                perm_auth_key_id=perm_auth_key_id,
                 temp_session_id=new_auth_key.session.id,
                 expires_at=temp_key_expires_in
             )
@@ -270,7 +270,7 @@ class MTProtoKeyExchange:
 
             bind_temp_auth_inner_data_aes: AesIge = await self._in_thread(
                 MTProto.prepare_key_v1_write,
-                perm_auth_key.auth_key,
+                perm_auth_key_key,
                 bind_temp_auth_inner_data_msg_key,
                 self._crypto_provider
             )
@@ -282,14 +282,14 @@ class MTProtoKeyExchange:
 
             bind_temp_auth_inner_data_encrypted_boxed = self._datacenter.schema.bare(
                 _cons="encrypted_message",
-                auth_key_id=perm_auth_key.auth_key_id,
+                auth_key_id=perm_auth_key_id,
                 msg_key=bind_temp_auth_inner_data_msg_key,
                 encrypted_data=bind_temp_auth_inner_data_encrypted,
             )
 
             bind_temp_auth_message = self._datacenter.schema.boxed(
                 _cons="auth.bindTempAuthKey",
-                perm_auth_key_id=perm_auth_key.auth_key_id,
+                perm_auth_key_id=perm_auth_key_id,
                 nonce=bind_temp_auth_nonce,
                 expires_at=temp_key_expires_in,
                 encrypted_message=bind_temp_auth_inner_data_encrypted_boxed.get_flat_bytes()
