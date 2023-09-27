@@ -150,6 +150,12 @@ class Key:
         self.auth_key = dh_gen_key.auth_key
         self.auth_key_id = dh_gen_key.auth_key_id
         self.server_salt = dh_gen_key.server_salt
+
+        old_session = self.session
+
+        if old_session.seqno > 0:
+            self.unused_sessions.add(old_session.id)
+
         self.session = dh_gen_key.session
 
     def get_or_assert_empty(self) -> tuple[bytes, int, KeySession]:
