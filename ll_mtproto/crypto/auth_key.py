@@ -16,73 +16,124 @@
 
 
 import secrets
+import copy
+import typing
 
 from ..tl.byteutils import sha1
 
-__all__ = ("AuthKey",)
+__all__ = ("AuthKey", "Key")
 
 
-class AuthKey:
-    __slots__ = ("auth_key", "auth_key_id", "session_id", "server_salt", "seq_no")
+class KeySession:
+    __slots__ = ("id", "seqno")
+
+    id: int
+    seqno: int
+
+    def __init__(self, session_id: int | None = None, seqno: int | None = None):
+        self.id = session_id or self.generate_new_session_id()
+        self.seqno = seqno or 0
+
+    def __getstate__(self) -> dict[str, any]:
+        return {
+            "id": self.id,
+            "seqno": self.seqno
+        }
+
+    def __setstate__(self, state: dict[str, any]):
+        self.id = state["id"]
+        self.seqno = state["seqno"]
+
+    @staticmethod
+    def generate_new_session_id() -> int:
+        return 0xabcd000000000000 | (secrets.randbits(64) & 0x0000ffffffffffff)
+
+
+class Key:
+    __slots__ = ("auth_key", "auth_key_id", "server_salt", "session", "unused_sessions")
 
     auth_key: None | bytes
     auth_key_id: None | int
-    session_id: None | int
     server_salt: None | int
-    seq_no: int
+    session: KeySession
+    unused_sessions: set[int]
+
+    def __init__(self, auth_key: bytes | None = None, server_salt: int | None = None):
+        self.auth_key = auth_key
+        self.server_salt = server_salt
+
+        self.session = KeySession()
+        self.unused_sessions = set()
+
+        self.auth_key_id = self.generate_auth_key_id(auth_key)
+
+    def __copy__(self):
+        return Key(auth_key=self.auth_key, server_salt=self.server_salt)
+
+    def __getstate__(self) -> dict[str, any]:
+        return {
+            "auth_key": self.auth_key,
+            "auth_key_id": self.auth_key_id,
+            "server_salt": self.server_salt,
+            "session": self.session,
+            "unused_sessions": self.unused_sessions
+        }
+
+    def __setstate__(self, state: dict[str, any]):
+        self.auth_key = state["auth_key"]
+        self.auth_key_id = state["auth_key_id"]
+        self.server_salt = state["server_salt"]
+        self.session = state["session"]
+        self.unused_sessions = state["unused_sessions"]
 
     @staticmethod
     def generate_auth_key_id(auth_key: bytes | None) -> int | None:
         auth_key_id = sha1(auth_key)[-8:] if auth_key else None
         return int.from_bytes(auth_key_id, "little", signed=False) if auth_key_id else None
 
-    @staticmethod
-    def generate_new_session_id() -> int:
-        return 0xabcd000000000000 | (secrets.randbits(64) & 0x0000ffffffffffff)
-
-    def __init__(self, auth_key: None | bytes = None, server_salt: None | int = None, seq_no: int = 0):
-        self.auth_key = auth_key
-        self.server_salt = server_salt
-        self.seq_no = seq_no
-
-        self.auth_key_id = self.generate_auth_key_id(auth_key)
-        self.session_id = self.generate_new_session_id()
+    def copy_to(self, other: typing.Self):
+        other.auth_key = self.auth_key
+        other.auth_key_id = self.auth_key_id
+        other.server_salt = self.server_salt
+        other.session = self.session
 
     def is_empty(self) -> bool:
         return self.auth_key is None or self.auth_key_id is None
 
-    def reset_session_id(self):
-        self.session_id = self.generate_new_session_id()
+    def change_session(self):
+        if self.session.seqno > 0:
+            self.unused_sessions.add(self.session.id)
 
-    def get_or_assert_empty(self) -> tuple[bytes, int]:
-        auth_key, auth_key_id = self.auth_key, self.auth_key_id
+        self.session = KeySession()
 
-        if self.is_empty():
+    def get_or_assert_empty(self) -> tuple[bytes, int, KeySession]:
+        auth_key, auth_key_id, session = self.auth_key, self.auth_key_id, self.session
+
+        if auth_key is None or auth_key_id is None:
             raise AssertionError("auth key is empty")
 
-        return auth_key, auth_key_id
+        return auth_key, auth_key_id, session
 
-    def copy_to(self, auth_key: "AuthKey"):
-        auth_key.auth_key = self.auth_key
-        auth_key.auth_key_id = self.auth_key_id
-        auth_key.session_id = self.session_id
-        auth_key.server_salt = self.server_salt
-        auth_key.seq_no = self.seq_no
+
+class AuthKey:
+    __slots__ = ("persistent_key", "temporary_key")
+
+    persistent_key: Key
+    temporary_key: Key
+
+    def __init__(self, persistent_key: Key | None = None, temporary_key: Key | None = None):
+        self.persistent_key = persistent_key or Key()
+        self.temporary_key = temporary_key or Key()
 
     def __copy__(self) -> "AuthKey":
-        return AuthKey(auth_key=self.auth_key, server_salt=self.server_salt)
+        return AuthKey(persistent_key=copy.copy(self.persistent_key), temporary_key=copy.copy(self.temporary_key))
 
-    def __getstate__(self) -> tuple[bytes | None, int | None]:
-        return self.auth_key, self.server_salt
+    def __getstate__(self) -> dict[str, any]:
+        return {
+            "persistent_key": self.persistent_key,
+            "temporary_key": self.temporary_key
+        }
 
-    def __setstate__(self, state: tuple[bytes | None, int | None] | bytes):
-        self.seq_no = 0
-
-        if isinstance(state, bytes):
-            self.auth_key = state
-            self.server_salt = secrets.randbits(8)
-        else:
-            self.auth_key, self.server_salt = state
-
-        self.auth_key_id = self.generate_auth_key_id(self.auth_key)
-        self.session_id = self.generate_new_session_id()
+    def __setstate__(self, state: dict[str, any]):
+        self.persistent_key = state["persistent_key"]
+        self.temporary_key = state["temporary_key"]

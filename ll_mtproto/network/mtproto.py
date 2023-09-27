@@ -23,7 +23,7 @@ import secrets
 
 from .datacenter_info import DatacenterInfo
 from .transport import TransportLinkBase, TransportLinkFactory
-from ..crypto import AuthKey
+from ..crypto import Key
 from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ..crypto.providers import CryptoProviderBase
 from ..tl import tl
@@ -136,13 +136,13 @@ class MTProto:
 
         await self._link.write(message.get_flat_bytes())
 
-    async def write_encrypted(self, message: tl.Value, auth_key: AuthKey):
-        auth_key_key, auth_key_id = auth_key.get_or_assert_empty()
+    async def write_encrypted(self, message: tl.Value, auth_key: Key):
+        auth_key_key, auth_key_id, session = auth_key.get_or_assert_empty()
 
         message_inner_data = self._datacenter.schema.bare(
             _cons="message_inner_data",
             salt=auth_key.server_salt,
-            session_id=auth_key.session_id,
+            session_id=session.id,
             message=message,
         )
 
@@ -162,8 +162,8 @@ class MTProto:
 
         await self._link.write(full_message.get_flat_bytes())
 
-    async def read_encrypted(self, auth_key: AuthKey) -> Structure:
-        auth_key_key, auth_key_id = auth_key.get_or_assert_empty()
+    async def read_encrypted(self, auth_key: Key) -> Structure:
+        auth_key_key, auth_key_id, session = auth_key.get_or_assert_empty()
 
         auth_key_part = auth_key_key[88 + 8:88 + 8 + 32]
 
@@ -208,7 +208,7 @@ class MTProto:
             if not hmac.compare_digest(msg_key, msg_key_computed):
                 raise ValueError("Received a message with unknown msg key!", msg_key, msg_key_computed)
 
-            if (msg_session_id := message.session_id) != auth_key.session_id:
+            if (msg_session_id := message.session_id) != session.id:
                 raise ValueError("Received a message with unknown session id!", msg_session_id)
 
             if (msg_msg_id := message.message.msg_id) % 2 != 1:

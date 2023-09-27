@@ -597,6 +597,9 @@ class Constructor:
             else:
                 argument = arguments[parameter.name]
 
+                if parameter.flag_number is None and argument is None:
+                    raise TypeError(f"required `{parameter}` is None in `{self.name}`")
+
                 if argument is None and parameter.flag_name is not None:
                     continue
 

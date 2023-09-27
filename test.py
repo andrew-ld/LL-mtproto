@@ -76,13 +76,13 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     })
 
     # I deliberately break the auth_key status to see if the client can restore it
-    session._bound_auth_key.seq_no = -1
-    session._bound_auth_key.server_salt = -1
+    session._used_session_key.session.seqno = -1
+    session._used_session_key.server_salt = -1
     await session.rpc_call({"_cons": "help.getConfig"})
 
     # I deliberately break the auth_key status to see if the client can restore it
-    session._bound_auth_key.seq_no = 6969
-    session._bound_auth_key.server_salt = -1
+    session._used_session_key.session.seqno = 6969
+    session._used_session_key.server_salt = -1
     await session.rpc_call({"_cons": "help.getConfig"})
 
     # I deliberately write a non-serializable message to check if the error is propagated correctly
@@ -107,12 +107,12 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     media_session = Client(
         TelegramDatacenter.VESTA_MEDIA,
-        copy.copy(auth_key),
+        AuthKey(persistent_key=copy.copy(auth_key.persistent_key)),
         connection_info,
         transport_link_factory,
         blocking_executor,
         crypto_provider,
-        use_perfect_forward_secrecy=True,
+        use_perfect_forward_secrecy=False,
         no_updates=True
     )
 

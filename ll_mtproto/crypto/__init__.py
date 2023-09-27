@@ -16,7 +16,7 @@
 
 
 from .aes_ige import AesIge, AesIgeAsyncStream
-from .auth_key import AuthKey
+from .auth_key import AuthKey, Key
 from .public_rsa import PublicRSA
 
-__all__ = ("AesIge", "AesIgeAsyncStream", "PublicRSA", "AuthKey")
+__all__ = ("AesIge", "AesIgeAsyncStream", "PublicRSA", "AuthKey", "Key")

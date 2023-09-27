@@ -21,8 +21,7 @@ import hmac
 import secrets
 import typing
 
-from ..crypto import AesIge
-from ..crypto import AuthKey
+from ..crypto import AesIge, Key
 from ..crypto.providers import CryptoProviderBase
 from ..math import primes
 from ..network import MTProto, DatacenterInfo
@@ -46,13 +45,13 @@ class MTProtoKeyExchange:
         self._datacenter = datacenter
         self._crypto_provider = crypto_provider
 
-    async def create_temp_auth_key(self, perm_auth_key: AuthKey) -> AuthKey:
+    async def create_temp_auth_key(self, perm_auth_key: Key) -> Key:
         return await self._create_auth_key(True, perm_auth_key)
 
-    async def create_perm_auth_key(self) -> AuthKey:
+    async def create_perm_auth_key(self) -> Key:
         return await self._create_auth_key(False, None)
 
-    async def _create_auth_key(self, temp: bool, perm_auth_key: AuthKey | None) -> AuthKey:
+    async def _create_auth_key(self, temp: bool, perm_auth_key: Key | None) -> Key:
         if temp and perm_auth_key is None:
             raise ValueError("You can't get a temporary key without having the permanent one")
 
@@ -206,7 +205,7 @@ class MTProtoKeyExchange:
 
         server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
 
-        new_auth_key = AuthKey(auth_key=to_bytes(auth_key), server_salt=server_salt)
+        new_auth_key = Key(auth_key=to_bytes(auth_key), server_salt=server_salt)
 
         client_dh_inner_data = self._datacenter.schema.boxed(
             _cons="client_DH_inner_data",
@@ -235,7 +234,7 @@ class MTProtoKeyExchange:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
         if temp:
-            perm_auth_key = typing.cast(AuthKey, perm_auth_key)
+            perm_auth_key: Key = typing.cast(Key, perm_auth_key)
             temp_key_expires_in = typing.cast(int, temp_key_expires_in)
 
             bind_temp_auth_nonce = int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True)
@@ -245,7 +244,7 @@ class MTProtoKeyExchange:
                 nonce=bind_temp_auth_nonce,
                 temp_auth_key_id=new_auth_key.auth_key_id,
                 perm_auth_key_id=perm_auth_key.auth_key_id,
-                temp_session_id=new_auth_key.session_id,
+                temp_session_id=new_auth_key.session.id,
                 expires_at=temp_key_expires_in
             )
 
@@ -285,7 +284,7 @@ class MTProtoKeyExchange:
                 encrypted_data=bind_temp_auth_inner_data_encrypted,
             )
 
-            new_auth_key.seq_no = ((new_auth_key.seq_no + 1) // 2) * 2 + 1
+            new_auth_key.session.seqno += 1
 
             bind_temp_auth_message = self._datacenter.schema.boxed(
                 _cons="auth.bindTempAuthKey",
@@ -298,7 +297,7 @@ class MTProtoKeyExchange:
             bind_temp_auth_boxed_message = self._datacenter.schema.bare(
                 _cons="message",
                 msg_id=bind_temp_auth_msg_id,
-                seqno=new_auth_key.seq_no,
+                seqno=new_auth_key.session.seqno,
                 body=bind_temp_auth_message,
             )
 
@@ -306,7 +305,7 @@ class MTProtoKeyExchange:
 
             for _ in range(10):
                 message = await asyncio.wait_for(self._mtproto.read_encrypted(new_auth_key), 10)
-                new_auth_key.seq_no = max(new_auth_key.seq_no, message.seqno)
+                new_auth_key.session.seqno = max(new_auth_key.session.seqno, message.seqno)
 
                 if message.body != "rpc_result":
                     continue
