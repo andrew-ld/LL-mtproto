@@ -21,7 +21,7 @@ import hmac
 import secrets
 import typing
 
-from ..crypto import AesIge, Key
+from ..crypto import AesIge, Key, DhGenKey
 from ..crypto.providers import CryptoProviderBase
 from ..math import primes
 from ..network import MTProto, DatacenterInfo
@@ -45,13 +45,13 @@ class MTProtoKeyExchange:
         self._datacenter = datacenter
         self._crypto_provider = crypto_provider
 
-    async def create_temp_auth_key(self, perm_auth_key: Key) -> Key:
+    async def create_temp_auth_key(self, perm_auth_key: Key) -> DhGenKey:
         return await self._create_auth_key(True, perm_auth_key)
 
-    async def create_perm_auth_key(self) -> Key:
+    async def create_perm_auth_key(self) -> DhGenKey:
         return await self._create_auth_key(False, None)
 
-    async def _create_auth_key(self, temp: bool, perm_auth_key: Key | None) -> Key:
+    async def _create_auth_key(self, temp: bool, perm_auth_key: Key | None) -> DhGenKey:
         if temp and perm_auth_key is None:
             raise ValueError("You can't get a temporary key without having the permanent one")
 
@@ -205,7 +205,10 @@ class MTProtoKeyExchange:
 
         server_salt = int.from_bytes(xor(new_nonce[:8], server_nonce[:8]), "little", signed=True)
 
-        new_auth_key = Key(auth_key=to_bytes(auth_key), server_salt=server_salt)
+        new_auth_key = DhGenKey()
+        new_auth_key.auth_key = to_bytes(auth_key)
+        new_auth_key.auth_key_id = Key.generate_auth_key_id(new_auth_key.auth_key)
+        new_auth_key.server_salt = server_salt
 
         client_dh_inner_data = self._datacenter.schema.boxed(
             _cons="client_DH_inner_data",
@@ -284,8 +287,6 @@ class MTProtoKeyExchange:
                 encrypted_data=bind_temp_auth_inner_data_encrypted,
             )
 
-            new_auth_key.session.seqno += 1
-
             bind_temp_auth_message = self._datacenter.schema.boxed(
                 _cons="auth.bindTempAuthKey",
                 perm_auth_key_id=perm_auth_key.auth_key_id,
@@ -293,6 +294,8 @@ class MTProtoKeyExchange:
                 expires_at=temp_key_expires_in,
                 encrypted_message=bind_temp_auth_inner_data_encrypted_boxed.get_flat_bytes()
             )
+
+            new_auth_key.session.seqno += 1
 
             bind_temp_auth_boxed_message = self._datacenter.schema.bare(
                 _cons="message",

@@ -15,28 +15,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import asyncio
 import typing
 
 
-__all__ = (
-    "InThread",
-    "ByteReader",
-    "PartialByteReader",
-    "Loop",
-    "ByteConsumer",
-    "SyncByteReader",
-)
+__all__ = ("SeqNoGenerator",)
 
 
-InThread = typing.Callable[..., typing.Awaitable[typing.Any]]
-
-ByteReader = typing.Callable[[int], typing.Awaitable[bytes]]
-
-SyncByteReader = typing.Callable[[int], bytes]
-
-PartialByteReader = typing.Callable[[], typing.Awaitable[bytes]]
-
-Loop = asyncio.AbstractEventLoop
-
-ByteConsumer = typing.Callable[[bytes], None]
+SeqNoGenerator = typing.Callable[[], int]

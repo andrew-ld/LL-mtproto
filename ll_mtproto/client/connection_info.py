@@ -15,7 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from ..typed import TlRequestBody
+from ..tl import TlRequestBody
+
 
 __all__ = ("ConnectionInfo",)
 

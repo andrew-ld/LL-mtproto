@@ -16,8 +16,7 @@
 
 
 from .crypto import AuthKey
-from .typed import RpcError
 from .constants import TelegramDatacenter
-from .client import Client, ConnectionInfo, Update
+from .client import Client, ConnectionInfo, Update, RpcError
 
 __all__ = ("Client", "TelegramDatacenter", "AuthKey", "RpcError", "ConnectionInfo", "Update")

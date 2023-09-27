@@ -20,7 +20,7 @@ from .byteutils import xor, base64encode, base64decode, sha1, sha256, to_bytes, 
     unpack_binary_string, pack_long_binary_string, long_hex, short_hex, short_hex_int, reader_is_empty, reader_discard, \
     GzipStreamReader, to_reader, to_composed_reader, SyncByteReaderApply, pack_long_binary_string_padded
 
-from .tl import Schema, Value, Structure, Parameter, Constructor
+from .tl import Schema, Value, Structure, Parameter, Constructor, TlRequestBody, TlMessageBody
 
 __all__ = (
     "xor",
@@ -50,5 +50,7 @@ __all__ = (
     "Value",
     "Structure",
     "Parameter",
-    "Constructor"
+    "Constructor",
+    "TlRequestBody",
+    "TlMessageBody"
 )

@@ -29,7 +29,9 @@ from ..network import mtproto, DatacenterInfo
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
-from ..typed import TlMessageBody, Structure, RpcError, TlRequestBody
+from ..tl import TlMessageBody, TlRequestBody, Structure
+from .rpc_error import RpcError
+
 
 __all__ = ("Client",)
 
@@ -236,17 +238,18 @@ class Client:
             perm_auth_key = self._persistent_session_key
 
             if perm_auth_key.is_empty():
-                new_auth_key = await self._mtproto_key_exchange.create_perm_auth_key()
-                new_auth_key.copy_to(perm_auth_key)
+                generated_key = await self._mtproto_key_exchange.create_perm_auth_key()
+                perm_auth_key.import_dh_gen_key(generated_key)
 
             if self._use_perfect_forward_secrecy:
                 temp_auth_key = self._used_session_key
 
                 if temp_auth_key.is_empty():
-                    new_temp_auth_key = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
-                    new_temp_auth_key.copy_to(temp_auth_key)
+                    generated_key = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
+                    temp_auth_key.import_dh_gen_key(generated_key)
 
-            self._used_session_key.change_session()
+            self._used_session_key.generate_new_unique_session_id()
+            self._used_session_key.flush_changes()
 
     async def _process_inbound_message(self, message: TlMessageBody):
         logging.debug("received message (%s) %d from mtproto", message.body.constructor_name, message.msg_id)
@@ -410,6 +413,7 @@ class Client:
     def _process_session_destroy(self, body: TlMessageBody):
         logging.debug("session destroy received: %s", body.constructor_name)
         self._used_session_key.unused_sessions.remove(body.session_id)
+        self._used_session_key.flush_changes()
 
     async def _process_update_short_message(self, body: TlMessageBody):
         if not self._no_updates:
@@ -455,6 +459,8 @@ class Client:
                 lambda: self._loop.create_task(self._create_future_salt_request()))
 
             logging.debug("scheduling get_future_salts, current salt is valid for %i seconds", salt_expire)
+
+        self._used_session_key.flush_changes()
 
     async def _process_new_session_created(self, body: TlMessageBody):
         self._used_session_key.server_salt = body.server_salt
@@ -514,6 +520,8 @@ class Client:
             await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
+
+        self._used_session_key.flush_changes()
 
     async def _process_bad_msg_notification(self, body: TlMessageBody):
         if body.error_code == 32:

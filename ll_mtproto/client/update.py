@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from ..typed import Structure
+from ..tl import Structure
 
 __all__ = ("Update",)
 

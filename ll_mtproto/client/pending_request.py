@@ -17,7 +17,8 @@
 
 import asyncio
 
-from ..typed import SeqNoGenerator, TlMessageBody, TlRequestBody
+from ..tl import TlMessageBody, TlRequestBody
+from .seqno_generator import SeqNoGenerator
 
 __all__ = ("PendingRequest",)
 

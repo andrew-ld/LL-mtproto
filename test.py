@@ -1,13 +1,12 @@
 import argparse
 import asyncio
 import concurrent.futures
-import copy
 import logging
 
 from ll_mtproto import Client, AuthKey, TelegramDatacenter, ConnectionInfo
+from ll_mtproto.crypto.providers import CryptoProviderCryptg
 from ll_mtproto.network.transport import CachedTransportAddressResolver, \
     TransportLinkTcpFactory, TransportCodecIntermediateFactory
-from ll_mtproto.crypto.providers import CryptoProviderCryptg
 
 
 async def get_updates(client: Client):
@@ -19,7 +18,7 @@ async def get_updates(client: Client):
 
 
 async def test(api_id: int, api_hash: str, bot_token: str):
-    logging.getLogger().setLevel(level=logging.DEBUG)
+    logging.getLogger().setLevel(level=logging.ERROR)
 
     connection_info = ConnectionInfo(
         api_id=api_id,
@@ -32,6 +31,11 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     )
 
     auth_key = AuthKey()
+
+    def on_auth_key_updated():
+        print("auth key updated:", auth_key)
+
+    auth_key.set_content_change_callback(on_auth_key_updated)
 
     datacenter_info = TelegramDatacenter.VESTA
 
@@ -104,15 +108,21 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     })
 
     media = messages.messages[0].media.document
+    media_auth_key = AuthKey(persistent_key=auth_key.persistent_key)
+
+    def on_media_auth_key_updated():
+        print("media auth key updated:", media_auth_key)
+
+    media_auth_key.set_content_change_callback(on_media_auth_key_updated)
 
     media_session = Client(
         TelegramDatacenter.VESTA_MEDIA,
-        AuthKey(persistent_key=copy.copy(auth_key.persistent_key)),
+        media_auth_key,
         connection_info,
         transport_link_factory,
         blocking_executor,
         crypto_provider,
-        use_perfect_forward_secrecy=False,
+        use_perfect_forward_secrecy=True,
         no_updates=True
     )
 

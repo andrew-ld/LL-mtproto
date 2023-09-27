@@ -20,7 +20,7 @@ import random
 
 from .. import DatacenterInfo
 from . import TransportAddressResolverBase
-from ...typed import Structure
+from ...tl import Structure
 
 __all__ = ("CachedTransportAddressResolver",)
 

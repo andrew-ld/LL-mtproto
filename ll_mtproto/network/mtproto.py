@@ -23,7 +23,7 @@ import secrets
 
 from .datacenter_info import DatacenterInfo
 from .transport import TransportLinkBase, TransportLinkFactory
-from ..crypto import Key
+from ..crypto import Key, DhGenKey
 from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ..crypto.providers import CryptoProviderBase
 from ..tl import tl
@@ -136,12 +136,12 @@ class MTProto:
 
         await self._link.write(message.get_flat_bytes())
 
-    async def write_encrypted(self, message: tl.Value, auth_key: Key):
-        auth_key_key, auth_key_id, session = auth_key.get_or_assert_empty()
+    async def write_encrypted(self, message: tl.Value, key: Key | DhGenKey):
+        auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
         message_inner_data = self._datacenter.schema.bare(
             _cons="message_inner_data",
-            salt=auth_key.server_salt,
+            salt=key.server_salt,
             session_id=session.id,
             message=message,
         )
@@ -162,8 +162,8 @@ class MTProto:
 
         await self._link.write(full_message.get_flat_bytes())
 
-    async def read_encrypted(self, auth_key: Key) -> Structure:
-        auth_key_key, auth_key_id, session = auth_key.get_or_assert_empty()
+    async def read_encrypted(self, key: Key | DhGenKey) -> Structure:
+        auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
         auth_key_part = auth_key_key[88 + 8:88 + 8 + 32]
 
@@ -216,9 +216,6 @@ class MTProto:
 
             if ((message.message.msg_id >> 32) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
                 raise RuntimeError("Time is not synchronised with telegram time!")
-
-            if (msg_salt := message.salt) != auth_key.server_salt:
-                logging.error("received a message with unknown salt! %d", msg_salt)
 
             message_body_reader = to_reader(message_body_envelope)
 

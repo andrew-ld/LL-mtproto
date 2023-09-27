@@ -33,9 +33,10 @@ from .byteutils import (
     GzipStreamReader,
     pack_long_binary_string_padded,
 )
-from ..typed import TlMessageBody, SyncByteReader
+from ..typed import SyncByteReader
 
-__all__ = ("Schema", "Value", "Structure", "Parameter", "Constructor",)
+
+__all__ = ("Schema", "Value", "Structure", "Parameter", "Constructor", "TlRequestBody", "TlMessageBody")
 
 
 @functools.lru_cache()
@@ -271,7 +272,7 @@ class Schema:
             if argument.boxed:
                 raise TypeError("expected bare, found boxed", self._debug_type_error_msg(parameter, argument))
 
-    def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> TlMessageBody:
+    def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlMessageBody":
         if parameter.is_boxed:
             if parameter.type is not None and parameter.type not in self.types:
                 raise ValueError(f"Unknown type `{parameter.type}`")
@@ -700,3 +701,8 @@ class Constructor:
                 fields[parameter.name] = self._deserialize_argument(reader, parameter)
 
         return result
+
+
+TlMessageBody = Structure | list[Structure]
+
+TlRequestBody = dict[str, TlMessageBody | list[TlMessageBody] | bytes | str | int]

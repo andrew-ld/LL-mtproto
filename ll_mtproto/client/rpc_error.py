@@ -15,28 +15,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import asyncio
-import typing
+__all__ = ("RpcError",)
 
 
-__all__ = (
-    "InThread",
-    "ByteReader",
-    "PartialByteReader",
-    "Loop",
-    "ByteConsumer",
-    "SyncByteReader",
-)
+class RpcError(BaseException):
+    __slots__ = ("code", "message")
 
+    code: int
+    message: str
 
-InThread = typing.Callable[..., typing.Awaitable[typing.Any]]
-
-ByteReader = typing.Callable[[int], typing.Awaitable[bytes]]
-
-SyncByteReader = typing.Callable[[int], bytes]
-
-PartialByteReader = typing.Callable[[], typing.Awaitable[bytes]]
-
-Loop = asyncio.AbstractEventLoop
-
-ByteConsumer = typing.Callable[[bytes], None]
+    def __init__(self, code: int, message: str):
+        self.code = code
+        self.message = message
