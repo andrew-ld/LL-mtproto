@@ -166,6 +166,8 @@ class Key:
         self.session = KeySession(session_id=new_session_id)
 
     def import_dh_gen_key(self, dh_gen_key: DhGenKey):
+        self.created_at = time.time()
+
         self.auth_key = dh_gen_key.auth_key
         self.auth_key_id = dh_gen_key.auth_key_id
         self.server_salt = dh_gen_key.server_salt
@@ -191,14 +193,14 @@ class Key:
         if created_at is None:
             return False
 
-        return (time.time() - created_at) < 60
+        return (time.time() - created_at) < 60.
 
     def clear_key(self):
         self.auth_key = None
         self.auth_key_id = None
         self.server_salt = None
         self.session = KeySession()
-        self.created_at = time.time()
+        self.created_at = -1.
         self.unused_sessions.clear()
 
 
