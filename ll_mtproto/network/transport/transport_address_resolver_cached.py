@@ -39,7 +39,12 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
     def get_cache_copy(self) -> dict[DatacenterInfo, list[tuple[str, int]]]:
         return copy.deepcopy(self._cached_resolved)
 
-    def apply_telegram_config(self, datacenters: list[DatacenterInfo], config: Structure, allow_ipv6: bool = False):
+    def apply_telegram_config(
+            self,
+            datacenters: frozenset[DatacenterInfo],
+            config: Structure,
+            allow_ipv6: bool = False
+    ):
         if config.constructor_name != "config":
             raise TypeError(f"Expected: config, Found: {config!r}")
 

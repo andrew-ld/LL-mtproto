@@ -242,7 +242,7 @@ class Schema:
 
         self.constructors[cons.name] = cons
         self.cons_numbers[cons.number] = cons
-        self.types.setdefault(cons.type, set()).add(cons)
+        self.types.setdefault(cons.ptype, set()).add(cons)
 
     @staticmethod
     def _debug_type_error_msg(parameter: "Parameter", argument: "Value") -> str:
@@ -402,9 +402,9 @@ class Structure:
         return Structure._get_dict(self)
 
     @staticmethod
-    def from_dict(obj: dict[any, any] | list[any]) -> any:
+    def from_obj(obj: any) -> any:
         if isinstance(obj, list):
-            return [Structure.from_dict(x) for x in obj]
+            return [Structure.from_obj(x) for x in obj]
 
         if not isinstance(obj, dict):
             return obj
@@ -413,9 +413,9 @@ class Structure:
 
         for k, v in obj.items():
             if isinstance(v, dict):
-                res._fields[k] = Structure.from_dict(v)
+                res._fields[k] = Structure.from_obj(v)
             elif isinstance(v, (list, tuple)):
-                res._fields[k] = [Structure.from_dict(x) for x in v]
+                res._fields[k] = [Structure.from_obj(x) for x in v]
             else:
                 res._fields[k] = v
 
@@ -479,33 +479,33 @@ class Parameter:
 
 
 class Constructor:
-    __slots__ = ("schema", "type", "name", "number", "_parameters", "flags")
+    __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags")
 
     schema: Schema
-    type: str
+    ptype: str | None
     name: str
-    number: bytes
-    _parameters: list[Parameter]
+    number: bytes | None
     flags: set[int] | None
+    _parameters: list[Parameter]
 
     def __init__(
             self,
             schema: Schema,
-            ptype: str,
+            ptype: str | None,
             name: str,
-            number: bytes,
+            number: bytes | None,
             parameters: list[Parameter],
             flags: set[int] | None
     ):
         self.schema = schema
         self.name = name
         self.number = number
-        self.type = ptype
+        self.ptype = ptype
         self._parameters = parameters
         self.flags = flags
 
     def __repr__(self):
-        return f"{self.name} {''.join('%r ' % p for p in self._parameters)}= {self.type};"
+        return f"{self.name} {''.join('%r ' % p for p in self._parameters)}= {self.ptype};"
 
     def _serialize_argument(self, data: Value, parameter: Parameter, argument: typing.Any) -> bytes | typing.NoReturn:
         if isinstance(argument, str):
@@ -704,7 +704,7 @@ class Constructor:
             for parameter in self._parameters:
                 fields[parameter.name] = self._deserialize_argument(reader, parameter)
 
-        return Structure.from_dict(fields)
+        return Structure.from_obj(fields)
 
 
 TlMessageBody = Structure | list[Structure]
