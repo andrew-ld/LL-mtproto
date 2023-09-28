@@ -179,13 +179,7 @@ class Client:
         await self._create_init_requests()
 
     async def _create_init_requests(self):
-        need_server_salt = True
-        need_server_salt &= self._used_session_key.server_salt is None
-        need_server_salt &= not self._used_session_key.is_empty()
-
-        if need_server_salt:
-            await self._create_future_salt_request()
-
+        await self._create_future_salt_request()
         await self._create_ping_request()
 
     async def _create_destroy_session_request(self, destroyed_session_id: int):
