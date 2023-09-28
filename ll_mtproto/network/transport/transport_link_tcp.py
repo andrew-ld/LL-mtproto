@@ -17,7 +17,7 @@
 
 import asyncio
 
-from . import TransportCodecBase, TransportLinkBase, TransportLinkFactory,\
+from . import TransportCodecBase, TransportLinkBase, TransportLinkFactory, \
     TransportCodecFactory, TransportAddressResolverBase
 from .. import DatacenterInfo
 

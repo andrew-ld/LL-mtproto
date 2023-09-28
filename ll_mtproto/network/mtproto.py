@@ -193,7 +193,8 @@ class MTProto:
             message_inner_data_reader = to_reader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
 
             try:
-                message = self._datacenter.schema.read(message_inner_data_reader, False, "message_inner_data_from_server")
+                message = self._datacenter.schema.read(
+                    message_inner_data_reader, False, "message_inner_data_from_server")
             finally:
                 reader_discard(message_inner_data_reader)
 

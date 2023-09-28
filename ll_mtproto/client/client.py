@@ -143,10 +143,18 @@ class Client:
         return await self._updates_queue.get()
 
     async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
-        pending_request = PendingRequest(self._loop.create_future(), payload, self._get_next_odd_seqno, True)
+        pending_request = PendingRequest(
+            response=self._loop.create_future(),
+            message=payload,
+            seq_no_func=self._get_next_odd_seqno,
+            allow_container=True
+        )
+
         pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
+
         await self._start_mtproto_loop_if_needed()
         await self._rpc_call(pending_request)
+
         return await pending_request.response
 
     async def _rpc_call(self, request: PendingRequest):
@@ -182,12 +190,25 @@ class Client:
 
     async def _create_destroy_session_request(self, destroyed_session_id: int):
         destroy_session_message = dict(_cons="destroy_session", session_id=destroyed_session_id)
-        destroy_session_request = PendingRequest(self._loop.create_future(), destroy_session_message, self._get_next_odd_seqno, False)
+
+        destroy_session_request = PendingRequest(
+            response=self._loop.create_future(),
+            message=destroy_session_message,
+            seq_no_func=self._get_next_odd_seqno,
+            allow_container=False
+        )
+
         await self._rpc_call(destroy_session_request)
 
     async def _create_future_salt_request(self):
         get_future_salts_message = dict(_cons="get_future_salts", num=32)
-        get_future_salts_request = PendingRequest(self._loop.create_future(), get_future_salts_message, self._get_next_odd_seqno, False)
+
+        get_future_salts_request = PendingRequest(
+            response=self._loop.create_future(),
+            message=get_future_salts_message,
+            seq_no_func=self._get_next_odd_seqno,
+            allow_container=False
+        )
 
         if pending_future_salt := self._pending_future_salt:
             pending_future_salt.cancel()
@@ -208,7 +229,13 @@ class Client:
         self._pending_pong = self._loop.call_later(10, self.disconnect)
 
         ping_message = dict(_cons="ping_delay_disconnect", ping_id=ping_id, disconnect_delay=35)
-        ping_request = PendingRequest(self._loop.create_future(), ping_message, self._get_next_odd_seqno, False)
+
+        ping_request = PendingRequest(
+            response=self._loop.create_future(),
+            message=ping_message,
+            seq_no_func=self._get_next_odd_seqno,
+            allow_container=False
+        )
 
         await self._rpc_call(ping_request)
 
@@ -271,7 +298,10 @@ class Client:
             request_body = self._wrap_request_in_layer_init(request_body)
 
         try:
-            boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(seq_no=message.next_seq_no(), **request_body)
+            boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(
+                seq_no=message.next_seq_no(),
+                **request_body
+            )
         except Exception as serialization_exception:
             message.response.set_exception(serialization_exception)
             message.finalize()
@@ -504,7 +534,14 @@ class Client:
             return
 
         message = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
-        request = PendingRequest(self._loop.create_future(), message, self._get_next_even_seqno, False, expect_answer=False)
+
+        request = PendingRequest(
+            response=self._loop.create_future(),
+            message=message,
+            seq_no_func=self._get_next_even_seqno,
+            allow_container=False,
+            expect_answer=False
+        )
 
         self._msgids_to_ack.clear()
 
