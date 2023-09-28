@@ -402,7 +402,13 @@ class Structure:
         return Structure._get_dict(self)
 
     @staticmethod
-    def from_dict(obj: dict[any, any]) -> "Structure":
+    def from_dict(obj: dict[any, any] | list[any]) -> any:
+        if isinstance(obj, list):
+            return [Structure.from_dict(x) for x in obj]
+
+        if not isinstance(obj, dict):
+            return obj
+
         res = Structure(obj["_cons"])
 
         for k, v in obj.items():
@@ -676,10 +682,8 @@ class Constructor:
         else:
             return self.schema.deserialize(reader, parameter)
 
-    # noinspection PyProtectedMember
     def deserialize_bare_data(self, reader: SyncByteReader) -> Structure:
-        result = Structure(self.name)
-        fields = result._fields
+        fields = {"_cons": self.name}
 
         if self.flags:
             flags: dict[int, set[int]] = {}
@@ -700,7 +704,7 @@ class Constructor:
             for parameter in self._parameters:
                 fields[parameter.name] = self._deserialize_argument(reader, parameter)
 
-        return result
+        return Structure.from_dict(fields)
 
 
 TlMessageBody = Structure | list[Structure]

@@ -21,6 +21,7 @@ import hmac
 import logging
 import secrets
 
+from . import AuthKeyNotFoundException
 from .datacenter_info import DatacenterInfo
 from .transport import TransportLinkBase, TransportLinkFactory
 from ..crypto import Key, DhGenKey
@@ -28,7 +29,7 @@ from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ..crypto.providers import CryptoProviderBase
 from ..tl import tl
 from ..tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
-from ..tl.tl import Structure
+from ..tl.tl import Structure, TlMessageBody
 from ..typed import InThread
 
 __all__ = ("MTProto",)
@@ -162,7 +163,7 @@ class MTProto:
 
         await self._link.write(full_message.get_flat_bytes())
 
-    async def read_encrypted(self, key: Key | DhGenKey) -> Structure:
+    async def read_encrypted(self, key: Key | DhGenKey) -> tuple[Structure, TlMessageBody]:
         auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
         auth_key_part = auth_key_key[88 + 8:88 + 8 + 32]
@@ -171,7 +172,7 @@ class MTProto:
             server_auth_key_id = await self._link.readn(8)
 
             if server_auth_key_id == b"l\xfe\xff\xffl\xfe\xff\xff":
-                raise ValueError("Received a message with corrupted authorization!")
+                raise AuthKeyNotFoundException()
 
             if server_auth_key_id == b'S\xfe\xff\xffS\xfe\xff\xff':
                 raise ValueError("Too many requests!")
@@ -220,12 +221,11 @@ class MTProto:
             message_body_reader = to_reader(message_body_envelope)
 
             try:
-                # noinspection PyProtectedMember
-                message.message._fields["body"] = await self._in_thread(self._datacenter.schema.read, message_body_reader)
+                message_body = await self._in_thread(self._datacenter.schema.read, message_body_reader)
             finally:
                 reader_discard(message_body_reader)
 
-            return message.message
+            return message.message, message_body
 
     def prepare_message_for_write(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
         boxed_message_id = self.get_next_message_id()

@@ -15,6 +15,7 @@
 
 import logging
 import secrets
+import time
 import typing
 
 from ..tl.byteutils import sha1
@@ -87,19 +88,35 @@ class DhGenKey:
 
 
 class Key:
-    __slots__ = ("auth_key", "auth_key_id", "server_salt", "session", "unused_sessions", "_update_callback")
+    __slots__ = (
+        "auth_key",
+        "auth_key_id",
+        "server_salt",
+        "session",
+        "unused_sessions",
+        "created_at",
+        "_update_callback",
+    )
 
     auth_key: None | bytes
     auth_key_id: None | int
     server_salt: None | int
     session: KeySession
     unused_sessions: set[int]
+    created_at: None | float
     _update_callback: AuthKeyUpdatedCallbackHolder
 
-    def __init__(self, update_callback: AuthKeyUpdatedCallbackHolder, auth_key: bytes | None = None, server_salt: int | None = None):
+    def __init__(
+            self,
+            update_callback: AuthKeyUpdatedCallbackHolder,
+            auth_key: bytes | None = None,
+            server_salt: int | None = None,
+            created_at: int | None = None
+    ):
+        self._update_callback = update_callback
         self.auth_key = auth_key
         self.server_salt = server_salt
-        self._update_callback = update_callback
+        self.created_at = created_at
 
         self.session = KeySession()
         self.unused_sessions = set()
@@ -112,7 +129,8 @@ class Key:
             "auth_key_id": self.auth_key_id,
             "server_salt": self.server_salt,
             "session": self.session,
-            "unused_sessions": self.unused_sessions
+            "unused_sessions": self.unused_sessions,
+            "created_at": self.created_at
         }
 
     def __setstate__(self, state: dict[str, any]):
@@ -121,6 +139,7 @@ class Key:
         self.server_salt = state["server_salt"]
         self.session = state["session"]
         self.unused_sessions = state["unused_sessions"]
+        self.created_at = state.get("created_at", 0)
 
     @staticmethod
     def generate_auth_key_id(auth_key: bytes | None) -> int | None:
@@ -166,11 +185,20 @@ class Key:
 
         return auth_key, auth_key_id, session
 
+    def is_fresh_key(self):
+        created_at = self.created_at
+
+        if created_at is None:
+            return False
+
+        return (time.time() - created_at) < 60
+
     def clear_key(self):
         self.auth_key = None
         self.auth_key_id = None
         self.server_salt = None
         self.session = KeySession()
+        self.created_at = time.time()
         self.unused_sessions.clear()
 
 
@@ -187,7 +215,7 @@ class AuthKey:
         self.temporary_key = temporary_key or Key(self._update_callback)
 
     def _stub_on_content_change(self):
-        logging.warning("auth key: `%r, dont have content change callback", self)
+        logging.warning("auth key: `%r`, dont have content change callback", self)
 
     def set_content_change_callback(self, callback: AuthKeyUpdatedCallback):
         self._update_callback.set_content_change_callback(callback)

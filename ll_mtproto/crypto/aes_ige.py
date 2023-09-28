@@ -21,6 +21,7 @@ from .providers import CryptoProviderBase
 from ..tl.byteutils import short_hex, sha1
 from ..typed import InThread, PartialByteReader
 
+
 __all__ = ("AesIge", "AesIgeAsyncStream")
 
 
@@ -49,7 +50,8 @@ class AesIge:
         return self._crypto_provider.decrypt_aes_ige(cipher, self._key, self._iv)
 
     def encrypt(self, plain: bytes) -> bytes:
-        return self._crypto_provider.encrypt_aes_ige(plain + secrets.token_bytes((-len(plain)) % 16), self._key, self._iv)
+        padded_plain = plain + secrets.token_bytes((-len(plain)) % 16)
+        return self._crypto_provider.encrypt_aes_ige(padded_plain, self._key, self._iv)
 
     def encrypt_with_hash(self, plain: bytes) -> bytes:
         return self.encrypt(sha1(plain) + plain)

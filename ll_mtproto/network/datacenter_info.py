@@ -24,7 +24,15 @@ __all__ = ("DatacenterInfo",)
 
 
 class DatacenterInfo:
-    __slots__ = ("default_direct_address", "default_direct_port", "public_rsa", "schema", "datacenter_id", "is_media", "_time_difference")
+    __slots__ = (
+        "default_direct_address",
+        "default_direct_port",
+        "public_rsa",
+        "schema",
+        "datacenter_id",
+        "is_media",
+        "_time_difference"
+    )
 
     default_direct_address: str
     default_direct_port: int

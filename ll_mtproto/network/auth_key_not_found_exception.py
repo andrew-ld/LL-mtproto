@@ -15,8 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-__all__ = ("AuthKeyExpiredError",)
+__all__ = ("AuthKeyNotFoundException",)
 
 
-class AuthKeyExpiredError(BaseException):
+class AuthKeyNotFoundException(BaseException):
     pass

@@ -18,7 +18,7 @@ async def get_updates(client: Client):
 
 
 async def test(api_id: int, api_hash: str, bot_token: str):
-    logging.getLogger().setLevel(level=logging.ERROR)
+    logging.getLogger().setLevel(level=logging.DEBUG)
 
     connection_info = ConnectionInfo(
         api_id=api_id,

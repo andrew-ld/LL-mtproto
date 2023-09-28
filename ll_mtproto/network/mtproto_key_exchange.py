@@ -30,7 +30,12 @@ from ..typed import InThread
 
 
 class MTProtoKeyExchange:
-    __slots__ = ("_mtproto", "_in_thread", "_datacenter", "_crypto_provider")
+    __slots__ = (
+        "_mtproto",
+        "_in_thread",
+        "_datacenter",
+        "_crypto_provider"
+    )
 
     TEMP_AUTH_KEY_EXPIRE_TIME = 24 * 60 * 60
 
@@ -39,7 +44,13 @@ class MTProtoKeyExchange:
     _datacenter: DatacenterInfo
     _crypto_provider: CryptoProviderBase
 
-    def __init__(self, mtproto: MTProto, in_thread: InThread, datacenter: DatacenterInfo, crypto_provider: CryptoProviderBase):
+    def __init__(
+            self,
+            mtproto: MTProto,
+            in_thread: InThread,
+            datacenter: DatacenterInfo,
+            crypto_provider: CryptoProviderBase
+    ):
         self._mtproto = mtproto
         self._in_thread = in_thread
         self._datacenter = datacenter
@@ -102,7 +113,12 @@ class MTProtoKeyExchange:
             dc=-self._datacenter.datacenter_id if self._datacenter.is_media else self._datacenter.datacenter_id
         )
 
-        p_q_inner_data_rsa_pad = await self._in_thread(self._datacenter.public_rsa.rsa_pad, p_q_inner_data.get_flat_bytes(), self._crypto_provider)
+        p_q_inner_data_rsa_pad = await self._in_thread(
+            self._datacenter.public_rsa.rsa_pad,
+            p_q_inner_data.get_flat_bytes(),
+            self._crypto_provider
+        )
+
         p_q_inner_data_encrypted = await self._in_thread(self._datacenter.public_rsa.encrypt, p_q_inner_data_rsa_pad)
 
         await self._mtproto.write_unencrypted_message(
@@ -307,19 +323,19 @@ class MTProtoKeyExchange:
             await self._mtproto.write_encrypted(bind_temp_auth_boxed_message, new_auth_key)
 
             for _ in range(10):
-                message = await asyncio.wait_for(self._mtproto.read_encrypted(new_auth_key), 10)
-                new_auth_key.session.seqno = max(new_auth_key.session.seqno, message.seqno)
+                signaling, body = await asyncio.wait_for(self._mtproto.read_encrypted(new_auth_key), 10)
+                new_auth_key.session.seqno = max(new_auth_key.session.seqno, signaling.seqno)
 
-                if message.body != "rpc_result":
+                if body != "rpc_result":
                     continue
 
-                if message.body.req_msg_id != bind_temp_auth_msg_id:
+                if body.req_msg_id != bind_temp_auth_msg_id:
                     continue
 
-                if message.body.result == "boolTrue":
+                if body.result == "boolTrue":
                     return new_auth_key
 
-                raise RuntimeError("Diffie–Hellman exchange failed: `%r`", message.body.result)
+                raise RuntimeError("Diffie–Hellman exchange failed: `%r`", body.result)
 
             raise RuntimeError("Diffie–Hellman exchange failed: too many messages before bindTempAuthKey response")
 

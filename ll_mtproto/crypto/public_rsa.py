@@ -58,22 +58,22 @@ class PublicRSA:
         self.e = int.from_bytes(e, "big")
 
     @staticmethod
-    def _read_asn1(bytedata: SyncByteReader) -> list[bytes] | bytes:
-        field_type, field_length = bytedata(2)
+    def _read_asn1(reader: SyncByteReader) -> list[bytes] | bytes:
+        field_type, field_length = reader(2)
 
         if field_length & 0x80:
-            field_length = int.from_bytes(bytedata(field_length ^ 0x80), "big")
+            field_length = int.from_bytes(reader(field_length ^ 0x80), "big")
 
         if field_type == 0x30:  # SEQUENCE
             sequence = []
 
-            while not reader_is_empty(bytedata):
-                sequence.append(PublicRSA._read_asn1(bytedata))
+            while not reader_is_empty(reader):
+                sequence.append(PublicRSA._read_asn1(reader))
 
             return sequence
 
         elif field_type == 0x02:  # INTEGER
-            return bytedata(field_length)
+            return reader(field_length)
 
         else:
             raise NotImplementedError("Unknown ASN.1 field `%02X` in record")

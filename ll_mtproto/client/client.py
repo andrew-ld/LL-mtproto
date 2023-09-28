@@ -19,19 +19,17 @@ import asyncio
 import concurrent.futures
 import logging
 import traceback
-import warnings
 
 from . import ConnectionInfo
 from . import PendingRequest, Update
+from .rpc_error import RpcError
 from ..crypto import AuthKey, Key
 from ..crypto.providers import CryptoProviderBase
-from ..network import mtproto, DatacenterInfo, AuthKeyExpiredError
+from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
 from ..tl import TlMessageBody, TlRequestBody, Structure
-from .rpc_error import RpcError
-
 
 __all__ = ("Client",)
 
@@ -133,9 +131,6 @@ class Client:
 
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._persistent_session_key = auth_key.persistent_key
-
-        if use_perfect_forward_secrecy:
-            warnings.warn("The use_perfect_forward_secrecy is currently a unstable API don't use it in production", FutureWarning)
 
     async def _in_thread(self, *args, **kwargs):
         return await self._loop.run_in_executor(self._blocking_executor, *args, **kwargs)
@@ -251,9 +246,9 @@ class Client:
             self._used_session_key.generate_new_unique_session_id()
             self._used_session_key.flush_changes()
 
-    async def _process_inbound_message(self, message: TlMessageBody):
-        logging.debug("received message (%s) %d from mtproto", message.body.constructor_name, message.msg_id)
-        await self._process_telegram_message(message)
+    async def _process_inbound_message(self, signaling: TlMessageBody, body: TlMessageBody):
+        logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
+        await self._process_telegram_message(signaling, body)
         await self._flush_msgids_to_ack()
 
     async def _process_outbound_message(self, message: PendingRequest):
@@ -296,7 +291,8 @@ class Client:
 
     async def _mtproto_read_loop(self):
         while True:
-            await self._process_inbound_message(await self._mtproto.read_encrypted(self._used_session_key))
+            signaling, body = await self._mtproto.read_encrypted(self._used_session_key)
+            await self._process_inbound_message(signaling, body)
 
     async def _mtproto_loop(self):
         try:
@@ -318,14 +314,14 @@ class Client:
             await asyncio.gather(write_task, read_task)
         except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
             raise
-        except AuthKeyExpiredError:
+        except AuthKeyNotFoundException:
             auth_key_id = self._used_session_key.auth_key_id
 
-            if self._persistent_session_key is not self._used_session_key:
+            if self._use_perfect_forward_secrecy and (not self._used_session_key.is_fresh_key()):
                 self._used_session_key.clear_key()
                 self._used_session_key.flush_changes()
 
-            logging.error("auth key `%r` invalidated, retrying connection", auth_key_id)
+            logging.error("auth key id `%r` not found, retry connection", auth_key_id)
         except:
             logging.error("unable to process message in consumer: %s", traceback.format_exc())
         finally:
@@ -349,18 +345,18 @@ class Client:
         else:
             await self._start_mtproto_loop()
 
-    async def _process_telegram_message(self, message: Structure):
-        self._update_last_seqno_from_incoming_message(message)
+    async def _process_telegram_message(self, signaling: Structure, body: Structure):
+        self._update_last_seqno_from_incoming_message(signaling)
 
-        body = message.body.packed_data if message.body == "gzip_packed" else message.body
+        body = body.packed_data if body == "gzip_packed" else body
 
         if body == "msg_container":
             for m in body.messages:
-                await self._process_telegram_message(m)
+                await self._process_telegram_message(m, m.body)
 
         else:
             await self._process_telegram_message_body(body)
-            await self._acknowledge_telegram_message(message)
+            await self._acknowledge_telegram_message(signaling)
 
     async def _process_telegram_message_body(self, body: TlMessageBody):
         match (constructor_name := body.constructor_name):
@@ -499,9 +495,9 @@ class Client:
 
         self._pending_ping = self._loop.call_later(30, lambda: self._loop.create_task(self._create_ping_request()))
 
-    async def _acknowledge_telegram_message(self, message: Structure):
-        if message.seqno % 2 == 1:
-            self._msgids_to_ack.append(message.msg_id)
+    async def _acknowledge_telegram_message(self, signaling: Structure):
+        if signaling.seqno % 2 == 1:
+            self._msgids_to_ack.append(signaling.msg_id)
 
     async def _flush_msgids_to_ack(self):
         if not self._msgids_to_ack or not self._stable_seqno:
@@ -514,8 +510,8 @@ class Client:
 
         await self._rpc_call(request)
 
-    def _update_last_seqno_from_incoming_message(self, message: Structure):
-        self._used_session_key.session.seqno = max(self._used_session_key.session.seqno, message.seqno)
+    def _update_last_seqno_from_incoming_message(self, signaling: Structure):
+        self._used_session_key.session.seqno = max(self._used_session_key.session.seqno, signaling.seqno)
 
     async def _process_bad_server_salt(self, body: TlMessageBody):
         if self._used_session_key.server_salt:

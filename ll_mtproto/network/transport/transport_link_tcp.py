@@ -17,7 +17,8 @@
 
 import asyncio
 
-from . import TransportCodecBase, TransportLinkBase, TransportLinkFactory, TransportCodecFactory, TransportAddressResolverBase
+from . import TransportCodecBase, TransportLinkBase, TransportLinkFactory,\
+    TransportCodecFactory, TransportAddressResolverBase
 from .. import DatacenterInfo
 
 __all__ = ("TransportLinkTcp", "TransportLinkTcpFactory")
@@ -48,7 +49,12 @@ class TransportLinkTcp(TransportLinkBase):
     _transport_codec_factory: TransportCodecFactory
     _resolver: TransportAddressResolverBase
 
-    def __init__(self, datacenter: DatacenterInfo, transport_codec_factory: TransportCodecFactory, resolver: TransportAddressResolverBase):
+    def __init__(
+            self,
+            datacenter: DatacenterInfo,
+            transport_codec_factory: TransportCodecFactory,
+            resolver: TransportAddressResolverBase
+    ):
         self._loop = asyncio.get_running_loop()
 
         self._datacenter = datacenter

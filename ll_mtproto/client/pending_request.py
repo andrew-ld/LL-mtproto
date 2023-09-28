@@ -24,7 +24,15 @@ __all__ = ("PendingRequest",)
 
 
 class PendingRequest:
-    __slots__ = ("response", "request", "cleaner", "retries", "next_seq_no", "allow_container", "expect_answer")
+    __slots__ = (
+        "response",
+        "request",
+        "cleaner",
+        "retries",
+        "next_seq_no",
+        "allow_container",
+        "expect_answer"
+    )
 
     response: asyncio.Future[TlMessageBody]
     request: TlRequestBody
