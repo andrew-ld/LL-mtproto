@@ -403,7 +403,7 @@ class Structure:
 
     @staticmethod
     def from_obj(obj: any) -> any:
-        if isinstance(obj, list):
+        if isinstance(obj, (list, tuple)):
             return [Structure.from_obj(x) for x in obj]
 
         if not isinstance(obj, dict):
