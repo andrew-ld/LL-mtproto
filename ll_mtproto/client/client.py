@@ -600,12 +600,23 @@ class Client:
         self._stable_seqno = True
         self._seqno_increment = 1
 
-        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
-            if body.result == "gzip_packed":
-                result = body.result.packed_data
-            else:
-                result = body.result
+        if body.result == "gzip_packed":
+            result = body.result.packed_data
+        else:
+            result = body.result
 
+        if self._use_perfect_forward_secrecy and \
+                result == "rpc_error" and \
+                result.error_message == "AUTH_KEY_PERM_EMPTY":
+            logging.error("auth key %r: not bound to permanent", self._used_session_key.auth_key_id)
+
+            if not self._used_session_key.is_fresh_key():
+                self._used_session_key.clear_key()
+                self._used_session_key.flush_changes()
+
+            return self.disconnect()
+
+        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             if pending_request.allow_container:
                 self._layer_init_required = False
 
