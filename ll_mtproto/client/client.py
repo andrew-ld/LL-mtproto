@@ -270,9 +270,6 @@ class Client:
                     generated_key = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
                     temp_auth_key.import_dh_gen_key(generated_key)
 
-            self._used_session_key.generate_new_unique_session_id()
-            self._used_session_key.flush_changes()
-
     async def _process_inbound_message(self, signaling: TlMessageBody, body: TlMessageBody):
         logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
         await self._process_telegram_message(signaling, body)
@@ -333,6 +330,9 @@ class Client:
             logging.debug("unable to generate mtproto auth key: %s", traceback.format_exc())
             self.disconnect()
             raise asyncio.CancelledError()
+
+        self._used_session_key.generate_new_unique_session_id()
+        self._used_session_key.flush_changes()
 
         for unused_session in self._used_session_key.unused_sessions:
             await self._create_destroy_session_request(unused_session)
