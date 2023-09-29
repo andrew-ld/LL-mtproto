@@ -241,18 +241,13 @@ class Client:
         self._ensure_mtproto_loop()
 
         async with self._auth_key_lock:
-            perm_auth_key = self._persistent_session_key
-
-            if perm_auth_key.is_empty():
+            if (perm_auth_key := self._persistent_session_key).is_empty():
                 generated_key = await self._mtproto_key_exchange.create_perm_auth_key()
                 perm_auth_key.import_dh_gen_key(generated_key)
 
-            if self._use_perfect_forward_secrecy:
-                temp_auth_key = self._used_session_key
-
-                if temp_auth_key.is_empty():
-                    generated_key = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
-                    temp_auth_key.import_dh_gen_key(generated_key)
+            if self._use_perfect_forward_secrecy and (temp_auth_key := self._used_session_key).is_empty():
+                generated_key = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
+                temp_auth_key.import_dh_gen_key(generated_key)
 
     async def _process_inbound_message(self, signaling: TlMessageBody, body: TlMessageBody):
         logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
