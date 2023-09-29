@@ -218,15 +218,20 @@ class Client:
 
         await self._rpc_call(ping_request)
 
-    def _get_next_odd_seqno(self) -> int:
+    def _get_and_increment_seqno(self) -> int:
         value = self._used_session_key.session.seqno
         self._used_session_key.session.seqno += 1
-        return value * 2 + 1
+
+        if value == 0:
+            self._used_session_key.flush_changes()
+
+        return value
+
+    def _get_next_odd_seqno(self) -> int:
+        return (self._get_and_increment_seqno()) * 2 + 1
 
     def _get_next_even_seqno(self) -> int:
-        value = self._used_session_key.session.seqno
-        self._used_session_key.session.seqno += 1
-        return value * 2
+        return (self._get_and_increment_seqno()) * 2
 
     def _cancel_pending_request(self, msg_id: int):
         if pending_request := self._pending_requests.pop(msg_id, None):

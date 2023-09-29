@@ -172,14 +172,12 @@ class Key:
         return self.auth_key is None or self.auth_key_id is None
 
     def generate_new_unique_session_id(self):
-        old_session = self.session
-
-        if old_session.seqno > 0:
+        if (old_session := self.session).seqno > 0:
             self.unused_sessions.add(old_session.id)
 
         new_session_id = KeySession.generate_new_session_id()
 
-        while (new_session_id == old_session.id) or (new_session_id in self.unused_sessions):
+        while new_session_id in self.unused_sessions:
             new_session_id = KeySession.generate_new_session_id()
 
         self.session = KeySession(session_id=new_session_id)
