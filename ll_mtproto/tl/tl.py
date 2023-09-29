@@ -381,9 +381,9 @@ class Structure:
     constructor_name: str
     _fields: dict
 
-    def __init__(self, constructor_name: str):
+    def __init__(self, constructor_name: str, fields: dict):
         self.constructor_name = constructor_name
-        self._fields = dict()
+        self._fields = fields
 
     def __eq__(self, other):
         if isinstance(other, str):
@@ -402,41 +402,48 @@ class Structure:
         return Structure._get_dict(self)
 
     @staticmethod
-    def from_obj(obj: any) -> any:
+    def from_obj(obj: typing.Any) -> typing.Any:
         if isinstance(obj, (list, tuple)):
             return [Structure.from_obj(x) for x in obj]
 
         if not isinstance(obj, dict):
             return obj
 
-        res = Structure(obj["_cons"])
+        fields = dict(
+            (
+                k,
+                (
+                    Structure.from_obj(v)
+                    if isinstance(v, dict)
+                    else
+                    [Structure.from_obj(x) for x in v]
+                    if isinstance(v, (list, tuple))
+                    else
+                    v
+                )
+            )
+            for k, v in obj.items()
+            if k != "_cons"
+        )
 
-        for k, v in obj.items():
-            if isinstance(v, dict):
-                res._fields[k] = Structure.from_obj(v)
-            elif isinstance(v, (list, tuple)):
-                res._fields[k] = [Structure.from_obj(x) for x in v]
-            else:
-                res._fields[k] = v
-
-        return res
+        return Structure(obj["_cons"], fields)
 
     @staticmethod
-    def _get_dict(anything: typing.Any) -> typing.Any:
-        if isinstance(anything, Structure):
+    def _get_dict(obj: typing.Any) -> typing.Any:
+        if isinstance(obj, Structure):
             return {
-                "_cons": anything.constructor_name,
+                "_cons": obj.constructor_name,
                 **{
                     key: Structure._get_dict(value)
-                    for key, value in anything._fields.items()
+                    for key, value in obj._fields.items()
                 }
             }
 
-        elif isinstance(anything, (list, tuple)):
-            return [Structure._get_dict(value) for value in anything]
+        elif isinstance(obj, (list, tuple)):
+            return [Structure._get_dict(value) for value in obj]
 
         else:
-            return anything
+            return obj
 
 
 class Parameter:

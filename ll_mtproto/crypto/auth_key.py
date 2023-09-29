@@ -62,7 +62,7 @@ class KeySession:
         self.stable_seqno = stable_seqno
         self.seqno_increment = seqno_increment
 
-    def __getstate__(self) -> dict[str, any]:
+    def __getstate__(self) -> dict[str, typing.Any]:
         return {
             "id": self.id,
             "seqno": self.seqno,
@@ -71,7 +71,7 @@ class KeySession:
             "seqno_increment": self.seqno_increment
         }
 
-    def __setstate__(self, state: dict[str, any]):
+    def __setstate__(self, state: dict[str, typing.Any]):
         self.id = state["id"]
         self.seqno = state.get("seqno", 0)
         self.ping_id = state.get("ping_id", 0)
@@ -142,7 +142,7 @@ class Key:
 
         self.auth_key_id = self.generate_auth_key_id(auth_key)
 
-    def __getstate__(self) -> dict[str, any]:
+    def __getstate__(self) -> dict[str, typing.Any]:
         return {
             "auth_key": self.auth_key,
             "auth_key_id": self.auth_key_id,
@@ -152,13 +152,13 @@ class Key:
             "created_at": self.created_at
         }
 
-    def __setstate__(self, state: dict[str, any]):
+    def __setstate__(self, state: dict[str, typing.Any]):
         self.auth_key = state["auth_key"]
         self.auth_key_id = state["auth_key_id"]
         self.server_salt = state["server_salt"]
         self.session = state["session"]
         self.unused_sessions = state["unused_sessions"]
-        self.created_at = state.get("created_at", 0)
+        self.created_at = state.get("created_at", -1.)
 
     @staticmethod
     def generate_auth_key_id(auth_key: bytes | None) -> int | None:
@@ -191,9 +191,7 @@ class Key:
         self.auth_key_id = dh_gen_key.auth_key_id
         self.server_salt = dh_gen_key.server_salt
 
-        old_session = self.session
-
-        if old_session.seqno > 0:
+        if (old_session := self.session).seqno > 0:
             self.unused_sessions.add(old_session.id)
 
         self.session = dh_gen_key.session
@@ -207,12 +205,10 @@ class Key:
         return auth_key, auth_key_id, session
 
     def is_fresh_key(self):
-        created_at = self.created_at
+        if (created_at := self.created_at) is not None:
+            return (time.time() - created_at) < 60.
 
-        if created_at is None:
-            return False
-
-        return (time.time() - created_at) < 60.
+        return False
 
     def clear_key(self):
         self.auth_key = None
