@@ -646,13 +646,7 @@ class Client:
             mtproto_loop.cancel()
 
         while not self._write_queue.empty():
-            message = self._write_queue.get_nowait()
-
-            if isinstance(message, list):
-                for submessage in message:
-                    submessage.finalize()
-            else:
-                message.finalize()
+            self._write_queue.get_nowait().finalize()
 
         self._mtproto_loop_task = None
 
