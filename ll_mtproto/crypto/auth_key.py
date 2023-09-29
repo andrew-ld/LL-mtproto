@@ -40,24 +40,43 @@ class AuthKeyUpdatedCallbackHolder:
 
 
 class KeySession:
-    __slots__ = ("id", "seqno")
+    __slots__ = ("id", "seqno", "ping_id", "stable_seqno", "seqno_increment")
 
     id: int
     seqno: int
+    ping_id: int
+    stable_seqno: bool
+    seqno_increment: int
 
-    def __init__(self, session_id: int | None = None, seqno: int | None = None):
+    def __init__(
+        self,
+        session_id: int | None = None,
+        seqno: int | None = None,
+        ping_id: int | None = None,
+        stable_seqno: bool = True,
+        seqno_increment: int = 1
+    ):
         self.id = session_id or self.generate_new_session_id()
         self.seqno = seqno or 0
+        self.ping_id = ping_id or 0
+        self.stable_seqno = stable_seqno
+        self.seqno_increment = seqno_increment
 
     def __getstate__(self) -> dict[str, any]:
         return {
             "id": self.id,
-            "seqno": self.seqno
+            "seqno": self.seqno,
+            "ping_id": self.ping_id,
+            "stable_seqno": self.stable_seqno,
+            "seqno_increment": self.seqno_increment
         }
 
     def __setstate__(self, state: dict[str, any]):
         self.id = state["id"]
-        self.seqno = state["seqno"]
+        self.seqno = state.get("seqno", 0)
+        self.ping_id = state.get("ping_id", 0)
+        self.stable_seqno = state.get("stable_seqno", True)
+        self.seqno_increment = state.get("seqno_increment", 1)
 
     @staticmethod
     def generate_new_session_id() -> int:

@@ -39,13 +39,11 @@ class Client:
         "_mtproto",
         "_loop",
         "_msgids_to_ack",
-        "_seqno_increment",
         "_mtproto_loop_task",
         "_pending_requests",
         "_pending_pong",
         "_datacenter",
         "_pending_ping",
-        "_stable_seqno",
         "_updates_queue",
         "_no_updates",
         "_pending_future_salt",
@@ -56,7 +54,6 @@ class Client:
         "_use_perfect_forward_secrecy",
         "_blocking_executor",
         "_write_queue",
-        "_ping_id",
         "_used_session_key",
         "_persistent_session_key"
     )
@@ -64,8 +61,6 @@ class Client:
     _mtproto: mtproto.MTProto
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
-    _stable_seqno: bool
-    _seqno_increment: int
     _mtproto_loop_task: asyncio.Task | None
     _pending_requests: dict[int, PendingRequest]
     _pending_pong: asyncio.TimerHandle | None
@@ -81,7 +76,6 @@ class Client:
     _use_perfect_forward_secrecy: bool
     _blocking_executor: concurrent.futures.Executor
     _write_queue: asyncio.Queue[PendingRequest]
-    _ping_id: int
     _used_session_key: Key
     _persistent_session_key: Key
 
@@ -103,28 +97,19 @@ class Client:
         self._blocking_executor = blocking_executor
 
         self._loop = asyncio.get_running_loop()
+        self._auth_key_lock = asyncio.Lock()
 
         self._msgids_to_ack = []
-
-        self._stable_seqno = False
-        self._seqno_increment = 1
-
-        self._ping_id = 0
-
-        self._layer_init_required = True
-
         self._pending_requests = dict()
+        self._layer_init_required = True
 
         self._pending_pong = None
         self._pending_ping = None
-
-        self._mtproto_loop_task = None
         self._pending_future_salt = None
 
+        self._mtproto_loop_task = None
         self._updates_queue = asyncio.Queue()
         self._write_queue = asyncio.Queue()
-
-        self._auth_key_lock = asyncio.Lock()
 
         self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread, crypto_provider)
         self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter, crypto_provider)
@@ -214,8 +199,8 @@ class Client:
         await self._rpc_call(get_future_salts_request)
 
     async def _create_ping_request(self):
-        self._ping_id += 1
-        ping_id = self._ping_id
+        self._used_session_key.session.ping_id += 1
+        ping_id = self._used_session_key.session.ping_id
 
         if pending_pong := self._pending_pong:
             pending_pong.cancel()
@@ -524,7 +509,7 @@ class Client:
             self._msgids_to_ack.append(signaling.msg_id)
 
     async def _flush_msgids_to_ack(self):
-        if not self._msgids_to_ack or not self._stable_seqno:
+        if not self._msgids_to_ack or not self._used_session_key.session.stable_seqno:
             return
 
         message = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
@@ -546,7 +531,7 @@ class Client:
 
     async def _process_bad_server_salt(self, body: TlMessageBody):
         if self._used_session_key.server_salt:
-            self._stable_seqno = False
+            self._used_session_key.session.stable_seqno = False
 
         self._used_session_key.server_salt = body.new_server_salt
         logging.debug("updating salt: %d", body.new_server_salt)
@@ -580,10 +565,12 @@ class Client:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
     async def _process_bad_msg_notification_msg_seqno_too_low(self, body: TlMessageBody):
-        self._seqno_increment = min(2 ** 31 - 1, self._seqno_increment << 1)
-        self._used_session_key.session.seqno += self._seqno_increment
+        session = self._used_session_key.session
 
-        logging.debug("updating seqno by %d to %d", self._seqno_increment, self._used_session_key.session.seqno)
+        session.seqno_increment = min(2 ** 31 - 1, session.seqno_increment << 1)
+        session.seqno += session.seqno_increment
+
+        logging.debug("updating seqno by %d to %d", session.seqno_increment, session.seqno)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
@@ -591,8 +578,8 @@ class Client:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
     async def _process_rpc_result(self, body: TlMessageBody):
-        self._stable_seqno = True
-        self._seqno_increment = 1
+        self._used_session_key.session.stable_seqno = True
+        self._used_session_key.session.seqno_increment = 1
 
         if body.result == "gzip_packed":
             result = body.result.packed_data
