@@ -147,7 +147,7 @@ class Client:
         await self._write_queue.put(request)
 
     def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
-        message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.dict())
+        message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.to_dict())
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
 
         if self._no_updates:

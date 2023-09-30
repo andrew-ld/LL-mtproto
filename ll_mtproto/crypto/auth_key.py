@@ -214,7 +214,7 @@ class Key:
         self.server_salt = None
         self.session = KeySession()
         self.created_at = -1.
-        self.unused_sessions.clear()
+        self.unused_sessions = set()
 
 
 class AuthKey:

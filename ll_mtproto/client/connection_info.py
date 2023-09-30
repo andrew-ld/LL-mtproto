@@ -63,7 +63,7 @@ class ConnectionInfo:
         self.lang_pack = lang_pack
         self.params = params
 
-    def dict(self) -> dict:
+    def to_dict(self) -> dict:
         return {
             "api_id": self.api_id,
             "device_model": self.device_model,
@@ -72,5 +72,5 @@ class ConnectionInfo:
             "lang_code": self.lang_code,
             "system_lang_code": self.system_lang_code,
             "lang_pack": self.lang_pack,
-            "params": self.params if self.params is not None else None
+            "params": self.params
         }
