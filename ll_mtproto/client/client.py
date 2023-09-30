@@ -65,10 +65,10 @@ class Client:
     _pending_requests: dict[int, PendingRequest]
     _pending_pong: asyncio.TimerHandle | None
     _datacenter: DatacenterInfo
-    _pending_ping: asyncio.TimerHandle | None
+    _pending_ping: asyncio.TimerHandle | asyncio.Task | None
     _updates_queue: asyncio.Queue[Update | None]
     _no_updates: bool
-    _pending_future_salt: asyncio.TimerHandle | None
+    _pending_future_salt: asyncio.TimerHandle | asyncio.Task | None
     _layer_init_info: ConnectionInfo
     _layer_init_required: bool
     _auth_key_lock: asyncio.Lock
@@ -192,9 +192,13 @@ class Client:
         if pending_future_salt := self._pending_future_salt:
             pending_future_salt.cancel()
 
-        self._pending_future_salt = self._loop.call_later(
-            30,
-            lambda: self._loop.create_task(self._create_future_salt_request()))
+        def _initialize_future_salt_request():
+            if pending_future_salt := self._pending_future_salt:
+                pending_future_salt.cancel()
+
+            self._pending_future_salt = self._loop.create_task(self._create_future_salt_request())
+
+        self._pending_future_salt = self._loop.call_later(30, _initialize_future_salt_request)
 
         await self._rpc_call(get_future_salts_request)
 
@@ -467,9 +471,13 @@ class Client:
 
             salt_expire = max((valid_salt.valid_until - body.now) - 1800, 10)
 
-            self._pending_future_salt = self._loop.call_later(
-                salt_expire,
-                lambda: self._loop.create_task(self._create_future_salt_request()))
+            def _initialize_create_future_salt_request():
+                if pending_future_salt := self._pending_future_salt:
+                    pending_future_salt.cancel()
+
+                self._pending_future_salt = self._loop.create_task(self._create_future_salt_request())
+
+            self._pending_future_salt = self._loop.call_later(salt_expire, _initialize_create_future_salt_request)
 
             logging.debug("scheduling get_future_salts, current salt is valid for %i seconds", salt_expire)
 
@@ -499,10 +507,16 @@ class Client:
             pending_request.response.set_result(pong)
             pending_request.finalize()
 
-        if pending_ping_request := self._pending_ping:
-            pending_ping_request.cancel()
+        if pending_ping := self._pending_ping:
+            pending_ping.cancel()
 
-        self._pending_ping = self._loop.call_later(30, lambda: self._loop.create_task(self._create_ping_request()))
+        def _initialize_create_ping_request():
+            if pending_ping := self._pending_ping:
+                pending_ping.cancel()
+
+            self._pending_ping = self._loop.create_task(self._create_ping_request())
+
+        self._pending_ping = self._loop.call_later(30, _initialize_create_ping_request)
 
     async def _acknowledge_telegram_message(self, signaling: Structure):
         if signaling.seqno % 2 == 1:
@@ -634,8 +648,8 @@ class Client:
 
         self._pending_future_salt = None
 
-        if pending_ping_request := self._pending_ping:
-            pending_ping_request.cancel()
+        if pending_ping := self._pending_ping:
+            pending_ping.cancel()
 
         self._pending_ping = None
 
