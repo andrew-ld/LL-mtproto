@@ -612,7 +612,11 @@ class Client:
             return self.disconnect()
 
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
-            if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
+            if result == "rpc_error" and result.error_message == "CONNECTION_NOT_INITED" and pending_request.retries < 5:
+                self._layer_init_required = True
+                await self._rpc_call(pending_request)
+
+            elif result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
                 await self._rpc_call(pending_request)
 
