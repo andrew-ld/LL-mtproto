@@ -109,18 +109,22 @@ class Schema:
     cons_numbers: dict[bytes, "Constructor"]
     layer: int
 
-    def __init__(self, parsable_schema: str):
+    def __init__(self):
         self.constructors = dict()
         self.types = dict()
         self.cons_numbers = dict()
-        self._parse_file(parsable_schema)
 
     def __repr__(self):
         return "\n".join(repr(cons) for cons in self.constructors.values())
 
-    def _parse_file(self, schema: str):
+    def extend_from_raw_schema(self, schema: str):
+        is_function = False
+
         for schema_line in schema.split("\n"):
-            self._parse_line(schema_line)
+            if schema_line == "---functions---":
+                is_function = True
+
+            self._parse_line(schema_line, is_function)
 
     @staticmethod
     def _parse_token(regex, s: str) -> None | dict[str, str]:
@@ -131,7 +135,7 @@ class Schema:
         else:
             return {k: v for k, v in match.groupdict().items() if v is not None}
 
-    def _parse_line(self, line: str):
+    def _parse_line(self, line: str, is_function: bool):
         cons_parsed = self._parse_token(_schemaRE, line)
 
         if not cons_parsed:
@@ -163,6 +167,9 @@ class Schema:
 
         for parameter_token in parameter_tokens:
             parameter_parsed = self._parse_token(_parameterRE, parameter_token)
+
+            if parameter_parsed and parameter_parsed.get("name", None) == "self":
+                parameter_parsed["name"] = "_self"
 
             if not parameter_parsed and parameter_token.endswith(":#"):
                 flag_parsed = self._parse_token(_flagRE, parameter_token)
@@ -237,7 +244,8 @@ class Schema:
             name=cons_parsed["name"],
             number=cons_number,
             parameters=parameters,
-            flags=set(p.flag_name for p in parameters if p.is_flag) or None
+            flags=set(p.flag_name for p in parameters if p.is_flag) or None,
+            is_function=is_function
         )
 
         self.constructors[cons.name] = cons
@@ -486,7 +494,7 @@ class Parameter:
 
 
 class Constructor:
-    __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags")
+    __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags", "is_function")
 
     schema: Schema
     ptype: str | None
@@ -494,6 +502,7 @@ class Constructor:
     number: bytes | None
     flags: set[int] | None
     _parameters: list[Parameter]
+    is_function: bool
 
     def __init__(
             self,
@@ -502,7 +511,8 @@ class Constructor:
             name: str,
             number: bytes | None,
             parameters: list[Parameter],
-            flags: set[int] | None
+            flags: set[int] | None,
+            is_function: bool
     ):
         self.schema = schema
         self.name = name
@@ -510,6 +520,7 @@ class Constructor:
         self.ptype = ptype
         self._parameters = parameters
         self.flags = flags
+        self.is_function = is_function
 
     def __repr__(self):
         return f"{self.name} {''.join('%r ' % p for p in self._parameters)}= {self.ptype};"

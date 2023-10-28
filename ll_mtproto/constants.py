@@ -26,12 +26,15 @@ __all__ = ("TelegramDatacenter",)
 
 def _get_schema(resources_path: str) -> Schema:
     auth_schema = open(os.path.join(resources_path, "auth.tl")).read()
-    application_schema = open(os.path.join(resources_path, "application.tl")).read()
     service_schema = open(os.path.join(resources_path, "service.tl")).read()
+    application_schema = open(os.path.join(resources_path, "application.tl")).read()
 
-    merged_schema = "\n".join((auth_schema, application_schema, service_schema))
+    result = Schema()
+    result.extend_from_raw_schema(auth_schema)
+    result.extend_from_raw_schema(application_schema)
+    result.extend_from_raw_schema(service_schema)
 
-    return Schema(merged_schema)
+    return result
 
 
 def _get_public_rsa(resources_path: str) -> PublicRSA:
