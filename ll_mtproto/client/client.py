@@ -612,9 +612,6 @@ class Client:
             return self.disconnect()
 
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
-            if pending_request.allow_container:
-                self._layer_init_required = False
-
             if result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
                 await self._rpc_call(pending_request)
@@ -625,6 +622,10 @@ class Client:
 
             else:
                 pending_request.response.set_result(result)
+
+                if pending_request.allow_container:
+                    self._layer_init_required = False
+
                 pending_request.finalize()
 
     def disconnect(self):
