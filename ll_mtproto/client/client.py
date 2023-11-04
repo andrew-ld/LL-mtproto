@@ -29,7 +29,7 @@ from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
-from ..tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor
+from ..tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor, reader_discard
 
 __all__ = ("Client",)
 
@@ -634,14 +634,19 @@ class Client:
         if pending_request.request is not None and (request_type := pending_request.request.get("_cons", None)):
             response_parameter = self._datacenter.schema.constructors[request_type].ptype_parameter
 
-        if response_constructor is not None:
-            result = await self._in_thread(response_constructor.deserialize_boxed_data, to_reader(body.result))
+        body_result_reader = to_reader(body.result)
 
-        elif response_parameter is not None:
-            result = await self._in_thread(self._datacenter.schema.read_by_parameter, to_reader(body.result), response_parameter)
+        try:
+            if response_constructor is not None:
+                result = await self._in_thread(response_constructor.deserialize_boxed_data, body_result_reader)
 
-        else:
-            result = await self._in_thread(self._datacenter.schema.read_by_boxed_data, to_reader(body.result))
+            elif response_parameter is not None:
+                result = await self._in_thread(self._datacenter.schema.read_by_parameter, body_result_reader, response_parameter)
+
+            else:
+                result = await self._in_thread(self._datacenter.schema.read_by_boxed_data, body_result_reader)
+        finally:
+            reader_discard(body_result_reader)
 
         if self._use_perfect_forward_secrecy and \
                 result == "rpc_error" and \
