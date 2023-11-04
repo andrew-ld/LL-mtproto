@@ -29,7 +29,7 @@ from ..crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ..crypto.providers import CryptoProviderBase
 from ..tl import tl
 from ..tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
-from ..tl.tl import Structure, TlMessageBody
+from ..tl.tl import Structure, TlMessageBody, Constructor
 from ..typed import InThread
 
 __all__ = ("MTProto",)
@@ -43,7 +43,9 @@ class MTProto:
         "_last_message_id",
         "_datacenter",
         "_in_thread",
-        "_crypto_provider"
+        "_crypto_provider",
+        "_unencrypted_message_constructor",
+        "_message_inner_data_from_server_constructor"
     )
 
     @staticmethod
@@ -79,6 +81,9 @@ class MTProto:
     _in_thread: InThread
     _crypto_provider: CryptoProviderBase
 
+    _unencrypted_message_constructor: Constructor
+    _message_inner_data_from_server_constructor: Constructor
+
     def __init__(
             self,
             datacenter: DatacenterInfo,
@@ -93,6 +98,9 @@ class MTProto:
         self._datacenter = datacenter
         self._in_thread = in_thread
         self._crypto_provider = crypto_provider
+
+        self._unencrypted_message_constructor = datacenter.schema.constructors.get("unencrypted_message")
+        self._message_inner_data_from_server_constructor = datacenter.schema.constructors.get("message_inner_data_from_server")
 
     def get_next_message_id(self) -> int:
         message_id = self._datacenter.get_synchronized_time() << 32
@@ -123,7 +131,7 @@ class MTProto:
             full_message_reader = to_composed_reader(server_auth_key_id, message_id, body_len_envelope, body_envelope)
 
             try:
-                return await self._in_thread(self._datacenter.schema.read, full_message_reader, False, "unencrypted_message")
+                return await self._in_thread(self._unencrypted_message_constructor.deserialize_bare_data, full_message_reader)
             finally:
                 reader_discard(full_message_reader)
 
@@ -193,8 +201,7 @@ class MTProto:
             message_inner_data_reader = to_reader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
 
             try:
-                message = self._datacenter.schema.read(
-                    message_inner_data_reader, False, "message_inner_data_from_server")
+                message = self._message_inner_data_from_server_constructor.deserialize_bare_data(message_inner_data_reader)
             finally:
                 reader_discard(message_inner_data_reader)
 
@@ -222,7 +229,7 @@ class MTProto:
             message_body_reader = to_reader(message_body_envelope)
 
             try:
-                message_body = await self._in_thread(self._datacenter.schema.read, message_body_reader)
+                message_body = await self._in_thread(self._datacenter.schema.read_by_boxed_data, message_body_reader)
             finally:
                 reader_discard(message_body_reader)
 

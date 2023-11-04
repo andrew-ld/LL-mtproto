@@ -62,6 +62,17 @@ class KeySession:
         self.stable_seqno = stable_seqno
         self.seqno_increment = seqno_increment
 
+    def _get_and_increment_seqno(self) -> int:
+        value = self.seqno
+        self.seqno += 1
+        return value
+
+    def  get_next_odd_seqno(self) -> int:
+        return (self._get_and_increment_seqno()) * 2 + 1
+
+    def get_next_even_seqno(self) -> int:
+        return (self._get_and_increment_seqno()) * 2
+
     def __getstate__(self) -> dict[str, typing.Any]:
         return {
             "id": self.id,
@@ -215,6 +226,12 @@ class Key:
         self.session = KeySession()
         self.created_at = -1.
         self.unused_sessions = set()
+
+    def get_next_odd_seqno(self) -> int:
+        return self.session.get_next_odd_seqno()
+
+    def get_next_even_seqno(self) -> int:
+        return self.session.get_next_even_seqno()
 
 
 class AuthKey:

@@ -56,13 +56,13 @@ class MTProtoKeyExchange:
         self._datacenter = datacenter
         self._crypto_provider = crypto_provider
 
-    async def create_temp_auth_key(self, perm_auth_key: Key) -> DhGenKey:
+    async def create_temp_auth_key(self, perm_auth_key: Key) -> tuple[DhGenKey, int]:
         return await self._create_auth_key(True, perm_auth_key)
 
     async def create_perm_auth_key(self) -> DhGenKey:
-        return await self._create_auth_key(False, None)
+        return next(iter(await self._create_auth_key(False, None)))
 
-    async def _create_auth_key(self, temp: bool, perm_auth_key: Key | None) -> DhGenKey:
+    async def _create_auth_key(self, temp: bool, perm_auth_key: Key | None) -> tuple[DhGenKey, int | None]:
         if temp and perm_auth_key is None:
             raise ValueError("You can't get a temporary key without having the permanent one")
 
@@ -166,7 +166,7 @@ class MTProtoKeyExchange:
         answer_reader_sha1 = hashlib.sha1()
         answer_reader_with_hash = SyncByteReaderApply(answer_reader, answer_reader_sha1.update)
 
-        params2 = await self._in_thread(self._datacenter.schema.read, answer_reader_with_hash)
+        params2 = await self._in_thread(self._datacenter.schema.read_by_boxed_data, answer_reader_with_hash)
         answer_hash_computed = await self._in_thread(answer_reader_sha1.digest)
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):
@@ -252,6 +252,8 @@ class MTProtoKeyExchange:
         if params3 != "dh_gen_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
+        pending_binding_request_id = None
+
         if temp:
             perm_auth_key_key, perm_auth_key_id, _ = perm_auth_key.get_or_assert_empty()
             temp_key_expires_in = typing.cast(int, temp_key_expires_in)
@@ -311,32 +313,15 @@ class MTProtoKeyExchange:
                 encrypted_message=bind_temp_auth_inner_data_encrypted_boxed.get_flat_bytes()
             )
 
-            new_auth_key.session.seqno += 1
-
             bind_temp_auth_boxed_message = self._datacenter.schema.bare(
                 _cons="message",
                 msg_id=bind_temp_auth_msg_id,
-                seqno=new_auth_key.session.seqno,
+                seqno=new_auth_key.session.get_next_odd_seqno(),
                 body=bind_temp_auth_message,
             )
 
+            pending_binding_request_id = bind_temp_auth_msg_id
+
             await self._mtproto.write_encrypted(bind_temp_auth_boxed_message, new_auth_key)
 
-            for _ in range(10):
-                signaling, body = await asyncio.wait_for(self._mtproto.read_encrypted(new_auth_key), 10)
-                new_auth_key.session.seqno = max(new_auth_key.session.seqno, signaling.seqno)
-
-                if body != "rpc_result":
-                    continue
-
-                if body.req_msg_id != bind_temp_auth_msg_id:
-                    continue
-
-                if body.result == "boolTrue":
-                    return new_auth_key
-
-                raise RuntimeError("Diffie–Hellman exchange failed: `%r`", body.result)
-
-            raise RuntimeError("Diffie–Hellman exchange failed: too many messages before bindTempAuthKey response")
-
-        return new_auth_key
+        return new_auth_key, pending_binding_request_id

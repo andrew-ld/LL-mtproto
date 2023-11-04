@@ -29,7 +29,7 @@ from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
-from ..tl import TlMessageBody, TlRequestBody, Structure
+from ..tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor
 
 __all__ = ("Client",)
 
@@ -55,7 +55,8 @@ class Client:
         "_blocking_executor",
         "_write_queue",
         "_used_session_key",
-        "_persistent_session_key"
+        "_persistent_session_key",
+        "_rpc_error_constructor"
     )
 
     _mtproto: mtproto.MTProto
@@ -78,6 +79,7 @@ class Client:
     _write_queue: asyncio.Queue[PendingRequest]
     _used_session_key: Key
     _persistent_session_key: Key
+    _rpc_error_constructor: Constructor
 
     def __init__(
             self,
@@ -95,6 +97,7 @@ class Client:
         self._no_updates = no_updates
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
         self._blocking_executor = blocking_executor
+        self._rpc_error_constructor = datacenter.schema.constructors.get("rpc_error")
 
         self._loop = asyncio.get_running_loop()
         self._auth_key_lock = asyncio.Lock()
@@ -131,7 +134,7 @@ class Client:
         pending_request = PendingRequest(
             response=self._loop.create_future(),
             message=payload,
-            seq_no_func=self._get_next_odd_seqno,
+            seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=True
         )
 
@@ -173,7 +176,7 @@ class Client:
         destroy_session_request = PendingRequest(
             response=self._loop.create_future(),
             message=destroy_session_message,
-            seq_no_func=self._get_next_odd_seqno,
+            seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=False
         )
 
@@ -185,7 +188,7 @@ class Client:
         get_future_salts_request = PendingRequest(
             response=self._loop.create_future(),
             message=get_future_salts_message,
-            seq_no_func=self._get_next_odd_seqno,
+            seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=False
         )
 
@@ -216,42 +219,34 @@ class Client:
         ping_request = PendingRequest(
             response=self._loop.create_future(),
             message=ping_message,
-            seq_no_func=self._get_next_odd_seqno,
+            seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=False
         )
 
         await self._rpc_call(ping_request)
 
-    def _get_and_increment_seqno(self) -> int:
-        value = self._used_session_key.session.seqno
-        self._used_session_key.session.seqno += 1
-
-        if value == 0:
-            self._used_session_key.flush_changes()
-
-        return value
-
-    def _get_next_odd_seqno(self) -> int:
-        return (self._get_and_increment_seqno()) * 2 + 1
-
-    def _get_next_even_seqno(self) -> int:
-        return (self._get_and_increment_seqno()) * 2
-
     def _cancel_pending_request(self, msg_id: int):
         if pending_request := self._pending_requests.pop(msg_id, None):
             pending_request.finalize()
 
-    async def _start_auth_key_exchange_if_needed(self):
+    async def _start_auth_key_exchange_if_needed(self) -> tuple[int | None, bool]:
         self._ensure_mtproto_loop()
+
+        pending_auth_key_exchange_response_id = None
+        new_auth_key_has_exchanged = False
 
         async with self._auth_key_lock:
             if (perm_auth_key := self._persistent_session_key).is_empty():
+                new_auth_key_has_exchanged = True
                 generated_key = await self._mtproto_key_exchange.create_perm_auth_key()
                 perm_auth_key.import_dh_gen_key(generated_key)
 
             if self._use_perfect_forward_secrecy and (temp_auth_key := self._used_session_key).is_empty():
-                generated_key = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
+                new_auth_key_has_exchanged = True
+                generated_key, pending_auth_key_exchange_response_id = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
                 temp_auth_key.import_dh_gen_key(generated_key)
+
+        return pending_auth_key_exchange_response_id, new_auth_key_has_exchanged
 
     async def _process_inbound_message(self, signaling: TlMessageBody, body: TlMessageBody):
         logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
@@ -274,12 +269,24 @@ class Client:
 
         request_body = message.request
 
+        if request_body is None:
+            message.finalize()
+            return logging.warning("request %r not have body", request_body)
+
+        seq_no_generator = message.next_seq_no
+
+        if seq_no_generator is None:
+            message.finalize()
+            return logging.warning("request %r not have seq no generator", request_body)
+
+        request_constructor = request_body["_cons"]
+
         if layer_init_boxing_required:
             request_body = self._wrap_request_in_layer_init(request_body)
 
         try:
             boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(
-                seq_no=message.next_seq_no(),
+                seq_no=seq_no_generator(),
                 **request_body
             )
         except Exception as serialization_exception:
@@ -291,22 +298,28 @@ class Client:
             self._pending_requests[boxed_message_id] = message
             message.cleaner = self._loop.call_later(120, self._cancel_pending_request, boxed_message_id)
 
-        logging.debug("writing message %d (%s)", boxed_message_id, message.request["_cons"])
+        logging.debug("writing message %d (%s)", boxed_message_id, request_constructor)
 
         await self._mtproto.write_encrypted(boxed_message, self._used_session_key)
 
+    async def _mtproto_write(self):
+        await self._process_outbound_message(await self._write_queue.get())
+
     async def _mtproto_write_loop(self):
         while True:
-            await self._process_outbound_message(await self._write_queue.get())
+            await self._mtproto_write()
+
+    async def _mtproto_read(self):
+        signaling, body = await self._mtproto.read_encrypted(self._used_session_key)
+        await self._process_inbound_message(signaling, body)
 
     async def _mtproto_read_loop(self):
         while True:
-            signaling, body = await self._mtproto.read_encrypted(self._used_session_key)
-            await self._process_inbound_message(signaling, body)
+            await self._mtproto_read()
 
     async def _mtproto_loop(self):
         try:
-            await self._start_auth_key_exchange_if_needed()
+            pending_auth_key_exchange_response_id, new_auth_key_has_exchanged = await self._start_auth_key_exchange_if_needed()
         except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
             raise
         except:
@@ -314,14 +327,28 @@ class Client:
             self.disconnect()
             raise asyncio.CancelledError()
 
-        self._used_session_key.generate_new_unique_session_id()
-        self._used_session_key.flush_changes()
+        if not new_auth_key_has_exchanged:
+            self._used_session_key.generate_new_unique_session_id()
+            self._used_session_key.flush_changes()
+
+        read_task = self._loop.create_task(self._mtproto_read_loop())
+
+        if pending_auth_key_exchange_response_id is not None:
+            self._pending_requests[pending_auth_key_exchange_response_id] = binding_message = PendingRequest(response=self._loop.create_future())
+            binding_message.cleaner = self._loop.call_later(10, self._cancel_pending_request, pending_auth_key_exchange_response_id)
+
+            try:
+                await binding_message.response
+            except:
+                logging.debug("unable to bind mtproto auth key: %s", traceback.format_exc())
+                read_task.cancel()
+                self.disconnect()
+                raise asyncio.CancelledError()
+
+        write_task = self._loop.create_task(self._mtproto_write_loop())
 
         for unused_session in self._used_session_key.unused_sessions:
             await self._create_destroy_session_request(unused_session)
-
-        write_task = self._loop.create_task(self._mtproto_write_loop())
-        read_task = self._loop.create_task(self._mtproto_read_loop())
 
         try:
             await asyncio.gather(write_task, read_task)
@@ -360,8 +387,6 @@ class Client:
 
     async def _process_telegram_message(self, signaling: Structure, body: Structure):
         self._update_last_seqno_from_incoming_message(signaling)
-
-        body = body.packed_data if body == "gzip_packed" else body
 
         if body == "msg_container":
             for m in body.messages:
@@ -531,7 +556,7 @@ class Client:
         request = PendingRequest(
             response=self._loop.create_future(),
             message=message,
-            seq_no_func=self._get_next_even_seqno,
+            seq_no_func=self._used_session_key.get_next_even_seqno,
             allow_container=False,
             expect_answer=False
         )
@@ -595,10 +620,28 @@ class Client:
         self._used_session_key.session.stable_seqno = True
         self._used_session_key.session.seqno_increment = 1
 
-        if body.result == "gzip_packed":
-            result = body.result.packed_data
+        pending_request = self._pending_requests.pop(body.req_msg_id, None)
+
+        if pending_request is None:
+            return logging.error("rpc_result %d not associated with a request", body.req_msg_id)
+
+        response_parameter = None
+        response_constructor = None
+
+        if body.result.startswith(self._rpc_error_constructor.number):
+            response_constructor = self._rpc_error_constructor
+
+        if pending_request.request is not None and (request_type := pending_request.request.get("_cons", None)):
+            response_parameter = self._datacenter.schema.constructors[request_type].ptype_parameter
+
+        if response_constructor is not None:
+            result = await self._in_thread(response_constructor.deserialize_boxed_data, to_reader(body.result))
+
+        elif response_parameter is not None:
+            result = await self._in_thread(self._datacenter.schema.read_by_parameter, to_reader(body.result), response_parameter)
+
         else:
-            result = body.result
+            result = await self._in_thread(self._datacenter.schema.read_by_boxed_data, to_reader(body.result))
 
         if self._use_perfect_forward_secrecy and \
                 result == "rpc_error" and \
@@ -611,26 +654,25 @@ class Client:
 
             return self.disconnect()
 
-        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
-            if result == "rpc_error" and result.error_message == "CONNECTION_NOT_INITED" and pending_request.retries < 5:
-                self._layer_init_required = True
-                await self._rpc_call(pending_request)
+        if result == "rpc_error" and result.error_message == "CONNECTION_NOT_INITED" and pending_request.retries < 5:
+            self._layer_init_required = True
+            await self._rpc_call(pending_request)
 
-            elif result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
-                logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
-                await self._rpc_call(pending_request)
+        elif result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
+            logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
+            await self._rpc_call(pending_request)
 
-            elif result == "rpc_error":
-                pending_request.response.set_exception(RpcError(result.error_code, result.error_message))
-                pending_request.finalize()
+        elif result == "rpc_error":
+            pending_request.response.set_exception(RpcError(result.error_code, result.error_message))
+            pending_request.finalize()
 
-            else:
-                pending_request.response.set_result(result)
+        else:
+            pending_request.response.set_result(result)
 
-                if pending_request.allow_container:
-                    self._layer_init_required = False
+            if pending_request.allow_container:
+                self._layer_init_required = False
 
-                pending_request.finalize()
+            pending_request.finalize()
 
     def disconnect(self):
         self._layer_init_required = True

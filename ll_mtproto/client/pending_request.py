@@ -35,10 +35,10 @@ class PendingRequest:
     )
 
     response: asyncio.Future[TlMessageBody]
-    request: TlRequestBody
+    request: TlRequestBody | None
     cleaner: asyncio.TimerHandle | None
     retries: int
-    next_seq_no: SeqNoGenerator
+    next_seq_no: SeqNoGenerator | None
     allow_container: bool
     expect_answer: bool
 
@@ -46,9 +46,9 @@ class PendingRequest:
             self,
             *,
             response: asyncio.Future[TlMessageBody],
-            message: TlRequestBody,
-            seq_no_func: SeqNoGenerator,
-            allow_container: bool,
+            message: TlRequestBody | None = None,
+            seq_no_func: SeqNoGenerator | None = None,
+            allow_container: bool = False,
             expect_answer: bool = True
     ):
         self.response = response

@@ -12,4 +12,4 @@ message_inner_data_from_server salt:long session_id:ulong message:message_from_s
 authorization_inner_data data_hash:sha1 data:string = DataToEncrypt;
 
 rpc_result#f35c6d01 req_msg_id:long result:rawobject = RpcResult;
-gzip_packed#3072cfa1 packed_data:gzip = GzipData;
+gzip_packed#3072cfa1 data:gzip = Object;
