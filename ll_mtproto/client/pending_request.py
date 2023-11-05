@@ -49,7 +49,7 @@ class PendingRequest:
             message: TlRequestBody,
             seq_no_func: SeqNoGenerator,
             allow_container: bool,
-            expect_answer: bool = True
+            expect_answer: bool
     ):
         self.response = response
         self.request = message

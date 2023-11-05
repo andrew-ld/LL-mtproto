@@ -25,13 +25,30 @@ from . import PendingRequest, Update
 from .rpc_error import RpcError
 from ..crypto import AuthKey, Key
 from ..crypto.providers import CryptoProviderBase
-from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException
+from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException, Dispatcher, dispatch_event
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
-from ..tl import TlMessageBody, TlRequestBody, Structure
+from ..tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor, reader_discard, reader_is_empty
 
 __all__ = ("Client",)
+
+
+class _ClientDispatcher(Dispatcher):
+    __slots__ = ("_impl",)
+
+    _impl: "Client"
+
+    def __init__(self, impl: "Client"):
+        self._impl = impl
+
+    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool):
+        assert crypto_flag
+        return await self._impl._process_telegram_message_body(body)
+
+    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool):
+        assert crypto_flag
+        return self._impl._process_telegram_signaling_message(signaling)
 
 
 class Client:
@@ -50,12 +67,14 @@ class Client:
         "_layer_init_info",
         "_layer_init_required",
         "_auth_key_lock",
-        "_mtproto_key_exchange",
         "_use_perfect_forward_secrecy",
         "_blocking_executor",
         "_write_queue",
         "_used_session_key",
-        "_persistent_session_key"
+        "_persistent_session_key",
+        "_rpc_error_constructor",
+        "_dispatcher",
+        "_crypto_provider"
     )
 
     _mtproto: mtproto.MTProto
@@ -72,12 +91,14 @@ class Client:
     _layer_init_info: ConnectionInfo
     _layer_init_required: bool
     _auth_key_lock: asyncio.Lock
-    _mtproto_key_exchange: MTProtoKeyExchange
     _use_perfect_forward_secrecy: bool
     _blocking_executor: concurrent.futures.Executor
     _write_queue: asyncio.Queue[PendingRequest]
     _used_session_key: Key
     _persistent_session_key: Key
+    _rpc_error_constructor: Constructor
+    _dispatcher: _ClientDispatcher
+    _crypto_provider: CryptoProviderBase
 
     def __init__(
             self,
@@ -95,6 +116,9 @@ class Client:
         self._no_updates = no_updates
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
         self._blocking_executor = blocking_executor
+        self._crypto_provider = crypto_provider
+
+        self._rpc_error_constructor = datacenter.schema.constructors.get("rpc_error")
 
         self._loop = asyncio.get_running_loop()
         self._auth_key_lock = asyncio.Lock()
@@ -110,9 +134,9 @@ class Client:
         self._mtproto_loop_task = None
         self._updates_queue = asyncio.Queue()
         self._write_queue = asyncio.Queue()
+        self._dispatcher = _ClientDispatcher(self)
 
         self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread, crypto_provider)
-        self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter, crypto_provider)
 
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._persistent_session_key = auth_key.persistent_key
@@ -131,8 +155,9 @@ class Client:
         pending_request = PendingRequest(
             response=self._loop.create_future(),
             message=payload,
-            seq_no_func=self._get_next_odd_seqno,
-            allow_container=True
+            seq_no_func=self._used_session_key.get_next_odd_seqno,
+            allow_container=True,
+            expect_answer=True
         )
 
         pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
@@ -173,8 +198,9 @@ class Client:
         destroy_session_request = PendingRequest(
             response=self._loop.create_future(),
             message=destroy_session_message,
-            seq_no_func=self._get_next_odd_seqno,
-            allow_container=False
+            seq_no_func=self._used_session_key.get_next_odd_seqno,
+            allow_container=False,
+            expect_answer=True
         )
 
         await self._rpc_call(destroy_session_request)
@@ -185,8 +211,9 @@ class Client:
         get_future_salts_request = PendingRequest(
             response=self._loop.create_future(),
             message=get_future_salts_message,
-            seq_no_func=self._get_next_odd_seqno,
-            allow_container=False
+            seq_no_func=self._used_session_key.get_next_odd_seqno,
+            allow_container=False,
+            expect_answer=True
         )
 
         if pending_future_salt := self._pending_future_salt:
@@ -209,33 +236,19 @@ class Client:
         if pending_pong := self._pending_pong:
             pending_pong.cancel()
 
-        self._pending_pong = self._loop.call_later(10, self.disconnect)
+        self._pending_pong = self._loop.call_later(20, self.disconnect)
 
         ping_message = dict(_cons="ping_delay_disconnect", ping_id=ping_id, disconnect_delay=35)
 
         ping_request = PendingRequest(
             response=self._loop.create_future(),
             message=ping_message,
-            seq_no_func=self._get_next_odd_seqno,
-            allow_container=False
+            seq_no_func=self._used_session_key.get_next_odd_seqno,
+            allow_container=False,
+            expect_answer=True
         )
 
         await self._rpc_call(ping_request)
-
-    def _get_and_increment_seqno(self) -> int:
-        value = self._used_session_key.session.seqno
-        self._used_session_key.session.seqno += 1
-
-        if value == 0:
-            self._used_session_key.flush_changes()
-
-        return value
-
-    def _get_next_odd_seqno(self) -> int:
-        return (self._get_and_increment_seqno()) * 2 + 1
-
-    def _get_next_even_seqno(self) -> int:
-        return (self._get_and_increment_seqno()) * 2
 
     def _cancel_pending_request(self, msg_id: int):
         if pending_request := self._pending_requests.pop(msg_id, None):
@@ -246,17 +259,14 @@ class Client:
 
         async with self._auth_key_lock:
             if (perm_auth_key := self._persistent_session_key).is_empty():
-                generated_key = await self._mtproto_key_exchange.create_perm_auth_key()
+                exchanger = MTProtoKeyExchange(self._mtproto, self._in_thread, self._datacenter, self._crypto_provider, self._dispatcher, None)
+                generated_key = await exchanger.generate_key()
                 perm_auth_key.import_dh_gen_key(generated_key)
 
             if self._use_perfect_forward_secrecy and (temp_auth_key := self._used_session_key).is_empty():
-                generated_key = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
+                exchanger = MTProtoKeyExchange(self._mtproto, self._in_thread, self._datacenter, self._crypto_provider, self._dispatcher, self._persistent_session_key)
+                generated_key = await exchanger.generate_key()
                 temp_auth_key.import_dh_gen_key(generated_key)
-
-    async def _process_inbound_message(self, signaling: TlMessageBody, body: TlMessageBody):
-        logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
-        await self._process_telegram_message(signaling, body)
-        await self._flush_msgids_to_ack()
 
     async def _process_outbound_message(self, message: PendingRequest):
         message.retries += 1
@@ -301,8 +311,8 @@ class Client:
 
     async def _mtproto_read_loop(self):
         while True:
-            signaling, body = await self._mtproto.read_encrypted(self._used_session_key)
-            await self._process_inbound_message(signaling, body)
+            await dispatch_event(self._dispatcher, self._mtproto, self._used_session_key)
+            await self._flush_msgids_to_ack()
 
     async def _mtproto_loop(self):
         try:
@@ -317,11 +327,11 @@ class Client:
         self._used_session_key.generate_new_unique_session_id()
         self._used_session_key.flush_changes()
 
+        read_task = self._loop.create_task(self._mtproto_read_loop())
+        write_task = self._loop.create_task(self._mtproto_write_loop())
+
         for unused_session in self._used_session_key.unused_sessions:
             await self._create_destroy_session_request(unused_session)
-
-        write_task = self._loop.create_task(self._mtproto_write_loop())
-        read_task = self._loop.create_task(self._mtproto_read_loop())
 
         try:
             await asyncio.gather(write_task, read_task)
@@ -357,19 +367,6 @@ class Client:
                 await self._start_mtproto_loop()
         else:
             await self._start_mtproto_loop()
-
-    async def _process_telegram_message(self, signaling: Structure, body: Structure):
-        self._update_last_seqno_from_incoming_message(signaling)
-
-        body = body.packed_data if body == "gzip_packed" else body
-
-        if body == "msg_container":
-            for m in body.messages:
-                await self._process_telegram_message(m, m.body)
-
-        else:
-            await self._process_telegram_message_body(body)
-            await self._acknowledge_telegram_message(signaling)
 
     async def _process_telegram_message_body(self, body: TlMessageBody):
         match (constructor_name := body.constructor_name):
@@ -518,7 +515,7 @@ class Client:
 
         self._pending_ping = self._loop.call_later(30, _initialize_create_ping_request)
 
-    async def _acknowledge_telegram_message(self, signaling: Structure):
+    def _acknowledge_telegram_message(self, signaling: Structure):
         if signaling.seqno % 2 == 1:
             self._msgids_to_ack.append(signaling.msg_id)
 
@@ -531,7 +528,7 @@ class Client:
         request = PendingRequest(
             response=self._loop.create_future(),
             message=message,
-            seq_no_func=self._get_next_even_seqno,
+            seq_no_func=self._used_session_key.get_next_even_seqno,
             allow_container=False,
             expect_answer=False
         )
@@ -540,8 +537,9 @@ class Client:
 
         await self._rpc_call(request)
 
-    def _update_last_seqno_from_incoming_message(self, signaling: Structure):
+    def _process_telegram_signaling_message(self, signaling: Structure):
         self._used_session_key.session.seqno = max(self._used_session_key.session.seqno, signaling.seqno)
+        self._acknowledge_telegram_message(signaling)
 
     async def _process_bad_server_salt(self, body: TlMessageBody):
         if self._used_session_key.server_salt:
@@ -595,10 +593,35 @@ class Client:
         self._used_session_key.session.stable_seqno = True
         self._used_session_key.session.seqno_increment = 1
 
-        if body.result == "gzip_packed":
-            result = body.result.packed_data
-        else:
-            result = body.result
+        pending_request = self._pending_requests.pop(body.req_msg_id, None)
+
+        if pending_request is None:
+            return logging.error("rpc_result %d not associated with a request", body.req_msg_id)
+
+        response_parameter = None
+        response_constructor = None
+
+        if body.result.startswith(self._rpc_error_constructor.number):
+            response_constructor = self._rpc_error_constructor
+
+        if request_type := pending_request.request.get("_cons", None):
+            response_parameter = self._datacenter.schema.constructors[request_type].ptype_parameter
+
+        body_result_reader = to_reader(body.result)
+
+        try:
+            if response_constructor is not None:
+                result = await self._in_thread(response_constructor.deserialize_boxed_data, body_result_reader)
+
+            elif response_parameter is not None:
+                result = await self._in_thread(self._datacenter.schema.read_by_parameter, body_result_reader, response_parameter)
+
+            else:
+                result = await self._in_thread(self._datacenter.schema.read_by_boxed_data, body_result_reader)
+
+            assert reader_is_empty(body_result_reader)
+        finally:
+            reader_discard(body_result_reader)
 
         if self._use_perfect_forward_secrecy and \
                 result == "rpc_error" and \
@@ -611,26 +634,25 @@ class Client:
 
             return self.disconnect()
 
-        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
-            if result == "rpc_error" and result.error_message == "CONNECTION_NOT_INITED" and pending_request.retries < 5:
-                self._layer_init_required = True
-                await self._rpc_call(pending_request)
+        if result == "rpc_error" and result.error_message == "CONNECTION_NOT_INITED" and pending_request.retries < 5:
+            self._layer_init_required = True
+            await self._rpc_call(pending_request)
 
-            elif result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
-                logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
-                await self._rpc_call(pending_request)
+        elif result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
+            logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
+            await self._rpc_call(pending_request)
 
-            elif result == "rpc_error":
-                pending_request.response.set_exception(RpcError(result.error_code, result.error_message))
-                pending_request.finalize()
+        elif result == "rpc_error":
+            pending_request.response.set_exception(RpcError(result.error_code, result.error_message))
+            pending_request.finalize()
 
-            else:
-                pending_request.response.set_result(result)
+        else:
+            pending_request.response.set_result(result)
 
-                if pending_request.allow_container:
-                    self._layer_init_required = False
+            if pending_request.allow_container:
+                self._layer_init_required = False
 
-                pending_request.finalize()
+            pending_request.finalize()
 
     def disconnect(self):
         self._layer_init_required = True

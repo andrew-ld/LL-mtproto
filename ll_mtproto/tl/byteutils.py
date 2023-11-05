@@ -212,6 +212,9 @@ class BinaryStreamReader:
         self._padding = padding
 
     def __call__(self, nbytes: int) -> bytes:
+        if nbytes == -1:
+            nbytes = self._remaining
+
         if nbytes >= (remaining := self._remaining):
             result = self._parent(remaining)
 

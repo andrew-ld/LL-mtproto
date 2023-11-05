@@ -31,10 +31,10 @@ from .byteutils import (
     unpack_binary_string_stream,
     unpack_long_binary_string_stream,
     GzipStreamReader,
-    pack_long_binary_string_padded,
+    pack_long_binary_string_padded
 )
-from ..typed import SyncByteReader
 
+from ..typed import SyncByteReader
 
 __all__ = ("Schema", "Value", "Structure", "Parameter", "Constructor", "TlRequestBody", "TlMessageBody")
 
@@ -98,6 +98,10 @@ _flagRE = re.compile(
 
 _layerRE = re.compile(
     r"^// LAYER (?P<layer>\d+)$"
+)
+
+_ptypeRE = re.compile(
+    r"^(?P<is_vector>Vector<(?P<vector_element_type>[a-zA-Z\d._]*)>$)?(?P<element_type>[a-zA-Z\d._]*$)?"
 )
 
 
@@ -238,14 +242,35 @@ class Schema:
                 )
             )
 
+        ptype = None if "xtype" in cons_parsed else cons_parsed["type"]
+        ptype_parsed = None if ptype is None else self._parse_token(_ptypeRE, ptype)
+
+        if ptype_parsed is None and ptype is not None:
+            raise SyntaxError("Error in ptype: `%s`" % ptype)
+
+        ptype_parameter = None
+
+        if ptype_parsed:
+            ptype_is_vector = "is_vector" in ptype_parsed
+            ptype_type = ptype_parsed["vector_element_type"] if ptype_is_vector else ptype_parsed["element_type"]
+
+            ptype_parameter = Parameter(
+                is_boxed=True,
+                is_vector=ptype_is_vector,
+                ptype=ptype_type,
+                pname=""
+            )
+
         cons = Constructor(
             schema=self,
-            ptype=None if "xtype" in cons_parsed else cons_parsed["type"],
+            ptype=ptype,
             name=cons_parsed["name"],
             number=cons_number,
             parameters=parameters,
             flags=set(p.flag_name for p in parameters if p.is_flag) or None,
-            is_function=is_function
+            is_function=is_function,
+            is_transparent_container=ptype == "Object",
+            ptype_parameter=ptype_parameter
         )
 
         self.constructors[cons.name] = cons
@@ -287,9 +312,12 @@ class Schema:
 
             cons_number = reader(4)
 
-            if cons_number == _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
+            if parameter.is_vector:
+                if cons_number != _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
+                    raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))} for vector")
+
                 return [
-                    self.deserialize(reader, parameter)
+                    self.deserialize(reader, parameter.element_parameter)
                     for _ in range(int.from_bytes(reader(4), "little", signed=False))
                 ]
 
@@ -298,15 +326,20 @@ class Schema:
             if not cons:
                 raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
 
-            if parameter.type is not None and cons not in self.types[parameter.type]:
+            if cons.is_transparent_container:
+                return self.deserialize(cons.deserialize_bare_data(reader).data, parameter)
+
+            if parameter.type is not None and cons not in self.types[parameter.type] and cons.ptype:
                 raise ValueError(f"type mismatch, constructor `{cons.name}` not in type `{parameter.type}`")
+
+            return cons.deserialize_bare_data(reader)
         else:
             cons = self.constructors.get(parameter.type, None)
 
             if not cons:
                 raise ValueError(f"Unknown constructor in parameter `{parameter!r}`")
 
-        return cons.deserialize_bare_data(reader)
+            return cons.deserialize_bare_data(reader)
 
     def serialize(self, boxed: bool, _cons: str, **kwargs) -> "Value":
         if cons := self.constructors.get(_cons, False):
@@ -320,9 +353,11 @@ class Schema:
     def boxed(self, **kwargs) -> "Value":
         return self.serialize(boxed=True, **kwargs)
 
-    def read(self, reader: SyncByteReader, is_boxed=True, parameter_type=None) -> "Structure":
-        parameter = Parameter("", parameter_type, is_boxed=is_boxed)
+    def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "Structure":
         return self.deserialize(reader, parameter)
+
+    def read_by_boxed_data(self, reader: SyncByteReader) -> "Structure":
+        return self.cons_numbers.get(reader(4)).deserialize_bare_data(reader)
 
 
 class Flags:
@@ -494,7 +529,7 @@ class Parameter:
 
 
 class Constructor:
-    __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags", "is_function")
+    __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags", "is_function", "is_transparent_container", "ptype_parameter")
 
     schema: Schema
     ptype: str | None
@@ -503,6 +538,7 @@ class Constructor:
     flags: set[int] | None
     _parameters: list[Parameter]
     is_function: bool
+    ptype_parameter: Parameter | None
 
     def __init__(
             self,
@@ -512,7 +548,9 @@ class Constructor:
             number: bytes | None,
             parameters: list[Parameter],
             flags: set[int] | None,
-            is_function: bool
+            is_function: bool,
+            is_transparent_container: bool,
+            ptype_parameter: Parameter | None
     ):
         self.schema = schema
         self.name = name
@@ -521,6 +559,8 @@ class Constructor:
         self._parameters = parameters
         self.flags = flags
         self.is_function = is_function
+        self.is_transparent_container = is_transparent_container
+        self.ptype_parameter = ptype_parameter
 
     def __repr__(self):
         return f"{self.name} {''.join('%r ' % p for p in self._parameters)}= {self.ptype};"
@@ -585,14 +625,12 @@ class Constructor:
                 return data.append_serialized_tl(pack_long_binary_string_padded(argument.get_flat_bytes()))
 
             case "rawobject":
-                argument.boxed = True
                 return data.append_serialized_tl(argument)
 
             case "encrypted":
                 return data.append_serialized_tl(argument)
 
             case "gzip":
-                argument.boxed = True
                 return data.append_serialized_tl(pack_binary_string(gzip.compress(argument.get_flat_bytes())))
 
         if parameter.is_vector:
@@ -666,17 +704,13 @@ class Constructor:
 
             case "gzip":
                 string_stream = unpack_binary_string_stream(reader)
-                gzip_stream = GzipStreamReader(string_stream)
-                return self.schema.read(gzip_stream)
+                return GzipStreamReader(string_stream)
 
             case "rawobject":
-                return self.schema.read(reader)
+                return reader(-1)
 
-            case "object":
-                return self.schema.read(unpack_long_binary_string_stream(reader))
-
-            case "padded_object":
-                return self.schema.read(unpack_long_binary_string_stream(reader))
+            case "object" | "padded_object":
+                return self.schema.read_by_boxed_data(unpack_long_binary_string_stream(reader))
 
             case "bytesobject":
                 return reader(int.from_bytes(reader(4), "little", signed=False))
@@ -699,6 +733,17 @@ class Constructor:
             ]
         else:
             return self.schema.deserialize(reader, parameter)
+
+    def deserialize_boxed_data(self, reader: SyncByteReader) -> Structure:
+        if self.number is None:
+            raise TypeError(f"constructor `{self!r}` is bare")
+
+        cons_number = reader(4)
+
+        if cons_number != self.number:
+            raise TypeError(f"impossible deserialization, constructor number `{cons_number!r}` mismatch {self!r}")
+
+        return self.deserialize_bare_data(reader)
 
     def deserialize_bare_data(self, reader: SyncByteReader) -> Structure:
         fields = {"_cons": self.name}
