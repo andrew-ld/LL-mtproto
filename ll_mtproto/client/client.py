@@ -29,7 +29,7 @@ from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException, Dispatc
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
-from ..tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor, reader_discard
+from ..tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor, reader_discard, reader_is_empty
 
 __all__ = ("Client",)
 
@@ -156,7 +156,8 @@ class Client:
             response=self._loop.create_future(),
             message=payload,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
-            allow_container=True
+            allow_container=True,
+            expect_answer=True
         )
 
         pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
@@ -198,7 +199,8 @@ class Client:
             response=self._loop.create_future(),
             message=destroy_session_message,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
-            allow_container=False
+            allow_container=False,
+            expect_answer=True
         )
 
         await self._rpc_call(destroy_session_request)
@@ -210,7 +212,8 @@ class Client:
             response=self._loop.create_future(),
             message=get_future_salts_message,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
-            allow_container=False
+            allow_container=False,
+            expect_answer=True
         )
 
         if pending_future_salt := self._pending_future_salt:
@@ -241,7 +244,8 @@ class Client:
             response=self._loop.create_future(),
             message=ping_message,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
-            allow_container=False
+            allow_container=False,
+            expect_answer=True
         )
 
         await self._rpc_call(ping_request)
@@ -280,24 +284,12 @@ class Client:
 
         request_body = message.request
 
-        if request_body is None:
-            message.finalize()
-            return logging.warning("request %r not have body", request_body)
-
-        seq_no_generator = message.next_seq_no
-
-        if seq_no_generator is None:
-            message.finalize()
-            return logging.warning("request %r not have seq no generator", request_body)
-
-        request_constructor = request_body["_cons"]
-
         if layer_init_boxing_required:
             request_body = self._wrap_request_in_layer_init(request_body)
 
         try:
             boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(
-                seq_no=seq_no_generator(),
+                seq_no=message.next_seq_no(),
                 **request_body
             )
         except Exception as serialization_exception:
@@ -309,7 +301,7 @@ class Client:
             self._pending_requests[boxed_message_id] = message
             message.cleaner = self._loop.call_later(120, self._cancel_pending_request, boxed_message_id)
 
-        logging.debug("writing message %d (%s)", boxed_message_id, request_constructor)
+        logging.debug("writing message %d (%s)", boxed_message_id, message.request["_cons"])
 
         await self._mtproto.write_encrypted(boxed_message, self._used_session_key)
 
@@ -612,7 +604,7 @@ class Client:
         if body.result.startswith(self._rpc_error_constructor.number):
             response_constructor = self._rpc_error_constructor
 
-        if pending_request.request is not None and (request_type := pending_request.request.get("_cons", None)):
+        if request_type := pending_request.request.get("_cons", None):
             response_parameter = self._datacenter.schema.constructors[request_type].ptype_parameter
 
         body_result_reader = to_reader(body.result)
@@ -627,6 +619,7 @@ class Client:
             else:
                 result = await self._in_thread(self._datacenter.schema.read_by_boxed_data, body_result_reader)
         finally:
+            assert reader_is_empty(body_result_reader)
             reader_discard(body_result_reader)
 
         if self._use_perfect_forward_secrecy and \
