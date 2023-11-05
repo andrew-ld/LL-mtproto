@@ -618,8 +618,9 @@ class Client:
 
             else:
                 result = await self._in_thread(self._datacenter.schema.read_by_boxed_data, body_result_reader)
-        finally:
+
             assert reader_is_empty(body_result_reader)
+        finally:
             reader_discard(body_result_reader)
 
         if self._use_perfect_forward_secrecy and \
