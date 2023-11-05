@@ -153,11 +153,14 @@ class MTProtoKeyExchange(Dispatcher):
 
             case _KeyExchangeStateBindParentKey():
                 assert crypto_flag
-                await self._bind_parent_key(body, state)
+                await self._process_bind_parent_key(body, state)
 
-    async def _bind_parent_key(self, body: Structure, state: _KeyExchangeStateBindParentKey):
-        if body != "rpc_result":
+    async def _process_bind_parent_key(self, body: Structure, state: _KeyExchangeStateBindParentKey):
+        if body == "new_session_created" or body == "msgs_ack":
             return await self._parent_dispatcher.process_telegram_message_body(body, True)
+
+        if body != "rpc_result":
+            raise RuntimeError("Diffie–Hellman exchange failed: `%r`, unexpected message", body)
 
         if body.req_msg_id != state.req_msg_id:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`, unexpected req_msg_id", body)
