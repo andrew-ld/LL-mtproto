@@ -320,6 +320,7 @@ class Client:
     async def _mtproto_read_loop(self):
         while True:
             await dispatch_event(self._dispatcher, self._mtproto, self._used_session_key)
+            await self._flush_msgids_to_ack()
 
     async def _mtproto_loop(self):
         try:
