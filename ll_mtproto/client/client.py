@@ -25,13 +25,30 @@ from . import PendingRequest, Update
 from .rpc_error import RpcError
 from ..crypto import AuthKey, Key
 from ..crypto.providers import CryptoProviderBase
-from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException
+from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException, Dispatcher, dispatch_event
 from ..network.mtproto import MTProto
 from ..network.mtproto_key_exchange import MTProtoKeyExchange
 from ..network.transport import TransportLinkFactory
 from ..tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor, reader_discard
 
 __all__ = ("Client",)
+
+
+class _ClientDispatcher(Dispatcher):
+    __slots__ = ("_impl",)
+
+    _impl: "Client"
+
+    def __init__(self, impl: "Client"):
+        self._impl = impl
+
+    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool):
+        assert crypto_flag
+        return await self._impl._process_telegram_message_body(body)
+
+    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool):
+        assert crypto_flag
+        return self._impl._process_telegram_signaling_message(signaling)
 
 
 class Client:
@@ -50,13 +67,14 @@ class Client:
         "_layer_init_info",
         "_layer_init_required",
         "_auth_key_lock",
-        "_mtproto_key_exchange",
         "_use_perfect_forward_secrecy",
         "_blocking_executor",
         "_write_queue",
         "_used_session_key",
         "_persistent_session_key",
-        "_rpc_error_constructor"
+        "_rpc_error_constructor",
+        "_dispatcher",
+        "_crypto_provider"
     )
 
     _mtproto: mtproto.MTProto
@@ -73,13 +91,14 @@ class Client:
     _layer_init_info: ConnectionInfo
     _layer_init_required: bool
     _auth_key_lock: asyncio.Lock
-    _mtproto_key_exchange: MTProtoKeyExchange
     _use_perfect_forward_secrecy: bool
     _blocking_executor: concurrent.futures.Executor
     _write_queue: asyncio.Queue[PendingRequest]
     _used_session_key: Key
     _persistent_session_key: Key
     _rpc_error_constructor: Constructor
+    _dispatcher: _ClientDispatcher
+    _crypto_provider: CryptoProviderBase
 
     def __init__(
             self,
@@ -97,6 +116,8 @@ class Client:
         self._no_updates = no_updates
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
         self._blocking_executor = blocking_executor
+        self._crypto_provider = crypto_provider
+
         self._rpc_error_constructor = datacenter.schema.constructors.get("rpc_error")
 
         self._loop = asyncio.get_running_loop()
@@ -113,9 +134,9 @@ class Client:
         self._mtproto_loop_task = None
         self._updates_queue = asyncio.Queue()
         self._write_queue = asyncio.Queue()
+        self._dispatcher = _ClientDispatcher(self)
 
         self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread, crypto_provider)
-        self._mtproto_key_exchange = MTProtoKeyExchange(self._mtproto, self._in_thread, datacenter, crypto_provider)
 
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._persistent_session_key = auth_key.persistent_key
@@ -212,7 +233,7 @@ class Client:
         if pending_pong := self._pending_pong:
             pending_pong.cancel()
 
-        self._pending_pong = self._loop.call_later(10, self.disconnect)
+        self._pending_pong = self._loop.call_later(20, self.disconnect)
 
         ping_message = dict(_cons="ping_delay_disconnect", ping_id=ping_id, disconnect_delay=35)
 
@@ -229,29 +250,19 @@ class Client:
         if pending_request := self._pending_requests.pop(msg_id, None):
             pending_request.finalize()
 
-    async def _start_auth_key_exchange_if_needed(self) -> tuple[int | None, bool]:
+    async def _start_auth_key_exchange_if_needed(self):
         self._ensure_mtproto_loop()
-
-        pending_auth_key_exchange_response_id = None
-        new_auth_key_has_exchanged = False
 
         async with self._auth_key_lock:
             if (perm_auth_key := self._persistent_session_key).is_empty():
-                new_auth_key_has_exchanged = True
-                generated_key = await self._mtproto_key_exchange.create_perm_auth_key()
+                exchanger = MTProtoKeyExchange(self._mtproto, self._in_thread, self._datacenter, self._crypto_provider, self._dispatcher, None)
+                generated_key = await exchanger.generate_key()
                 perm_auth_key.import_dh_gen_key(generated_key)
 
             if self._use_perfect_forward_secrecy and (temp_auth_key := self._used_session_key).is_empty():
-                new_auth_key_has_exchanged = True
-                generated_key, pending_auth_key_exchange_response_id = await self._mtproto_key_exchange.create_temp_auth_key(perm_auth_key)
+                exchanger = MTProtoKeyExchange(self._mtproto, self._in_thread, self._datacenter, self._crypto_provider, self._dispatcher, self._persistent_session_key)
+                generated_key = await exchanger.generate_key()
                 temp_auth_key.import_dh_gen_key(generated_key)
-
-        return pending_auth_key_exchange_response_id, new_auth_key_has_exchanged
-
-    async def _process_inbound_message(self, signaling: TlMessageBody, body: TlMessageBody):
-        logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
-        await self._process_telegram_message(signaling, body)
-        await self._flush_msgids_to_ack()
 
     async def _process_outbound_message(self, message: PendingRequest):
         message.retries += 1
@@ -302,24 +313,17 @@ class Client:
 
         await self._mtproto.write_encrypted(boxed_message, self._used_session_key)
 
-    async def _mtproto_write(self):
-        await self._process_outbound_message(await self._write_queue.get())
-
     async def _mtproto_write_loop(self):
         while True:
-            await self._mtproto_write()
-
-    async def _mtproto_read(self):
-        signaling, body = await self._mtproto.read_encrypted(self._used_session_key)
-        await self._process_inbound_message(signaling, body)
+            await self._process_outbound_message(await self._write_queue.get())
 
     async def _mtproto_read_loop(self):
         while True:
-            await self._mtproto_read()
+            await dispatch_event(self._dispatcher, self._mtproto, self._used_session_key)
 
     async def _mtproto_loop(self):
         try:
-            pending_auth_key_exchange_response_id, new_auth_key_has_exchanged = await self._start_auth_key_exchange_if_needed()
+            await self._start_auth_key_exchange_if_needed()
         except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
             raise
         except:
@@ -327,24 +331,10 @@ class Client:
             self.disconnect()
             raise asyncio.CancelledError()
 
-        if not new_auth_key_has_exchanged:
-            self._used_session_key.generate_new_unique_session_id()
-            self._used_session_key.flush_changes()
+        self._used_session_key.generate_new_unique_session_id()
+        self._used_session_key.flush_changes()
 
         read_task = self._loop.create_task(self._mtproto_read_loop())
-
-        if pending_auth_key_exchange_response_id is not None:
-            self._pending_requests[pending_auth_key_exchange_response_id] = binding_message = PendingRequest(response=self._loop.create_future())
-            binding_message.cleaner = self._loop.call_later(10, self._cancel_pending_request, pending_auth_key_exchange_response_id)
-
-            try:
-                await binding_message.response
-            except:
-                logging.debug("unable to bind mtproto auth key: %s", traceback.format_exc())
-                read_task.cancel()
-                self.disconnect()
-                raise asyncio.CancelledError()
-
         write_task = self._loop.create_task(self._mtproto_write_loop())
 
         for unused_session in self._used_session_key.unused_sessions:
@@ -384,17 +374,6 @@ class Client:
                 await self._start_mtproto_loop()
         else:
             await self._start_mtproto_loop()
-
-    async def _process_telegram_message(self, signaling: Structure, body: Structure):
-        self._update_last_seqno_from_incoming_message(signaling)
-
-        if body == "msg_container":
-            for m in body.messages:
-                await self._process_telegram_message(m, m.body)
-
-        else:
-            await self._process_telegram_message_body(body)
-            await self._acknowledge_telegram_message(signaling)
 
     async def _process_telegram_message_body(self, body: TlMessageBody):
         match (constructor_name := body.constructor_name):
@@ -543,7 +522,7 @@ class Client:
 
         self._pending_ping = self._loop.call_later(30, _initialize_create_ping_request)
 
-    async def _acknowledge_telegram_message(self, signaling: Structure):
+    def _acknowledge_telegram_message(self, signaling: Structure):
         if signaling.seqno % 2 == 1:
             self._msgids_to_ack.append(signaling.msg_id)
 
@@ -565,8 +544,9 @@ class Client:
 
         await self._rpc_call(request)
 
-    def _update_last_seqno_from_incoming_message(self, signaling: Structure):
+    def _process_telegram_signaling_message(self, signaling: Structure):
         self._used_session_key.session.seqno = max(self._used_session_key.session.seqno, signaling.seqno)
+        self._acknowledge_telegram_message(signaling)
 
     async def _process_bad_server_salt(self, body: TlMessageBody):
         if self._used_session_key.server_salt:

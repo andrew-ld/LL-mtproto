@@ -18,6 +18,7 @@
 from .auth_key_not_found_exception import AuthKeyNotFoundException
 from .datacenter_info import DatacenterInfo
 from .mtproto import MTProto
+from .dispatcher import Dispatcher, dispatch_event
 from .mtproto_key_exchange import MTProtoKeyExchange
 
-__all__ = ("DatacenterInfo", "MTProto", "AuthKeyNotFoundException")
+__all__ = ("DatacenterInfo", "MTProto", "AuthKeyNotFoundException", "Dispatcher", "dispatch_event")

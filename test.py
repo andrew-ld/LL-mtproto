@@ -84,8 +84,8 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     })
 
     # I deliberately break the auth_key status to see if the client can restore it
-    session._used_session_key.session.seqno = -1
-    session._used_session_key.server_salt = -1
+    session._used_session_key.session.seqno = 0
+    session._used_session_key.server_salt = 0
     await session.rpc_call({"_cons": "help.getConfig"})
 
     # I deliberately break the auth_key status to see if the client can restore it

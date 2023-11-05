@@ -115,7 +115,7 @@ class MTProto:
 
         return message_id
 
-    async def read_unencrypted_message(self) -> Structure:
+    async def read_unencrypted_message(self) -> tuple[Structure, Structure]:
         async with self._read_message_lock:
             server_auth_key_id = await self._link.readn(8)
 
@@ -131,15 +131,17 @@ class MTProto:
             full_message_reader = to_composed_reader(server_auth_key_id, message_id, body_len_envelope, body_envelope)
 
             try:
-                return await self._in_thread(self._unencrypted_message_constructor.deserialize_bare_data, full_message_reader)
+                message = await self._in_thread(self._unencrypted_message_constructor.deserialize_bare_data, full_message_reader)
             finally:
                 reader_discard(full_message_reader)
+
+            return message, message.body
 
     async def write_unencrypted_message(self, **kwargs):
         message = self._datacenter.schema.bare(
             _cons="unencrypted_message",
             auth_key_id=0,
-            message_id=self.get_next_message_id(),
+            msg_id=self.get_next_message_id(),
             body=self._datacenter.schema.boxed(**kwargs),
         )
 
