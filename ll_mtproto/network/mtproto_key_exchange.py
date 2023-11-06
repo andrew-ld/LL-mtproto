@@ -36,7 +36,7 @@ __all__ = ("MTProtoKeyExchange",)
 class _KeyExchangeStateWaitingResPq:
     __slots__ = ("nonce",)
 
-    def __init__(self, nonce: bytes):
+    def __init__(self, *, nonce: bytes):
         self.nonce = nonce
 
 
@@ -48,39 +48,39 @@ class _KeyExchangeStateWaitingDhParams:
     server_nonce: bytes
     temp_key_expires_in: int
 
-    def __init__(self, nonce: bytes, new_nonce: bytes, server_nonce: bytes, temp_key_expires_in: int):
+    def __init__(self, *, nonce: bytes, new_nonce: bytes, server_nonce: bytes, temp_key_expires_in: int):
         self.nonce = nonce
         self.new_nonce = new_nonce
         self.server_nonce = server_nonce
         self.temp_key_expires_in = temp_key_expires_in
 
 
-class _KeyExchangeWaitingDhGenOk:
+class _KeyExchangeStateWaitingDhGenOk:
     __slots__ = ("key", "temp_key_expires_in")
 
     key: DhGenKey
     temp_key_expires_in: int
 
-    def __init__(self, key: DhGenKey, temp_key_expires_in: int):
+    def __init__(self, *, key: DhGenKey, temp_key_expires_in: int):
         self.key = key
         self.temp_key_expires_in = temp_key_expires_in
 
 
-class _KeyExchangeCompleted:
+class _KeyExchangeStateCompleted:
     __slots__ = ("key",)
 
     key: DhGenKey
 
-    def __init__(self, key: DhGenKey):
+    def __init__(self, *, key: DhGenKey):
         self.key = key
 
 
-class _KeyExchangeBindCompleted:
+class _KeyExchangeStateBindCompleted:
     __slots__ = ("key",)
 
     key: DhGenKey
 
-    def __init__(self, key: DhGenKey):
+    def __init__(self, *, key: DhGenKey):
         self.key = key
 
 
@@ -91,7 +91,7 @@ class _KeyExchangeStateBindParentKey:
     temp_key_expires_in: int
     req_msg_id: int
 
-    def __init__(self, key: DhGenKey, temp_key_expires_in: int, req_msg_id: int):
+    def __init__(self, *, key: DhGenKey, temp_key_expires_in: int, req_msg_id: int):
         self.key = key
         self.temp_key_expires_in = temp_key_expires_in
         self.req_msg_id = req_msg_id
@@ -148,7 +148,7 @@ class MTProtoKeyExchange(Dispatcher):
             case _KeyExchangeStateWaitingDhParams():
                 await self._process_dh_params(body, state)
 
-            case _KeyExchangeWaitingDhGenOk():
+            case _KeyExchangeStateWaitingDhGenOk():
                 await self._process_dh_gen_ok(body, state)
 
             case _KeyExchangeStateBindParentKey():
@@ -168,16 +168,20 @@ class MTProtoKeyExchange(Dispatcher):
         if body.result != self._datacenter.schema.constructors.get("boolTrue").number:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`, expected response", body)
 
-        self._exchange_state = _KeyExchangeBindCompleted(state.key)
+        self._exchange_state = _KeyExchangeStateBindCompleted(key=state.key)
 
-    async def _process_dh_gen_ok(self, params3: Structure, state: _KeyExchangeWaitingDhGenOk):
+    async def _process_dh_gen_ok(self, params3: Structure, state: _KeyExchangeStateWaitingDhGenOk):
         if params3 != "dh_gen_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
         if self._parent_key is None:
-            self._exchange_state = _KeyExchangeCompleted(state.key)
+            self._exchange_state = _KeyExchangeStateCompleted(key=state.key)
         else:
-            self._exchange_state = _KeyExchangeStateBindParentKey(state.key, state.temp_key_expires_in, self._mtproto.get_next_message_id())
+            self._exchange_state = _KeyExchangeStateBindParentKey(
+                key=state.key,
+                temp_key_expires_in=state.temp_key_expires_in,
+                req_msg_id=self._mtproto.get_next_message_id()
+            )
 
     async def _process_dh_params(self, params: Structure, state: _KeyExchangeStateWaitingDhParams):
         if params != "server_DH_params_ok":
@@ -286,7 +290,7 @@ class MTProtoKeyExchange(Dispatcher):
             encrypted_data=await self._in_thread(tmp_aes.encrypt_with_hash, client_dh_inner_data),
         )
 
-        self._exchange_state = _KeyExchangeWaitingDhGenOk(new_auth_key, state.temp_key_expires_in)
+        self._exchange_state = _KeyExchangeStateWaitingDhGenOk(key=new_auth_key, temp_key_expires_in=state.temp_key_expires_in)
 
     async def _process_res_pq(self, res_pq: Structure, state: _KeyExchangeStateWaitingResPq):
         if res_pq != "resPQ":
@@ -343,7 +347,12 @@ class MTProtoKeyExchange(Dispatcher):
             encrypted_data=p_q_inner_data_encrypted,
         )
 
-        self._exchange_state = _KeyExchangeStateWaitingDhParams(state.nonce, new_nonce, server_nonce, temp_key_expires_in)
+        self._exchange_state = _KeyExchangeStateWaitingDhParams(
+            nonce=state.nonce,
+            new_nonce=new_nonce,
+            server_nonce=server_nonce,
+            temp_key_expires_in=temp_key_expires_in
+        )
 
     async def _write_bind_parent_key_request(self, state: _KeyExchangeStateBindParentKey):
         perm_auth_key_key, perm_auth_key_id, _ = self._parent_key.get_or_assert_empty()
@@ -418,17 +427,17 @@ class MTProtoKeyExchange(Dispatcher):
         nonce = await self._in_thread(secrets.token_bytes, 16)
         await self._write_req_pq_multi(nonce)
 
-        self._exchange_state = _KeyExchangeStateWaitingResPq(nonce)
+        self._exchange_state = _KeyExchangeStateWaitingResPq(nonce=nonce)
 
-        while not isinstance(self._exchange_state, (_KeyExchangeCompleted, _KeyExchangeStateBindParentKey)):
+        while not isinstance(self._exchange_state, (_KeyExchangeStateCompleted, _KeyExchangeStateBindParentKey)):
             await dispatch_event(self, self._mtproto, None)
 
-        generated_key = typing.cast(_KeyExchangeCompleted | _KeyExchangeStateBindParentKey, self._exchange_state).key
+        generated_key = typing.cast(_KeyExchangeStateCompleted | _KeyExchangeStateBindParentKey, self._exchange_state).key
 
         if isinstance(self._exchange_state, _KeyExchangeStateBindParentKey):
             await self._write_bind_parent_key_request(self._exchange_state)
 
-            while not isinstance(self._exchange_state, _KeyExchangeBindCompleted):
+            while not isinstance(self._exchange_state, _KeyExchangeStateBindCompleted):
                 await dispatch_event(self, self._mtproto, generated_key)
 
         return generated_key
