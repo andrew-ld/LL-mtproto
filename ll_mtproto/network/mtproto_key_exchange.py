@@ -155,6 +155,9 @@ class MTProtoKeyExchange(Dispatcher):
                 assert crypto_flag
                 await self._process_bind_parent_key(body, state)
 
+            case _:
+                raise TypeError("Unknown exchange state ``%r", state)
+
     async def _process_bind_parent_key(self, body: Structure, state: _KeyExchangeStateBindParentKey):
         if body == "new_session_created" or body == "msgs_ack":
             return await self._parent_dispatcher.process_telegram_message_body(body, True)
