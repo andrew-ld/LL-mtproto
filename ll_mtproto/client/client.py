@@ -19,6 +19,7 @@ import asyncio
 import concurrent.futures
 import logging
 import traceback
+import typing
 
 from . import ConnectionInfo
 from . import PendingRequest, Update
@@ -118,7 +119,12 @@ class Client:
         self._blocking_executor = blocking_executor
         self._crypto_provider = crypto_provider
 
-        self._rpc_error_constructor = datacenter.schema.constructors.get("rpc_error")
+        rpc_error_constructor = datacenter.schema.constructors.get("rpc_error", None)
+
+        if rpc_error_constructor is None:
+            raise TypeError(f"Unable to find rpc_error constructor")
+
+        self._rpc_error_constructor = rpc_error_constructor
 
         self._loop = asyncio.get_running_loop()
         self._auth_key_lock = asyncio.Lock()
@@ -605,7 +611,7 @@ class Client:
             response_constructor = self._rpc_error_constructor
 
         if request_type := pending_request.request.get("_cons", None):
-            response_parameter = self._datacenter.schema.constructors[request_type].ptype_parameter
+            response_parameter = self._datacenter.schema.constructors[typing.cast(str, request_type)].ptype_parameter
 
         body_result_reader = to_reader(body.result)
 

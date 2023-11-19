@@ -19,6 +19,7 @@ import base64
 import hashlib
 import re
 import secrets
+import typing
 
 from . import AesIge
 from .providers import CryptoProviderBase
@@ -30,6 +31,8 @@ __all__ = ("PublicRSA",)
 _rsa_public_key_RE = re.compile(
     r"-----BEGIN RSA PUBLIC KEY-----(?P<key>.*)-----END RSA PUBLIC KEY-----", re.S
 )
+
+_Asn1Field = typing.Union[bytes, typing.List['_Asn1Field']]
 
 
 class PublicRSA:
@@ -48,6 +51,12 @@ class PublicRSA:
         asn1 = base64.standard_b64decode(match.groupdict()["key"])
         n, e = self._read_asn1(to_reader(asn1))
 
+        if not isinstance(n, bytes):
+            raise SyntaxError(f"Error parsing public key data, the N field is not a buffer `{n!r}`")
+
+        if not isinstance(e, bytes):
+            raise SyntaxError(f"Error parsing public key data, the E field is not a buffer `{e!r}`")
+
         self.fingerprint = int.from_bytes(
             hashlib.sha1(pack_binary_string(n[1:]) + pack_binary_string(e)).digest()[-8:],
             "little",
@@ -58,13 +67,13 @@ class PublicRSA:
         self.e = int.from_bytes(e, "big")
 
     @staticmethod
-    def _read_asn1(reader: SyncByteReader) -> list[bytes] | bytes:
+    def _read_asn1(reader: SyncByteReader) -> _Asn1Field:
         field_type, field_length = reader(2)
 
         if field_length & 0x80:
             field_length = int.from_bytes(reader(field_length ^ 0x80), "big")
 
-        if field_type == 0x30:  # SEQUENCE
+        if field_type == 0x30:
             sequence = []
 
             while not reader_is_empty(reader):
@@ -72,7 +81,7 @@ class PublicRSA:
 
             return sequence
 
-        elif field_type == 0x02:  # INTEGER
+        elif field_type == 0x02:
             return reader(field_length)
 
         else:

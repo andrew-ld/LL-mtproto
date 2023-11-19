@@ -117,36 +117,39 @@ class GzipStreamReader:
         return bytes(result)
 
 
-_SyncByteReaderByteUtilsImpl: typing.TypeAlias = SyncByteReader
+class _SyncByteReaderByteUtilsImpl:
+    __slots__ = ("_io",)
+
+    _io: io.BytesIO
+
+    def __init__(self, buffer: bytes):
+        bytes_io = self._io = io.BytesIO(buffer)
+        bytes_io.seek(0)
+
+    def __call__(self, n: int) -> bytes:
+        return self._io.read(n)
+
+    def is_empty(self) -> bool:
+        return self._io.tell() == self._io.getbuffer().nbytes
+
+    def close(self):
+        self._io.close()
 
 
-def to_composed_reader(*buffers: bytes) -> _SyncByteReaderByteUtilsImpl:
-    result = io.BytesIO()
-
-    for buffer in buffers:
-        result.write(buffer)
-
-    result.seek(0)
-
-    return result.read
+def to_composed_reader(*buffers: bytes) -> SyncByteReader:
+    return to_reader(b"".join(buffers))
 
 
-def to_reader(buffer: bytes) -> _SyncByteReaderByteUtilsImpl:
-    return io.BytesIO(buffer).read
+def to_reader(buffer: bytes) -> SyncByteReader:
+    return typing.cast(SyncByteReader, _SyncByteReaderByteUtilsImpl(buffer))
 
 
-def _get_reader_parent(bytereader: _SyncByteReaderByteUtilsImpl) -> io.BytesIO:
-    # noinspection PyUnresolvedReferences
-    return typing.cast(io.BytesIO, bytereader.__self__)  # pytype: disable=attribute-error
+def reader_is_empty(reader: SyncByteReader) -> bool:
+    return typing.cast(_SyncByteReaderByteUtilsImpl, reader).is_empty()
 
 
-def reader_is_empty(reader: _SyncByteReaderByteUtilsImpl) -> bool:
-    parent = _get_reader_parent(reader)
-    return parent.getbuffer().nbytes == parent.tell()
-
-
-def reader_discard(reader: _SyncByteReaderByteUtilsImpl):
-    return _get_reader_parent(reader).close()
+def reader_discard(reader: SyncByteReader):
+    typing.cast(_SyncByteReaderByteUtilsImpl, reader).close()
 
 
 def unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:

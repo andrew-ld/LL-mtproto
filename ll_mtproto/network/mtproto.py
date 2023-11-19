@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import logging
 import secrets
+import typing
 
 from . import AuthKeyNotFoundException
 from .datacenter_info import DatacenterInfo
@@ -99,8 +100,18 @@ class MTProto:
         self._in_thread = in_thread
         self._crypto_provider = crypto_provider
 
-        self._unencrypted_message_constructor = datacenter.schema.constructors.get("unencrypted_message")
-        self._message_inner_data_from_server_constructor = datacenter.schema.constructors.get("message_inner_data_from_server")
+        unencrypted_message_constructor = datacenter.schema.constructors.get("unencrypted_message", None)
+
+        if unencrypted_message_constructor is None:
+            raise TypeError(f"Unable to find unencrypted_message constructor")
+
+        message_inner_data_from_server_constructor = datacenter.schema.constructors.get("message_inner_data_from_server", None)
+
+        if message_inner_data_from_server_constructor is None:
+            raise TypeError(f"Unable to find message_inner_data_from_server constructor")
+
+        self._unencrypted_message_constructor = unencrypted_message_constructor
+        self._message_inner_data_from_server_constructor = message_inner_data_from_server_constructor
 
     def get_next_message_id(self) -> int:
         message_id = self._datacenter.get_synchronized_time() << 32
@@ -173,21 +184,21 @@ class MTProto:
 
         await self._link.write(full_message.get_flat_bytes())
 
-    async def read_encrypted(self, key: Key | DhGenKey) -> tuple[Structure, TlMessageBody]:
+    async def read_encrypted(self, key: Key | DhGenKey) -> tuple[Structure, Structure]:
         auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
         auth_key_part = auth_key_key[88 + 8:88 + 8 + 32]
 
         async with self._read_message_lock:
-            server_auth_key_id = await self._link.readn(8)
+            server_auth_key_id_bytes = await self._link.readn(8)
 
-            if server_auth_key_id == b"l\xfe\xff\xffl\xfe\xff\xff":
+            if server_auth_key_id_bytes == b"l\xfe\xff\xffl\xfe\xff\xff":
                 raise AuthKeyNotFoundException()
 
-            if server_auth_key_id == b'S\xfe\xff\xffS\xfe\xff\xff':
+            if server_auth_key_id_bytes == b'S\xfe\xff\xffS\xfe\xff\xff':
                 raise ValueError("Too many requests!")
 
-            server_auth_key_id = int.from_bytes(server_auth_key_id, "little", signed=False)
+            server_auth_key_id = int.from_bytes(server_auth_key_id_bytes, "little", signed=False)
 
             if server_auth_key_id != auth_key_id:
                 raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
@@ -235,7 +246,7 @@ class MTProto:
             finally:
                 reader_discard(message_body_reader)
 
-            return message.message, message_body
+            return message.message, typing.cast(Structure, message_body)
 
     def prepare_message_for_write(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
         boxed_message_id = self.get_next_message_id()

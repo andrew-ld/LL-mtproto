@@ -168,7 +168,12 @@ class MTProtoKeyExchange(Dispatcher):
         if body.req_msg_id != state.req_msg_id:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`, unexpected req_msg_id", body)
 
-        if body.result != self._datacenter.schema.constructors.get("boolTrue").number:
+        bool_true = self._datacenter.schema.constructors.get("boolTrue", None)
+
+        if bool_true is None:
+            raise TypeError(f"Unable to find bool_true constructor")
+
+        if body.result != bool_true.number:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`, expected response", body)
 
         self._exchange_state = _KeyExchangeStateBindCompleted(key=state.key)
@@ -358,8 +363,12 @@ class MTProtoKeyExchange(Dispatcher):
         )
 
     async def _write_bind_parent_key_request(self, state: _KeyExchangeStateBindParentKey):
-        perm_auth_key_key, perm_auth_key_id, _ = self._parent_key.get_or_assert_empty()
-        temp_key_expires_in = typing.cast(int, state.temp_key_expires_in)
+        parent_key = self._parent_key
+
+        if parent_key is None:
+            raise RuntimeError("Diffie–Hellman exchange failed: parent key become None WTF")
+
+        perm_auth_key_key, perm_auth_key_id, _ = parent_key.get_or_assert_empty()
 
         bind_temp_auth_nonce = int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True)
 
@@ -369,7 +378,7 @@ class MTProtoKeyExchange(Dispatcher):
             temp_auth_key_id=state.key.auth_key_id,
             perm_auth_key_id=perm_auth_key_id,
             temp_session_id=state.key.session.id,
-            expires_at=temp_key_expires_in
+            expires_at=state.temp_key_expires_in
         )
 
         bind_temp_auth_inner_data = self._datacenter.schema.bare(
@@ -410,7 +419,7 @@ class MTProtoKeyExchange(Dispatcher):
             _cons="auth.bindTempAuthKey",
             perm_auth_key_id=perm_auth_key_id,
             nonce=bind_temp_auth_nonce,
-            expires_at=temp_key_expires_in,
+            expires_at=state.temp_key_expires_in,
             encrypted_message=bind_temp_auth_inner_data_encrypted_boxed.get_flat_bytes()
         )
 

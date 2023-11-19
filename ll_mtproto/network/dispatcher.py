@@ -46,17 +46,15 @@ async def _process_telegram_message(dispatcher: Dispatcher, signaling: Structure
         await dispatcher.process_telegram_message_body(body, crypto_flag)
 
 
-async def _process_inbound_message(dispatcher: Dispatcher, signaling: TlMessageBody, body: TlMessageBody, crypto_flag: bool):
+async def _process_inbound_message(dispatcher: Dispatcher, signaling: Structure, body: Structure, crypto_flag: bool):
     logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
     await _process_telegram_message(dispatcher, signaling, body, crypto_flag)
 
 
 async def dispatch_event(dispatcher: Dispatcher, mtproto: MTProto, encryption_key: Key | DhGenKey | None):
-    crypto_flag = encryption_key is not None
-
-    if crypto_flag:
+    if encryption_key is not None:
         signaling, body = await mtproto.read_encrypted(encryption_key)
     else:
         signaling, body = await mtproto.read_unencrypted_message()
 
-    await _process_inbound_message(dispatcher, signaling, body, crypto_flag)
+    await _process_inbound_message(dispatcher, signaling, body, encryption_key is not None)

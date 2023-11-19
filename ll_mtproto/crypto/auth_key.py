@@ -252,13 +252,13 @@ class AuthKey:
     def set_content_change_callback(self, callback: AuthKeyUpdatedCallback):
         self._update_callback.set_content_change_callback(callback)
 
-    def __getstate__(self) -> dict[str, any]:
+    def __getstate__(self) -> dict[str, typing.Any]:
         return {
             "persistent_key": self.persistent_key,
             "temporary_key": self.temporary_key
         }
 
-    def __setstate__(self, state: dict[str, any]):
+    def __setstate__(self, state: dict[str, typing.Any]):
         self.persistent_key = state["persistent_key"]
         self.temporary_key = state["temporary_key"]
 
