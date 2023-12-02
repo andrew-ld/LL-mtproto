@@ -129,7 +129,7 @@ class Client:
         self._loop = asyncio.get_running_loop()
         self._auth_key_lock = asyncio.Lock()
 
-        self._msgids_to_ack = []
+        self._msgids_to_ack = list()
         self._pending_requests = dict()
         self._layer_init_required = True
 
@@ -199,7 +199,7 @@ class Client:
         await self._create_ping_request()
 
     async def _create_destroy_session_request(self, destroyed_session_id: int):
-        destroy_session_message = dict(_cons="destroy_session", session_id=destroyed_session_id)
+        destroy_session_message: TlRequestBody = dict(_cons="destroy_session", session_id=destroyed_session_id)
 
         destroy_session_request = PendingRequest(
             response=self._loop.create_future(),
@@ -212,7 +212,7 @@ class Client:
         await self._rpc_call(destroy_session_request)
 
     async def _create_future_salt_request(self):
-        get_future_salts_message = dict(_cons="get_future_salts", num=32)
+        get_future_salts_message: TlRequestBody = dict(_cons="get_future_salts", num=32)
 
         get_future_salts_request = PendingRequest(
             response=self._loop.create_future(),
@@ -244,7 +244,7 @@ class Client:
 
         self._pending_pong = self._loop.call_later(20, self.disconnect)
 
-        ping_message = dict(_cons="ping_delay_disconnect", ping_id=ping_id, disconnect_delay=35)
+        ping_message: TlRequestBody = dict(_cons="ping_delay_disconnect", ping_id=ping_id, disconnect_delay=35)
 
         ping_request = PendingRequest(
             response=self._loop.create_future(),
@@ -374,7 +374,7 @@ class Client:
         else:
             await self._start_mtproto_loop()
 
-    async def _process_telegram_message_body(self, body: TlMessageBody):
+    async def _process_telegram_message_body(self, body: Structure):
         match (constructor_name := body.constructor_name):
             case "rpc_result":
                 await self._process_rpc_result(body)
@@ -430,36 +430,36 @@ class Client:
             case _:
                 logging.critical("unknown message type (%s) received", constructor_name)
 
-    def _process_session_destroy(self, body: TlMessageBody):
+    def _process_session_destroy(self, body: Structure):
         logging.debug("session destroy received: %s", body.constructor_name)
         self._used_session_key.unused_sessions.remove(body.session_id)
         self._used_session_key.flush_changes()
 
-    async def _process_update_short_message(self, body: TlMessageBody):
+    async def _process_update_short_message(self, body: Structure):
         if not self._no_updates:
             await self._updates_queue.put(Update([], [], body))
 
-    async def _process_update_short(self, body: TlMessageBody):
+    async def _process_update_short(self, body: Structure):
         if not self._no_updates:
             await self._updates_queue.put(Update([], [], body.update))
 
-    def _process_msgs_ack(self, body: TlMessageBody):
+    def _process_msgs_ack(self, body: Structure):
         logging.debug("received msgs_ack %r", body.msg_ids)
 
-    def _process_msgs_state_info(self, body: TlMessageBody):
+    def _process_msgs_state_info(self, body: Structure):
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             pending_request.response.set_result(body)
             pending_request.finalize()
 
-    def _process_msg_new_detailed_info(self, body: TlMessageBody):
+    def _process_msg_new_detailed_info(self, body: Structure):
         if pending_request := self._pending_requests.pop(body.answer_msg_id, None):
             pending_request.finalize()
 
-    def _process_msg_detailed_info(self, body: TlMessageBody):
+    def _process_msg_detailed_info(self, body: Structure):
         self._process_msg_new_detailed_info(body)
         self._msgids_to_ack.append(body.msg_id)
 
-    def _process_future_salts(self, body: TlMessageBody):
+    def _process_future_salts(self, body: Structure):
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             pending_request.response.set_result(body)
             pending_request.finalize()
@@ -486,10 +486,10 @@ class Client:
 
         self._used_session_key.flush_changes()
 
-    async def _process_new_session_created(self, body: TlMessageBody):
+    async def _process_new_session_created(self, body: Structure):
         self._used_session_key.server_salt = body.server_salt
 
-    async def _process_updates(self, body: TlMessageBody):
+    async def _process_updates(self, body: Structure):
         if self._no_updates:
             return
 
@@ -499,7 +499,7 @@ class Client:
         for update in body.updates:
             await self._updates_queue.put(Update(users, chats, update))
 
-    def _process_pong(self, pong: TlMessageBody):
+    def _process_pong(self, pong: Structure):
         logging.debug("pong message: %d", pong.ping_id)
 
         if pending_pong := self._pending_pong:
@@ -529,7 +529,8 @@ class Client:
         if not self._msgids_to_ack or not self._used_session_key.session.stable_seqno:
             return
 
-        message = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
+        message: TlRequestBody = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
+        self._msgids_to_ack.clear()
 
         request = PendingRequest(
             response=self._loop.create_future(),
@@ -539,15 +540,13 @@ class Client:
             expect_answer=False
         )
 
-        self._msgids_to_ack.clear()
-
         await self._rpc_call(request)
 
     def _process_telegram_signaling_message(self, signaling: Structure):
         self._used_session_key.session.seqno = max(self._used_session_key.session.seqno, signaling.seqno)
         self._acknowledge_telegram_message(signaling)
 
-    async def _process_bad_server_salt(self, body: TlMessageBody):
+    async def _process_bad_server_salt(self, body: Structure):
         if self._used_session_key.server_salt:
             self._used_session_key.session.stable_seqno = False
 
@@ -561,7 +560,7 @@ class Client:
 
         self._used_session_key.flush_changes()
 
-    async def _process_bad_msg_notification(self, body: TlMessageBody):
+    async def _process_bad_msg_notification(self, body: Structure):
         if body.error_code == 32:
             await self._process_bad_msg_notification_msg_seqno_too_low(body)
         elif body.error_code == 33:
@@ -569,20 +568,20 @@ class Client:
         else:
             await self._process_bad_msg_notification_reject_message(body)
 
-    async def _process_bad_msg_notification_reject_message(self, body: TlMessageBody):
+    async def _process_bad_msg_notification_reject_message(self, body: Structure):
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             bad_request.response.set_exception(RpcError(body.error_code, "BAD_MSG_NOTIFICATION"))
             bad_request.finalize()
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: TlMessageBody):
+    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: Structure):
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_bad_msg_notification_msg_seqno_too_low(self, body: TlMessageBody):
+    async def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure):
         session = self._used_session_key.session
 
         session.seqno_increment = min(2 ** 31 - 1, session.seqno_increment << 1)
@@ -595,7 +594,7 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_rpc_result(self, body: TlMessageBody):
+    async def _process_rpc_result(self, body: Structure):
         self._used_session_key.session.stable_seqno = True
         self._used_session_key.session.seqno_increment = 1
 

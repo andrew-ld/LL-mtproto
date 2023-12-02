@@ -273,7 +273,7 @@ class Schema:
             name=cons_parsed["name"],
             number=cons_number,
             parameters=parameters,
-            flags=set(flag_name for p in parameters if p.is_flag and (flag_name := p.flag_name) is not None) or None,
+            flags=set(p.flag_name for p in parameters if p.is_flag and p.flag_name is not None) or None,
             is_function=is_function,
             is_transparent_container=ptype == "Object",
             ptype_parameter=ptype_parameter
@@ -374,7 +374,7 @@ class Schema:
     def boxed(self, **kwargs) -> "Value":
         return self.serialize(boxed=True, **kwargs)
 
-    def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "Structure":
+    def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "TlMessageBody":
         return self.deserialize(reader, parameter)
 
     def read_by_boxed_data(self, reader: SyncByteReader) -> "Structure":
@@ -403,12 +403,12 @@ class Flags:
 
 
 class Value:
-    __slots__ = ("cons", "boxed", "_flags", "_data")
+    __slots__ = ("cons", "boxed", "_flags", "_buffers")
 
     cons: "Constructor"
     boxed: bool
     _flags: dict[int, Flags] | None
-    _data: list["bytearray | Flags"]
+    _buffers: list["bytes | Flags"]
 
     def __init__(self, cons: "Constructor", boxed: bool = False):
         self.cons = cons
@@ -422,7 +422,7 @@ class Value:
         else:
             self._flags = None
 
-        self._data = [bytearray()]
+        self._buffers = []
 
     def set_flag(self, flag_number: int, flag_name: int):
         if (flags := self._flags) is None:
@@ -434,10 +434,10 @@ class Value:
         if (flags := self._flags) is None:
             raise TypeError(f"Tried to append flag to data for a flagless Value `{self.cons!r}`")
         else:
-            self._data.extend((flags[flag_name], bytearray()))
+            self._buffers.append(flags[flag_name])
 
     def append_serialized_tl(self, data: typing.Union["Value", bytes]):
-        self._data[-1] += data if isinstance(data, bytes) else data.get_flat_bytes()
+        self._buffers.append(data if isinstance(data, bytes) else data.get_flat_bytes())
 
     def __repr__(self):
         return f'{"boxed" if self.boxed else "bare"}({self.cons!r})'
@@ -453,7 +453,7 @@ class Value:
         else:
             prefix = b""
 
-        return prefix + b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Flags) else k, self._data))
+        return b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Flags) else k, (prefix, *self._buffers)))
 
 
 class Structure:
@@ -835,5 +835,5 @@ class Constructor:
 
 
 TlMessageBody = typing.Union[Structure, typing.List['TlMessageBody']]
-
-TlRequestBody = dict[str, TlMessageBody | bytes | str | int]
+TlRequestBodyValue = typing.Union[TlMessageBody, bytes, str, int, typing.Set['TlRequestBodyValue'], typing.List['TlRequestBodyValue'], 'TlRequestBody']
+TlRequestBody = typing.Dict[str, TlRequestBodyValue]
