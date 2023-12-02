@@ -363,8 +363,8 @@ class Schema:
             return cons.deserialize_bare_data(reader)
 
     def serialize(self, boxed: bool, _cons: str, **kwargs) -> "Value":
-        if cons := self.constructors.get(_cons, False):
-            return typing.cast(Constructor, cons).serialize(boxed=boxed, **kwargs)
+        if cons := self.constructors.get(_cons, None):
+            return cons.serialize(boxed=boxed, **kwargs)
         else:
             raise NotImplementedError(f"Constructor `{_cons}` not present in schema.")
 
@@ -835,5 +835,14 @@ class Constructor:
 
 
 TlMessageBody = typing.Union[Structure, typing.List['TlMessageBody']]
-TlRequestBodyValue = typing.Union[TlMessageBody, bytes, str, int, typing.Set['TlRequestBodyValue'], typing.List['TlRequestBodyValue'], 'TlRequestBody']
+
+TlRequestBodyValue = typing.Union[
+    TlMessageBody,
+    bytes,
+    str,
+    int,
+    typing.Iterable['TlRequestBodyValue'],
+    'TlRequestBody'
+]
+
 TlRequestBody = typing.Dict[str, TlRequestBodyValue]
