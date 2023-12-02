@@ -18,7 +18,6 @@
 import asyncio
 import typing
 
-
 __all__ = (
     "InThread",
     "ByteReader",
@@ -27,7 +26,6 @@ __all__ = (
     "ByteConsumer",
     "SyncByteReader",
 )
-
 
 InThread = typing.Callable[..., typing.Awaitable[typing.Any]]
 

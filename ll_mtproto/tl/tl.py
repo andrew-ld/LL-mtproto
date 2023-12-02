@@ -811,7 +811,7 @@ class Constructor:
 
                     if flag_name is None:
                         raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
- 
+
                     flags[flag_name] = unpack_flags(int.from_bytes(reader(4), "little", signed=False))
 
                 elif parameter.flag_number is not None:

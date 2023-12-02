@@ -20,9 +20,7 @@ import typing
 
 from ..tl.byteutils import sha1
 
-
 __all__ = ("AuthKey", "Key", "AuthKeyUpdatedCallback", "DhGenKey")
-
 
 AuthKeyUpdatedCallback = typing.Callable[[], typing.Any]
 
@@ -49,12 +47,12 @@ class KeySession:
     seqno_increment: int
 
     def __init__(
-        self,
-        session_id: int | None = None,
-        seqno: int | None = None,
-        ping_id: int | None = None,
-        stable_seqno: bool = True,
-        seqno_increment: int = 1
+            self,
+            session_id: int | None = None,
+            seqno: int | None = None,
+            ping_id: int | None = None,
+            stable_seqno: bool = True,
+            seqno_increment: int = 1
     ):
         self.id = session_id or self.generate_new_session_id()
         self.seqno = seqno or 0
@@ -67,7 +65,7 @@ class KeySession:
         self.seqno += 1
         return value
 
-    def  get_next_odd_seqno(self) -> int:
+    def get_next_odd_seqno(self) -> int:
         return (self._get_and_increment_seqno()) * 2 + 1
 
     def get_next_even_seqno(self) -> int:

@@ -17,8 +17,6 @@
 
 import typing
 
-
 __all__ = ("SeqNoGenerator",)
-
 
 SeqNoGenerator = typing.Callable[[], int]

@@ -21,7 +21,6 @@ from .providers import CryptoProviderBase
 from ..tl.byteutils import short_hex, sha1
 from ..typed import InThread, PartialByteReader
 
-
 __all__ = ("AesIge", "AesIgeAsyncStream")
 
 

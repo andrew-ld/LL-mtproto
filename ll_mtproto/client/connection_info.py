@@ -17,7 +17,6 @@
 
 from ..tl import TlRequestBody
 
-
 __all__ = ("ConnectionInfo",)
 
 
