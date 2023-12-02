@@ -837,12 +837,12 @@ class Constructor:
 TlMessageBody = typing.Union[Structure, typing.List['TlMessageBody']]
 
 TlRequestBodyValue = typing.Union[
-    TlMessageBody,
     bytes,
     str,
     int,
     typing.Iterable['TlRequestBodyValue'],
-    'TlRequestBody'
+    'TlRequestBody',
+    Structure
 ]
 
 TlRequestBody = typing.Dict[str, TlRequestBodyValue]
