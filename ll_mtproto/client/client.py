@@ -23,15 +23,18 @@ import typing
 
 from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.client.pending_request import PendingRequest
-from ll_mtproto.client.update import  Update
 from ll_mtproto.client.rpc_error import RpcError
-from ll_mtproto.crypto import AuthKey, Key
-from ll_mtproto.crypto.providers import CryptoProviderBase
-from ll_mtproto.network import mtproto, DatacenterInfo, AuthKeyNotFoundException, Dispatcher, dispatch_event
+from ll_mtproto.client.update import Update
+from ll_mtproto.crypto.auth_key import AuthKey, Key
+from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
+from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
+from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
+from ll_mtproto.network.mtproto import DatacenterInfo
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.mtproto_key_exchange import MTProtoKeyExchange
-from ll_mtproto.network.transport import TransportLinkFactory
-from ll_mtproto.tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor, reader_discard, reader_is_empty
+from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
+from ll_mtproto.tl.byteutils import reader_discard, reader_is_empty, to_reader
+from ll_mtproto.tl.tl import TlMessageBody, TlRequestBody, Structure, Constructor
 
 __all__ = ("Client",)
 
@@ -79,7 +82,7 @@ class Client:
         "_crypto_provider"
     )
 
-    _mtproto: mtproto.MTProto
+    _mtproto: MTProto
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
     _mtproto_loop_task: asyncio.Task | None

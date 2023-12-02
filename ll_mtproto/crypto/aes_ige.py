@@ -17,7 +17,7 @@
 
 import secrets
 
-from ll_mtproto.crypto.providers import CryptoProviderBase
+from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.tl.byteutils import short_hex, sha1
 from ll_mtproto.typed import InThread, PartialByteReader
 

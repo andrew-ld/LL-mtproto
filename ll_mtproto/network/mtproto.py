@@ -22,12 +22,13 @@ import logging
 import secrets
 import typing
 
-from ll_mtproto.crypto import Key, DhGenKey
 from ll_mtproto.crypto.aes_ige import AesIge, AesIgeAsyncStream
-from ll_mtproto.crypto.providers import CryptoProviderBase
-from ll_mtproto.network import AuthKeyNotFoundException
+from ll_mtproto.crypto.auth_key import Key, DhGenKey
+from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
+from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
 from ll_mtproto.network.datacenter_info import DatacenterInfo
-from ll_mtproto.network.transport import TransportLinkBase, TransportLinkFactory
+from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
+from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl import tl
 from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
 from ll_mtproto.tl.tl import Structure, Constructor

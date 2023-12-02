@@ -15,8 +15,24 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from ll_mtproto.client import Client, ConnectionInfo, Update, RpcError
+from ll_mtproto.client.client import Client
+from ll_mtproto.client.connection_info import ConnectionInfo
+from ll_mtproto.client.rpc_error import RpcError
+from ll_mtproto.client.update import Update
 from ll_mtproto.constants import TelegramDatacenter
-from ll_mtproto.crypto import AuthKey
+from ll_mtproto.crypto.auth_key import AuthKey
+from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCryptg
+from ll_mtproto.network.transport.transport_address_resolver_cached import CachedTransportAddressResolver
+from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediateFactory
+from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
-__all__ = ("Client", "TelegramDatacenter", "AuthKey", "RpcError", "ConnectionInfo", "Update")
+__all__ = (
+    "Client",
+    "TelegramDatacenter",
+    "AuthKey", "RpcError",
+    "ConnectionInfo", "Update",
+    "CryptoProviderCryptg",
+    "CachedTransportAddressResolver",
+    "TransportCodecIntermediateFactory",
+    "TransportLinkTcpFactory"
+)

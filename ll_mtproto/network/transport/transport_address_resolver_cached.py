@@ -18,9 +18,9 @@
 import copy
 import random
 
-from ll_mtproto.network import DatacenterInfo
-from ll_mtproto.network.transport import TransportAddressResolverBase
-from ll_mtproto.tl import Structure
+from ll_mtproto.network.datacenter_info import DatacenterInfo
+from ll_mtproto.network.transport.transport_address_resolver_base import TransportAddressResolverBase
+from ll_mtproto.tl.tl import Structure
 
 __all__ = ("CachedTransportAddressResolver",)
 

@@ -17,13 +17,13 @@
 
 import abc
 
-from ll_mtproto.network import DatacenterInfo
-from ll_mtproto.network.transport import TransportLinkBase
+from ll_mtproto.network.datacenter_info import DatacenterInfo
+from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 
 __all__ = ("TransportLinkFactory",)
 
 
 class TransportLinkFactory(abc.ABC):
     @abc.abstractmethod
-    def new_transport_link(self, datacenter: "DatacenterInfo") -> TransportLinkBase:
+    def new_transport_link(self, datacenter: DatacenterInfo) -> TransportLinkBase:
         raise NotImplementedError

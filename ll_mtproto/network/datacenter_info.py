@@ -17,7 +17,7 @@
 
 import time
 
-from ll_mtproto.crypto import PublicRSA
+from ll_mtproto.crypto.public_rsa import PublicRSA
 from ll_mtproto.tl.tl import Schema
 
 __all__ = ("DatacenterInfo",)

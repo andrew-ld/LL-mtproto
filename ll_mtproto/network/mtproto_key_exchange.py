@@ -21,13 +21,15 @@ import hmac
 import secrets
 import typing
 
-from ll_mtproto.crypto import AesIge, Key, DhGenKey
-from ll_mtproto.crypto.providers import CryptoProviderBase
+from ll_mtproto.crypto.aes_ige import AesIge
+from ll_mtproto.crypto.auth_key import Key, DhGenKey
+from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.math import primes
-from ll_mtproto.network import Dispatcher, dispatch_event
-from ll_mtproto.network import MTProto, DatacenterInfo
-from ll_mtproto.tl import Structure
+from ll_mtproto.network.datacenter_info import DatacenterInfo
+from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
+from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl.byteutils import to_bytes, sha1, to_reader, xor, SyncByteReaderApply
+from ll_mtproto.tl.tl import Structure
 from ll_mtproto.typed import InThread
 
 __all__ = ("MTProtoKeyExchange",)
