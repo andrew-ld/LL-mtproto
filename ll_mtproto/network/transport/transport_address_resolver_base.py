@@ -17,7 +17,7 @@
 
 import abc
 
-from ...network import DatacenterInfo
+from ll_mtproto.network import DatacenterInfo
 
 __all__ = ("TransportAddressResolverBase",)
 

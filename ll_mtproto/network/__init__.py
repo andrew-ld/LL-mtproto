@@ -15,10 +15,10 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from .auth_key_not_found_exception import AuthKeyNotFoundException
-from .datacenter_info import DatacenterInfo
-from .mtproto import MTProto
-from .dispatcher import Dispatcher, dispatch_event
-from .mtproto_key_exchange import MTProtoKeyExchange
+from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
+from ll_mtproto.network.datacenter_info import DatacenterInfo
+from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
+from ll_mtproto.network.mtproto import MTProto
+from ll_mtproto.network.mtproto_key_exchange import MTProtoKeyExchange
 
 __all__ = ("DatacenterInfo", "MTProto", "AuthKeyNotFoundException", "Dispatcher", "dispatch_event")

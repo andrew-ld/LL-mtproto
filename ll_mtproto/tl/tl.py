@@ -23,7 +23,7 @@ import struct
 import sys
 import typing
 
-from .byteutils import (
+from ll_mtproto.tl.byteutils import (
     long_hex,
     pack_binary_string,
     unpack_binary_string,
@@ -33,8 +33,7 @@ from .byteutils import (
     GzipStreamReader,
     pack_long_binary_string_padded
 )
-
-from ..typed import SyncByteReader
+from ll_mtproto.typed import SyncByteReader
 
 __all__ = ("Schema", "Value", "Structure", "Parameter", "Constructor", "TlRequestBody", "TlMessageBody")
 

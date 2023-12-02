@@ -21,16 +21,16 @@ import logging
 import traceback
 import typing
 
-from . import ConnectionInfo
-from . import PendingRequest, Update
-from .rpc_error import RpcError
-from ..crypto import AuthKey, Key
-from ..crypto.providers import CryptoProviderBase
-from ..network import mtproto, DatacenterInfo, AuthKeyNotFoundException, Dispatcher, dispatch_event
-from ..network.mtproto import MTProto
-from ..network.mtproto_key_exchange import MTProtoKeyExchange
-from ..network.transport import TransportLinkFactory
-from ..tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor, reader_discard, reader_is_empty
+from ll_mtproto.client import ConnectionInfo
+from ll_mtproto.client import PendingRequest, Update
+from ll_mtproto.client.rpc_error import RpcError
+from ll_mtproto.crypto import AuthKey, Key
+from ll_mtproto.crypto.providers import CryptoProviderBase
+from ll_mtproto.network import mtproto, DatacenterInfo, AuthKeyNotFoundException, Dispatcher, dispatch_event
+from ll_mtproto.network.mtproto import MTProto
+from ll_mtproto.network.mtproto_key_exchange import MTProtoKeyExchange
+from ll_mtproto.network.transport import TransportLinkFactory
+from ll_mtproto.tl import TlMessageBody, TlRequestBody, Structure, to_reader, Constructor, reader_discard, reader_is_empty
 
 __all__ = ("Client",)
 

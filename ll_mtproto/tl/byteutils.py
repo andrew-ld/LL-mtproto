@@ -23,7 +23,7 @@ import secrets
 import typing
 import zlib
 
-from ..typed import ByteReader, InThread, ByteConsumer, SyncByteReader
+from ll_mtproto.typed import ByteReader, InThread, ByteConsumer, SyncByteReader
 
 __all__ = (
     "xor",

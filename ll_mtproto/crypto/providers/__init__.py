@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from .crypto_provider_base import CryptoProviderBase
-from .crypto_provider_cryptg import CryptoProviderCryptg
+from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
+from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCryptg
 
 __all__ = ("CryptoProviderBase", "CryptoProviderCryptg")

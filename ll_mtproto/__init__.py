@@ -15,8 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from .crypto import AuthKey
-from .constants import TelegramDatacenter
-from .client import Client, ConnectionInfo, Update, RpcError
+from ll_mtproto.client import Client, ConnectionInfo, Update, RpcError
+from ll_mtproto.constants import TelegramDatacenter
+from ll_mtproto.crypto import AuthKey
 
 __all__ = ("Client", "TelegramDatacenter", "AuthKey", "RpcError", "ConnectionInfo", "Update")

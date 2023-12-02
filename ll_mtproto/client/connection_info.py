@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from ..tl import TlRequestBody
+from ll_mtproto.tl import TlRequestBody
 
 __all__ = ("ConnectionInfo",)
 

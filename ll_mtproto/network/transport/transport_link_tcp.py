@@ -17,9 +17,9 @@
 
 import asyncio
 
-from . import TransportCodecBase, TransportLinkBase, TransportLinkFactory, \
+from ll_mtproto.network import DatacenterInfo
+from ll_mtproto.network.transport import TransportCodecBase, TransportLinkBase, TransportLinkFactory, \
     TransportCodecFactory, TransportAddressResolverBase
-from .. import DatacenterInfo
 
 __all__ = ("TransportLinkTcp", "TransportLinkTcpFactory")
 

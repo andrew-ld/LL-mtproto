@@ -15,15 +15,15 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from .transport_address_resolver_base import TransportAddressResolverBase
-from .transport_address_resolver_cached import CachedTransportAddressResolver
-from .transport_link_base import TransportLinkBase
-from .transport_link_factory import TransportLinkFactory
-from .transport_codec_base import TransportCodecBase
-from .transport_codec_factory import TransportCodecFactory
-from .transport_codec_abridged import TransportCodecAbridgedFactory
-from .transport_codec_intermediate import TransportCodecIntermediateFactory
-from .transport_link_tcp import TransportLinkTcpFactory
+from ll_mtproto.network.transport.transport_address_resolver_base import TransportAddressResolverBase
+from ll_mtproto.network.transport.transport_address_resolver_cached import CachedTransportAddressResolver
+from ll_mtproto.network.transport.transport_codec_abridged import TransportCodecAbridgedFactory
+from ll_mtproto.network.transport.transport_codec_base import TransportCodecBase
+from ll_mtproto.network.transport.transport_codec_factory import TransportCodecFactory
+from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediateFactory
+from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
+from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
+from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 __all__ = (
     "TransportAddressResolverBase",

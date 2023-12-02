@@ -16,7 +16,8 @@
 
 
 import abc
-from . import TransportCodecBase
+
+from ll_mtproto.network.transport import TransportCodecBase
 
 __all__ = ("TransportCodecFactory",)
 

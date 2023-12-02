@@ -15,9 +15,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from .aes_ige import AesIge, AesIgeAsyncStream
-from .auth_key import AuthKey, Key, AuthKeyUpdatedCallback, DhGenKey
-from .public_rsa import PublicRSA
+from ll_mtproto.crypto.aes_ige import AesIge, AesIgeAsyncStream
+from ll_mtproto.crypto.auth_key import AuthKey, Key, AuthKeyUpdatedCallback, DhGenKey
+from ll_mtproto.crypto.public_rsa import PublicRSA
 
 __all__ = (
     "AesIge",

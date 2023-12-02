@@ -17,8 +17,8 @@
 
 import abc
 
-from . import TransportLinkBase
-from .. import DatacenterInfo
+from ll_mtproto.network import DatacenterInfo
+from ll_mtproto.network.transport import TransportLinkBase
 
 __all__ = ("TransportLinkFactory",)
 

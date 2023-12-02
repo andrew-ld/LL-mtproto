@@ -15,6 +15,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from .primes import is_safe_dh_prime
+from ll_mtproto.math.primes import is_safe_dh_prime
 
 __all__ = ("is_safe_dh_prime",)

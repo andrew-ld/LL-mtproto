@@ -15,7 +15,7 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-from ..tl import Structure
+from ll_mtproto.tl import Structure
 
 __all__ = ("Update",)
 

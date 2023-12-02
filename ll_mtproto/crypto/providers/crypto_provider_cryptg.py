@@ -16,7 +16,7 @@
 
 import cryptg  # type: ignore
 
-from . import CryptoProviderBase
+from ll_mtproto.crypto.providers import CryptoProviderBase
 
 
 class CryptoProviderCryptg(CryptoProviderBase):

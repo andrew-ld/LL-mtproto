@@ -17,9 +17,9 @@
 
 import secrets
 
-from .providers import CryptoProviderBase
-from ..tl.byteutils import short_hex, sha1
-from ..typed import InThread, PartialByteReader
+from ll_mtproto.crypto.providers import CryptoProviderBase
+from ll_mtproto.tl.byteutils import short_hex, sha1
+from ll_mtproto.typed import InThread, PartialByteReader
 
 __all__ = ("AesIge", "AesIgeAsyncStream")
 

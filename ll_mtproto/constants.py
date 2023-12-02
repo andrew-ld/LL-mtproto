@@ -17,9 +17,9 @@
 
 import os.path
 
-from .crypto import PublicRSA
-from .network import DatacenterInfo
-from .tl.tl import Schema
+from ll_mtproto.crypto import PublicRSA
+from ll_mtproto.network import DatacenterInfo
+from ll_mtproto.tl.tl import Schema
 
 __all__ = ("TelegramDatacenter",)
 

@@ -14,10 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-from .rpc_error import RpcError
-from .pending_request import PendingRequest
-from .update import Update
-from .connection_info import ConnectionInfo
-from .client import Client
+from ll_mtproto.client.client import Client
+from ll_mtproto.client.connection_info import ConnectionInfo
+from ll_mtproto.client.pending_request import PendingRequest
+from ll_mtproto.client.rpc_error import RpcError
+from ll_mtproto.client.update import Update
 
 __all__ = ("PendingRequest", "ConnectionInfo", "Update", "Client", "RpcError")

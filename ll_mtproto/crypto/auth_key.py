@@ -18,7 +18,7 @@ import secrets
 import time
 import typing
 
-from ..tl.byteutils import sha1
+from ll_mtproto.tl.byteutils import sha1
 
 __all__ = ("AuthKey", "Key", "AuthKeyUpdatedCallback", "DhGenKey")
 

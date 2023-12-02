@@ -17,12 +17,12 @@
 
 __all__ = ("Dispatcher", "dispatch_event")
 
-import logging
 import abc
+import logging
 
-from . import MTProto
-from ..crypto import DhGenKey, Key
-from ..tl import TlMessageBody, Structure
+from ll_mtproto.crypto import DhGenKey, Key
+from ll_mtproto.network import MTProto
+from ll_mtproto.tl import Structure
 
 
 class Dispatcher(abc.ABC):
