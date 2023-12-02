@@ -21,8 +21,9 @@ import logging
 import traceback
 import typing
 
-from ll_mtproto.client import ConnectionInfo
-from ll_mtproto.client import PendingRequest, Update
+from ll_mtproto.client.connection_info import ConnectionInfo
+from ll_mtproto.client.pending_request import PendingRequest
+from ll_mtproto.client.update import  Update
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.crypto import AuthKey, Key
 from ll_mtproto.crypto.providers import CryptoProviderBase

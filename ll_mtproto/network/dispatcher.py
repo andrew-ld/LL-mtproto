@@ -21,7 +21,7 @@ import abc
 import logging
 
 from ll_mtproto.crypto import DhGenKey, Key
-from ll_mtproto.network import MTProto
+from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl import Structure
 
 
