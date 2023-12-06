@@ -52,14 +52,14 @@ class DatacenterInfo:
         self.is_media = is_media
         self._time_difference = 0
 
-    def set_synchronized_time(self, synchronized_now: int):
+    def set_synchronized_time(self, synchronized_now: int) -> None:
         self._time_difference = synchronized_now - int(time.time())
 
     def get_synchronized_time(self) -> int:
         return int(time.time()) + self._time_difference
 
-    def __copy__(self):
+    def __copy__(self) -> "DatacenterInfo":
         return DatacenterInfo(self.default_direct_address, self.default_direct_port, self.public_rsa, self.schema, self.datacenter_id, self.is_media)
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"{'media' if self.is_media else 'main'} datacenter {self.datacenter_id} with layer {self.schema.layer}"

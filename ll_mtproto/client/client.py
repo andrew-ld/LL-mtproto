@@ -29,7 +29,7 @@ from ll_mtproto.crypto.auth_key import AuthKey, Key
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
 from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
-from ll_mtproto.network.mtproto import DatacenterInfo
+from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.mtproto_key_exchange import MTProtoKeyExchange
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
@@ -47,13 +47,13 @@ class _ClientDispatcher(Dispatcher):
     def __init__(self, impl: "Client"):
         self._impl = impl
 
-    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool):
+    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
         assert crypto_flag
-        return await self._impl._process_telegram_message_body(body)
+        await self._impl._process_telegram_message_body(body)
 
-    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool):
+    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
         assert crypto_flag
-        return self._impl._process_telegram_signaling_message(signaling)
+        self._impl._process_telegram_signaling_message(signaling)
 
 
 class Client:
@@ -85,14 +85,14 @@ class Client:
     _mtproto: MTProto
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
-    _mtproto_loop_task: asyncio.Task | None
+    _mtproto_loop_task: asyncio.Task[None] | None
     _pending_requests: dict[int, PendingRequest]
     _pending_pong: asyncio.TimerHandle | None
     _datacenter: DatacenterInfo
-    _pending_ping: asyncio.TimerHandle | asyncio.Task | None
+    _pending_ping: asyncio.TimerHandle | asyncio.Task[None] | None
     _updates_queue: asyncio.Queue[Update | None]
     _no_updates: bool
-    _pending_future_salt: asyncio.TimerHandle | asyncio.Task | None
+    _pending_future_salt: asyncio.TimerHandle | asyncio.Task[None] | None
     _layer_init_info: ConnectionInfo
     _layer_init_required: bool
     _auth_key_lock: asyncio.Lock
@@ -151,7 +151,7 @@ class Client:
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._persistent_session_key = auth_key.persistent_key
 
-    async def _in_thread(self, *args, **kwargs):
+    async def _in_thread(self, *args: typing.Any, **kwargs: typing.Any) -> typing.Any:
         return await self._loop.run_in_executor(self._blocking_executor, *args, **kwargs)
 
     async def get_update(self) -> Update | None:
@@ -177,12 +177,12 @@ class Client:
 
         return await pending_request.response
 
-    async def _rpc_call(self, request: PendingRequest):
+    async def _rpc_call(self, request: PendingRequest) -> None:
         self._ensure_mtproto_loop()
         await self._write_queue.put(request)
 
     def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
-        message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.to_dict())
+        message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.to_request_body())
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
 
         if self._no_updates:
@@ -190,7 +190,7 @@ class Client:
 
         return message
 
-    async def _start_mtproto_loop(self):
+    async def _start_mtproto_loop(self) -> None:
         self.disconnect()
 
         logging.debug("connecting to Telegram at %s", self._datacenter)
@@ -198,11 +198,11 @@ class Client:
 
         await self._create_init_requests()
 
-    async def _create_init_requests(self):
+    async def _create_init_requests(self) -> None:
         await self._create_future_salt_request()
         await self._create_ping_request()
 
-    async def _create_destroy_session_request(self, destroyed_session_id: int):
+    async def _create_destroy_session_request(self, destroyed_session_id: int) -> None:
         destroy_session_message: TlRequestBody = dict(_cons="destroy_session", session_id=destroyed_session_id)
 
         destroy_session_request = PendingRequest(
@@ -215,7 +215,7 @@ class Client:
 
         await self._rpc_call(destroy_session_request)
 
-    async def _create_future_salt_request(self):
+    async def _create_future_salt_request(self) -> None:
         get_future_salts_message: TlRequestBody = dict(_cons="get_future_salts", num=32)
 
         get_future_salts_request = PendingRequest(
@@ -229,7 +229,7 @@ class Client:
         if pending_future_salt := self._pending_future_salt:
             pending_future_salt.cancel()
 
-        def _initialize_future_salt_request():
+        def _initialize_future_salt_request() -> None:
             if pending_future_salt := self._pending_future_salt:
                 pending_future_salt.cancel()
 
@@ -239,7 +239,7 @@ class Client:
 
         await self._rpc_call(get_future_salts_request)
 
-    async def _create_ping_request(self):
+    async def _create_ping_request(self) -> None:
         self._used_session_key.session.ping_id += 1
         ping_id = self._used_session_key.session.ping_id
 
@@ -260,11 +260,11 @@ class Client:
 
         await self._rpc_call(ping_request)
 
-    def _cancel_pending_request(self, msg_id: int):
+    def _cancel_pending_request(self, msg_id: int) -> None:
         if pending_request := self._pending_requests.pop(msg_id, None):
             pending_request.finalize()
 
-    async def _start_auth_key_exchange_if_needed(self):
+    async def _start_auth_key_exchange_if_needed(self) -> None:
         self._ensure_mtproto_loop()
 
         async with self._auth_key_lock:
@@ -278,7 +278,7 @@ class Client:
                 generated_key = await exchanger.generate_key()
                 temp_auth_key.import_dh_gen_key(generated_key)
 
-    async def _process_outbound_message(self, message: PendingRequest):
+    async def _process_outbound_message(self, message: PendingRequest) -> None:
         message.retries += 1
 
         if message.response.done():
@@ -315,16 +315,16 @@ class Client:
 
         await self._mtproto.write_encrypted(boxed_message, self._used_session_key)
 
-    async def _mtproto_write_loop(self):
+    async def _mtproto_write_loop(self) -> None:
         while True:
             await self._process_outbound_message(await self._write_queue.get())
 
-    async def _mtproto_read_loop(self):
+    async def _mtproto_read_loop(self) -> None:
         while True:
             await dispatch_event(self._dispatcher, self._mtproto, self._used_session_key)
             await self._flush_msgids_to_ack()
 
-    async def _mtproto_loop(self):
+    async def _mtproto_loop(self) -> None:
         try:
             await self._start_auth_key_exchange_if_needed()
         except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
@@ -364,21 +364,21 @@ class Client:
         self.disconnect()
         raise asyncio.CancelledError()
 
-    def _ensure_mtproto_loop(self):
+    def _ensure_mtproto_loop(self) -> None:
         if mtproto_loop_task := self._mtproto_loop_task:
             if mtproto_loop_task.done():
                 raise asyncio.InvalidStateError("mtproto loop closed")
         else:
             raise asyncio.InvalidStateError("mtproto loop closed")
 
-    async def _start_mtproto_loop_if_needed(self):
+    async def _start_mtproto_loop_if_needed(self) -> None:
         if mtproto_loop_task := self._mtproto_loop_task:
             if mtproto_loop_task.done():
                 await self._start_mtproto_loop()
         else:
             await self._start_mtproto_loop()
 
-    async def _process_telegram_message_body(self, body: Structure):
+    async def _process_telegram_message_body(self, body: Structure) -> None:
         match (constructor_name := body.constructor_name):
             case "rpc_result":
                 await self._process_rpc_result(body)
@@ -434,36 +434,36 @@ class Client:
             case _:
                 logging.critical("unknown message type (%s) received", constructor_name)
 
-    def _process_session_destroy(self, body: Structure):
+    def _process_session_destroy(self, body: Structure) -> None:
         logging.debug("session destroy received: %s", body.constructor_name)
         self._used_session_key.unused_sessions.remove(body.session_id)
         self._used_session_key.flush_changes()
 
-    async def _process_update_short_message(self, body: Structure):
+    async def _process_update_short_message(self, body: Structure) -> None:
         if not self._no_updates:
             await self._updates_queue.put(Update([], [], body))
 
-    async def _process_update_short(self, body: Structure):
+    async def _process_update_short(self, body: Structure) -> None:
         if not self._no_updates:
             await self._updates_queue.put(Update([], [], body.update))
 
-    def _process_msgs_ack(self, body: Structure):
+    def _process_msgs_ack(self, body: Structure) -> None:
         logging.debug("received msgs_ack %r", body.msg_ids)
 
-    def _process_msgs_state_info(self, body: Structure):
+    def _process_msgs_state_info(self, body: Structure) -> None:
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             pending_request.response.set_result(body)
             pending_request.finalize()
 
-    def _process_msg_new_detailed_info(self, body: Structure):
+    def _process_msg_new_detailed_info(self, body: Structure) -> None:
         if pending_request := self._pending_requests.pop(body.answer_msg_id, None):
             pending_request.finalize()
 
-    def _process_msg_detailed_info(self, body: Structure):
+    def _process_msg_detailed_info(self, body: Structure) -> None:
         self._process_msg_new_detailed_info(body)
         self._msgids_to_ack.append(body.msg_id)
 
-    def _process_future_salts(self, body: Structure):
+    def _process_future_salts(self, body: Structure) -> None:
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
             pending_request.response.set_result(body)
             pending_request.finalize()
@@ -478,7 +478,7 @@ class Client:
 
             salt_expire = max((valid_salt.valid_until - body.now) - 1800, 10)
 
-            def _initialize_create_future_salt_request():
+            def _initialize_create_future_salt_request() -> None:
                 if pending_future_salt := self._pending_future_salt:
                     pending_future_salt.cancel()
 
@@ -490,10 +490,10 @@ class Client:
 
         self._used_session_key.flush_changes()
 
-    async def _process_new_session_created(self, body: Structure):
+    async def _process_new_session_created(self, body: Structure) -> None:
         self._used_session_key.server_salt = body.server_salt
 
-    async def _process_updates(self, body: Structure):
+    async def _process_updates(self, body: Structure) -> None:
         if self._no_updates:
             return
 
@@ -503,7 +503,7 @@ class Client:
         for update in body.updates:
             await self._updates_queue.put(Update(users, chats, update))
 
-    def _process_pong(self, pong: Structure):
+    def _process_pong(self, pong: Structure) -> None:
         logging.debug("pong message: %d", pong.ping_id)
 
         if pending_pong := self._pending_pong:
@@ -517,7 +517,7 @@ class Client:
         if pending_ping := self._pending_ping:
             pending_ping.cancel()
 
-        def _initialize_create_ping_request():
+        def _initialize_create_ping_request() -> None:
             if pending_ping := self._pending_ping:
                 pending_ping.cancel()
 
@@ -525,11 +525,11 @@ class Client:
 
         self._pending_ping = self._loop.call_later(30, _initialize_create_ping_request)
 
-    def _acknowledge_telegram_message(self, signaling: Structure):
+    def _acknowledge_telegram_message(self, signaling: Structure) -> None:
         if signaling.seqno % 2 == 1:
             self._msgids_to_ack.append(signaling.msg_id)
 
-    async def _flush_msgids_to_ack(self):
+    async def _flush_msgids_to_ack(self) -> None:
         if not self._msgids_to_ack or not self._used_session_key.session.stable_seqno:
             return
 
@@ -546,11 +546,11 @@ class Client:
 
         await self._rpc_call(request)
 
-    def _process_telegram_signaling_message(self, signaling: Structure):
+    def _process_telegram_signaling_message(self, signaling: Structure) -> None:
         self._used_session_key.session.seqno = max(self._used_session_key.session.seqno, signaling.seqno)
         self._acknowledge_telegram_message(signaling)
 
-    async def _process_bad_server_salt(self, body: Structure):
+    async def _process_bad_server_salt(self, body: Structure) -> None:
         if self._used_session_key.server_salt:
             self._used_session_key.session.stable_seqno = False
 
@@ -564,7 +564,7 @@ class Client:
 
         self._used_session_key.flush_changes()
 
-    async def _process_bad_msg_notification(self, body: Structure):
+    async def _process_bad_msg_notification(self, body: Structure) -> None:
         if body.error_code == 32:
             await self._process_bad_msg_notification_msg_seqno_too_low(body)
         elif body.error_code == 33:
@@ -572,20 +572,20 @@ class Client:
         else:
             await self._process_bad_msg_notification_reject_message(body)
 
-    async def _process_bad_msg_notification_reject_message(self, body: Structure):
+    async def _process_bad_msg_notification_reject_message(self, body: Structure) -> None:
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             bad_request.response.set_exception(RpcError(body.error_code, "BAD_MSG_NOTIFICATION"))
             bad_request.finalize()
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: Structure):
+    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: Structure) -> None:
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure):
+    async def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure) -> None:
         session = self._used_session_key.session
 
         session.seqno_increment = min(2 ** 31 - 1, session.seqno_increment << 1)
@@ -598,7 +598,7 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_rpc_result(self, body: Structure):
+    async def _process_rpc_result(self, body: Structure) -> None:
         self._used_session_key.session.stable_seqno = True
         self._used_session_key.session.seqno_increment = 1
 
@@ -663,7 +663,7 @@ class Client:
 
             pending_request.finalize()
 
-    def disconnect(self):
+    def disconnect(self) -> None:
         self._layer_init_required = True
 
         if not self._no_updates:
@@ -700,6 +700,6 @@ class Client:
 
         self._mtproto_loop_task = None
 
-    def __del__(self):
+    def __del__(self) -> None:
         if self._mtproto_loop_task is not None:
             logging.critical("client %d not disconnected", id(self))

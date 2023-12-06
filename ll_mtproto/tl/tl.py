@@ -35,7 +35,7 @@ from ll_mtproto.tl.byteutils import (
 )
 from ll_mtproto.typed import SyncByteReader
 
-__all__ = ("Schema", "Value", "Structure", "Parameter", "Constructor", "TlRequestBody", "TlMessageBody")
+__all__ = ("Schema", "Value", "Structure", "Parameter", "Constructor", "TlRequestBody", "TlMessageBody", "TlRequestBodyValue")
 
 
 @functools.lru_cache()
@@ -108,19 +108,19 @@ class Schema:
     __slots__ = ("constructors", "types", "cons_numbers", "layer")
 
     constructors: dict[str, "Constructor"]
-    types: dict[str, set]
+    types: dict[str, set["Constructor"]]
     cons_numbers: dict[bytes, "Constructor"]
     layer: int
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.constructors = dict()
         self.types = dict()
         self.cons_numbers = dict()
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return "\n".join(repr(cons) for cons in self.constructors.values())
 
-    def extend_from_raw_schema(self, schema: str):
+    def extend_from_raw_schema(self, schema: str) -> None:
         is_function = False
 
         for schema_line in schema.split("\n"):
@@ -130,7 +130,7 @@ class Schema:
             self._parse_line(schema_line, is_function)
 
     @staticmethod
-    def _parse_token(regex, s: str) -> None | dict[str, str]:
+    def _parse_token(regex: re.Pattern[str], s: str) -> None | dict[str, str]:
         match = regex.match(s)
 
         if not match:
@@ -138,7 +138,7 @@ class Schema:
         else:
             return {k: v for k, v in match.groupdict().items() if v is not None}
 
-    def _parse_line(self, line: str, is_function: bool):
+    def _parse_line(self, line: str, is_function: bool) -> None:
         cons_parsed = self._parse_token(_schemaRE, line)
 
         if not cons_parsed:
@@ -291,7 +291,7 @@ class Schema:
     def _debug_type_error_msg(parameter: "Parameter", argument: "Value") -> str:
         return f"expected: {parameter!r}, found: {argument!r}"
 
-    def typecheck(self, parameter: "Parameter", argument: "Value"):
+    def typecheck(self, parameter: "Parameter", argument: "Value") -> None:
         if not isinstance(argument, Value):
             raise TypeError("not an object for nonbasic type", self._debug_type_error_msg(parameter, argument))
 
@@ -361,16 +361,16 @@ class Schema:
 
             return cons.deserialize_bare_data(reader)
 
-    def serialize(self, boxed: bool, _cons: str, **kwargs) -> "Value":
+    def serialize(self, boxed: bool, _cons: str, **kwargs: dict[str, typing.Any]) -> "Value":
         if cons := self.constructors.get(_cons, None):
             return cons.serialize(boxed=boxed, **kwargs)
         else:
             raise NotImplementedError(f"Constructor `{_cons}` not present in schema.")
 
-    def bare(self, **kwargs) -> "Value":
+    def bare(self, **kwargs: typing.Any) -> "Value":
         return self.serialize(boxed=False, **kwargs)
 
-    def boxed(self, **kwargs) -> "Value":
+    def boxed(self, **kwargs: typing.Any) -> "Value":
         return self.serialize(boxed=True, **kwargs)
 
     def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "TlMessageBody":
@@ -391,10 +391,10 @@ class Flags:
 
     _flags: set[int]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._flags = set()
 
-    def add_flag(self, flag: int):
+    def add_flag(self, flag: int) -> None:
         self._flags.add(flag)
 
     def get_flat_bytes(self) -> bytes:
@@ -423,22 +423,22 @@ class Value:
 
         self._buffers = []
 
-    def set_flag(self, flag_number: int, flag_name: int):
+    def set_flag(self, flag_number: int, flag_name: int) -> None:
         if (flags := self._flags) is None:
             raise TypeError(f"Tried to set flag for a flagless Value `{self.cons!r}`")
         else:
             flags[flag_name].add_flag(flag_number)
 
-    def append_serializable_flag(self, flag_name: int):
+    def append_serializable_flag(self, flag_name: int) -> None:
         if (flags := self._flags) is None:
             raise TypeError(f"Tried to append flag to data for a flagless Value `{self.cons!r}`")
         else:
             self._buffers.append(flags[flag_name])
 
-    def append_serialized_tl(self, data: typing.Union["Value", bytes]):
+    def append_serialized_tl(self, data: typing.Union["Value", bytes]) -> None:
         self._buffers.append(data if isinstance(data, bytes) else data.get_flat_bytes())
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f'{"boxed" if self.boxed else "bare"}({self.cons!r})'
 
     def get_flat_bytes(self) -> bytes:
@@ -459,32 +459,40 @@ class Structure:
     __slots__ = ("constructor_name", "_fields")
 
     constructor_name: str
-    _fields: dict
+    _fields: dict[str, typing.Any]
 
-    def __init__(self, constructor_name: str, fields: dict):
+    def __init__(self, constructor_name: str, fields: dict[str, typing.Any]):
         self.constructor_name = constructor_name
         self._fields = fields
 
-    def __eq__(self, other):
+    def __eq__(self, other: typing.Any) -> bool:
         if isinstance(other, str):
             return self.constructor_name == other
 
-    def __repr__(self):
+        raise NotImplementedError()
+
+    def __repr__(self) -> str:
         return repr(self.get_dict())
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> typing.Any:
         try:
             return self._fields[name]
         except KeyError as parent_key_error:
             raise KeyError(f"key `{name}` not found in `{self!r}`") from parent_key_error
 
-    def get_dict(self):
-        return Structure._get_dict(self)
+    def get_dict(self) -> dict[str, typing.Any]:
+        # _get_dict_inner from Structure always return dict
+        return typing.cast(dict[str, typing.Any], Structure._get_dict_inner(self))
 
     @staticmethod
-    def from_obj(obj: typing.Any) -> typing.Any:
+    def from_dict(obj: dict[str, typing.Any]) -> "Structure":
+        # _from_obj_inner from dict always return Structure
+        return typing.cast(Structure, Structure._from_obj_inner(obj))
+
+    @staticmethod
+    def _from_obj_inner(obj: typing.Any) -> typing.Any:
         if isinstance(obj, (list, tuple)):
-            return [Structure.from_obj(x) for x in obj]
+            return [Structure._from_obj_inner(x) for x in obj]
 
         if not isinstance(obj, dict):
             return obj
@@ -493,10 +501,10 @@ class Structure:
             (
                 k,
                 (
-                    Structure.from_obj(v)
+                    Structure._from_obj_inner(v)
                     if isinstance(v, dict)
                     else
-                    [Structure.from_obj(x) for x in v]
+                    [Structure._from_obj_inner(x) for x in v]
                     if isinstance(v, (list, tuple))
                     else
                     v
@@ -509,18 +517,18 @@ class Structure:
         return Structure(obj["_cons"], fields)
 
     @staticmethod
-    def _get_dict(obj: typing.Any) -> typing.Any:
+    def _get_dict_inner(obj: typing.Any) -> typing.Any:
         if isinstance(obj, Structure):
             return {
                 "_cons": obj.constructor_name,
                 **{
-                    key: Structure._get_dict(value)
+                    key: Structure._get_dict_inner(value)
                     for key, value in obj._fields.items()
                 }
             }
 
         elif isinstance(obj, (list, tuple)):
-            return [Structure._get_dict(value) for value in obj]
+            return [Structure._get_dict_inner(value) for value in obj]
 
         else:
             return obj
@@ -558,7 +566,7 @@ class Parameter:
         self.is_flag = is_flag
         self.flag_name = flag_name
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         if self.flag_number is not None:
             return f"{self.name}:flags.{self.flag_number:d}?{self.type}"
         else:
@@ -599,10 +607,10 @@ class Constructor:
         self.is_transparent_container = is_transparent_container
         self.ptype_parameter = ptype_parameter
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"{self.name} {''.join(repr(p) for p in self._parameters)}= {self.ptype};"
 
-    def _serialize_argument(self, data: Value, parameter: Parameter, argument: typing.Any):
+    def _serialize_argument(self, data: Value, parameter: Parameter, argument: typing.Any) -> None:
         if isinstance(argument, str):
             argument = argument.encode("utf-8")
 
@@ -689,7 +697,7 @@ class Constructor:
                     self.schema.typecheck(parameter, argument)
                     data.append_serialized_tl(argument)
 
-    def serialize(self, boxed: bool, **arguments) -> Value:
+    def serialize(self, boxed: bool, **arguments: dict[str, typing.Any]) -> Value:
         data = Value(self, boxed=boxed)
 
         for parameter in self._parameters:
@@ -830,7 +838,7 @@ class Constructor:
             for parameter in self._parameters:
                 fields[parameter.name] = self._deserialize_argument(reader, parameter)
 
-        return Structure.from_obj(fields)
+        return Structure.from_dict(fields)
 
 
 TlMessageBody = typing.Union[Structure, typing.List['TlMessageBody']]
@@ -840,8 +848,10 @@ TlRequestBodyValue = typing.Union[
     str,
     int,
     typing.Iterable['TlRequestBodyValue'],
+    typing.Dict[str, 'TlRequestBodyValue'],
     'TlRequestBody',
-    Structure
+    Structure,
+    None
 ]
 
 TlRequestBody = typing.Dict[str, TlRequestBodyValue]

@@ -30,10 +30,10 @@ class AuthKeyUpdatedCallbackHolder:
 
     on_content_change_callback: AuthKeyUpdatedCallback
 
-    def __init__(self, callback: AuthKeyUpdatedCallback):
+    def __init__(self, callback: AuthKeyUpdatedCallback) -> None:
         self.on_content_change_callback = callback
 
-    def set_content_change_callback(self, callback: AuthKeyUpdatedCallback):
+    def set_content_change_callback(self, callback: AuthKeyUpdatedCallback) -> None:
         self.on_content_change_callback = callback
 
 
@@ -80,7 +80,7 @@ class KeySession:
             "seqno_increment": self.seqno_increment
         }
 
-    def __setstate__(self, state: dict[str, typing.Any]):
+    def __setstate__(self, state: dict[str, typing.Any]) -> None:
         self.id = state["id"]
         self.seqno = state.get("seqno", 0)
         self.ping_id = state.get("ping_id", 0)
@@ -100,7 +100,7 @@ class DhGenKey:
     server_salt: None | int
     session: KeySession
 
-    def __init__(self):
+    def __init__(self) -> None:
         self.auth_key = None
         self.auth_key_id = None
         self.server_salt = None
@@ -161,7 +161,7 @@ class Key:
             "created_at": self.created_at
         }
 
-    def __setstate__(self, state: dict[str, typing.Any]):
+    def __setstate__(self, state: dict[str, typing.Any]) -> None:
         self.auth_key = state["auth_key"]
         self.auth_key_id = state["auth_key_id"]
         self.server_salt = state["server_salt"]
@@ -174,13 +174,13 @@ class Key:
         auth_key_id = sha1(auth_key)[-8:] if auth_key else None
         return int.from_bytes(auth_key_id, "little", signed=False) if auth_key_id else None
 
-    def flush_changes(self):
+    def flush_changes(self) -> None:
         self._update_callback.on_content_change_callback()
 
     def is_empty(self) -> bool:
         return self.auth_key is None or self.auth_key_id is None
 
-    def generate_new_unique_session_id(self):
+    def generate_new_unique_session_id(self) -> None:
         if (old_session := self.session).seqno > 0:
             self.unused_sessions.add(old_session.id)
 
@@ -191,7 +191,7 @@ class Key:
 
         self.session = KeySession(session_id=new_session_id)
 
-    def import_dh_gen_key(self, dh_gen_key: DhGenKey):
+    def import_dh_gen_key(self, dh_gen_key: DhGenKey) -> None:
         self.created_at = time.time()
 
         self.auth_key = dh_gen_key.auth_key
@@ -211,13 +211,13 @@ class Key:
 
         return auth_key, auth_key_id, session
 
-    def is_fresh_key(self):
+    def is_fresh_key(self) -> bool:
         if (created_at := self.created_at) is not None:
             return (time.time() - created_at) < 60.
 
         return False
 
-    def clear_key(self):
+    def clear_key(self) -> None:
         self.auth_key = None
         self.auth_key_id = None
         self.server_salt = None
@@ -244,10 +244,10 @@ class AuthKey:
         self.persistent_key = persistent_key or Key(self._update_callback)
         self.temporary_key = temporary_key or Key(self._update_callback)
 
-    def _stub_on_content_change(self):
+    def _stub_on_content_change(self) -> None:
         logging.warning("auth key: `%r`, dont have content change callback", self)
 
-    def set_content_change_callback(self, callback: AuthKeyUpdatedCallback):
+    def set_content_change_callback(self, callback: AuthKeyUpdatedCallback) -> None:
         self._update_callback.set_content_change_callback(callback)
 
     def __getstate__(self) -> dict[str, typing.Any]:
@@ -256,7 +256,7 @@ class AuthKey:
             "temporary_key": self.temporary_key
         }
 
-    def __setstate__(self, state: dict[str, typing.Any]):
+    def __setstate__(self, state: dict[str, typing.Any]) -> None:
         self.persistent_key = state["persistent_key"]
         self.temporary_key = state["temporary_key"]
 

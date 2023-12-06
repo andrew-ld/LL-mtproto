@@ -14,8 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-
-from ll_mtproto.tl.tl import TlRequestBody
+from ll_mtproto.tl.tl import TlRequestBody, TlRequestBodyValue
 
 __all__ = ("ConnectionInfo",)
 
@@ -39,7 +38,7 @@ class ConnectionInfo:
     lang_code: str
     system_lang_code: str
     lang_pack: str
-    params: dict | None
+    params: TlRequestBody | None
 
     def __init__(
             self,
@@ -62,7 +61,7 @@ class ConnectionInfo:
         self.lang_pack = lang_pack
         self.params = params
 
-    def to_dict(self) -> dict:
+    def to_request_body(self) -> dict[str, TlRequestBodyValue]:
         return {
             "api_id": self.api_id,
             "device_model": self.device_model,

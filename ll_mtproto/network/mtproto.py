@@ -31,7 +31,7 @@ from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl import tl
 from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
-from ll_mtproto.tl.tl import Structure, Constructor
+from ll_mtproto.tl.tl import Structure, Constructor, TlRequestBodyValue
 from ll_mtproto.typed import InThread
 
 __all__ = ("MTProto",)
@@ -149,7 +149,7 @@ class MTProto:
 
             return message, message.body
 
-    async def write_unencrypted_message(self, **kwargs):
+    async def write_unencrypted_message(self, **kwargs: typing.Any) -> None:
         message = self._datacenter.schema.bare(
             _cons="unencrypted_message",
             auth_key_id=0,
@@ -159,7 +159,7 @@ class MTProto:
 
         await self._link.write(message.get_flat_bytes())
 
-    async def write_encrypted(self, message: tl.Value, key: Key | DhGenKey):
+    async def write_encrypted(self, message: tl.Value, key: Key | DhGenKey) -> None:
         auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
         message_inner_data = self._datacenter.schema.bare(
@@ -249,7 +249,7 @@ class MTProto:
 
             return message.message, typing.cast(Structure, message_body)
 
-    def prepare_message_for_write(self, seq_no: int, **kwargs) -> tuple[tl.Value, int]:
+    def prepare_message_for_write(self, seq_no: int, **kwargs: TlRequestBodyValue) -> tuple[tl.Value, int]:
         boxed_message_id = self.get_next_message_id()
 
         boxed_message = self._datacenter.schema.bare(
@@ -261,7 +261,7 @@ class MTProto:
 
         return boxed_message, boxed_message_id
 
-    def stop(self):
+    def stop(self) -> None:
         self._link.stop()
         self._last_message_id = 0
         logging.debug("disconnected from Telegram")

@@ -136,13 +136,13 @@ class MTProtoKeyExchange(Dispatcher):
         self._parent_key = parent_key
         self._exchange_state = None
 
-    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool):
+    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
         if crypto_flag:
             await self._parent_dispatcher.process_telegram_signaling_message(signaling, crypto_flag)
         else:
             await self._mtproto.write_unencrypted_message(_cons="msgs_ack", msg_ids=[signaling.msg_id])
 
-    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool):
+    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
         match (state := self._exchange_state):
             case _KeyExchangeStateWaitingResPq():
                 await self._process_res_pq(body, state)
@@ -160,7 +160,7 @@ class MTProtoKeyExchange(Dispatcher):
             case _:
                 raise TypeError("Unknown exchange state `%r`", state)
 
-    async def _process_bind_parent_key(self, body: Structure, state: _KeyExchangeStateBindParentKey):
+    async def _process_bind_parent_key(self, body: Structure, state: _KeyExchangeStateBindParentKey) -> None:
         if body == "new_session_created" or body == "msgs_ack":
             return await self._parent_dispatcher.process_telegram_message_body(body, True)
 
@@ -180,7 +180,7 @@ class MTProtoKeyExchange(Dispatcher):
 
         self._exchange_state = _KeyExchangeStateBindCompleted(key=state.key)
 
-    async def _process_dh_gen_ok(self, params3: Structure, state: _KeyExchangeStateWaitingDhGenOk):
+    async def _process_dh_gen_ok(self, params3: Structure, state: _KeyExchangeStateWaitingDhGenOk) -> None:
         if params3 != "dh_gen_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
@@ -193,7 +193,7 @@ class MTProtoKeyExchange(Dispatcher):
                 req_msg_id=self._mtproto.get_next_message_id()
             )
 
-    async def _process_dh_params(self, params: Structure, state: _KeyExchangeStateWaitingDhParams):
+    async def _process_dh_params(self, params: Structure, state: _KeyExchangeStateWaitingDhParams) -> None:
         if params != "server_DH_params_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params)
 
@@ -302,7 +302,7 @@ class MTProtoKeyExchange(Dispatcher):
 
         self._exchange_state = _KeyExchangeStateWaitingDhGenOk(key=new_auth_key, temp_key_expires_in=state.temp_key_expires_in)
 
-    async def _process_res_pq(self, res_pq: Structure, state: _KeyExchangeStateWaitingResPq):
+    async def _process_res_pq(self, res_pq: Structure, state: _KeyExchangeStateWaitingResPq) -> None:
         if res_pq != "resPQ":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", res_pq)
 
@@ -364,7 +364,7 @@ class MTProtoKeyExchange(Dispatcher):
             temp_key_expires_in=temp_key_expires_in
         )
 
-    async def _write_bind_parent_key_request(self, state: _KeyExchangeStateBindParentKey):
+    async def _write_bind_parent_key_request(self, state: _KeyExchangeStateBindParentKey) -> None:
         parent_key = self._parent_key
 
         if parent_key is None:
@@ -434,7 +434,7 @@ class MTProtoKeyExchange(Dispatcher):
 
         await self._mtproto.write_encrypted(bind_temp_auth_boxed_message, state.key)
 
-    async def _write_req_pq_multi(self, nonce: bytes):
+    async def _write_req_pq_multi(self, nonce: bytes) -> None:
         await self._mtproto.write_unencrypted_message(_cons="req_pq_multi", nonce=nonce)
 
     async def generate_key(self) -> DhGenKey:

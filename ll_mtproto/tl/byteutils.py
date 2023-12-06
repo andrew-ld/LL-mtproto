@@ -75,7 +75,7 @@ def sha256(b: bytes) -> bytes:
 
 
 @functools.lru_cache()
-def to_bytes(x: int, byte_order: typing.Literal["big", "little"] = "big", signed=False) -> bytes:
+def to_bytes(x: int, byte_order: typing.Literal["big", "little"] = "big", signed: bool = False) -> bytes:
     return x.to_bytes(((x.bit_length() - 1) // 8) + 1, byte_order, signed=signed)
 
 
@@ -132,7 +132,7 @@ class _SyncByteReaderByteUtilsImpl:
     def is_empty(self) -> bool:
         return self._io.tell() == self._io.getbuffer().nbytes
 
-    def close(self):
+    def close(self) -> None:
         self._io.close()
 
 
@@ -148,7 +148,7 @@ def reader_is_empty(reader: SyncByteReader) -> bool:
     return typing.cast(_SyncByteReaderByteUtilsImpl, reader).is_empty()
 
 
-def reader_discard(reader: SyncByteReader):
+def reader_discard(reader: SyncByteReader) -> None:
     typing.cast(_SyncByteReaderByteUtilsImpl, reader).close()
 
 
@@ -180,7 +180,7 @@ class ByteReaderApply:
         self._apply_function = apply_function
         self._in_thread = in_thread
 
-    async def __call__(self, nbytes: int):
+    async def __call__(self, nbytes: int) -> bytes:
         result = await self._parent(nbytes)
         await self._in_thread(self._apply_function, result)
         return result
@@ -196,7 +196,7 @@ class SyncByteReaderApply:
         self._parent = parent
         self._apply_function = apply_function
 
-    def __call__(self, nbytes: int):
+    def __call__(self, nbytes: int) -> bytes:
         result = self._parent(nbytes)
         self._apply_function(result)
         return result

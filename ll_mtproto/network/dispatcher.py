@@ -27,15 +27,15 @@ from ll_mtproto.tl.tl import Structure
 
 class Dispatcher(abc.ABC):
     @abc.abstractmethod
-    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool):
+    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
         raise NotImplementedError
 
     @abc.abstractmethod
-    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool):
+    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
         raise NotImplementedError
 
 
-async def _process_telegram_message(dispatcher: Dispatcher, signaling: Structure, body: Structure, crypto_flag: bool):
+async def _process_telegram_message(dispatcher: Dispatcher, signaling: Structure, body: Structure, crypto_flag: bool) -> None:
     await dispatcher.process_telegram_signaling_message(signaling, crypto_flag)
 
     if body == "msg_container":
@@ -46,12 +46,12 @@ async def _process_telegram_message(dispatcher: Dispatcher, signaling: Structure
         await dispatcher.process_telegram_message_body(body, crypto_flag)
 
 
-async def _process_inbound_message(dispatcher: Dispatcher, signaling: Structure, body: Structure, crypto_flag: bool):
+async def _process_inbound_message(dispatcher: Dispatcher, signaling: Structure, body: Structure, crypto_flag: bool) -> None:
     logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
     await _process_telegram_message(dispatcher, signaling, body, crypto_flag)
 
 
-async def dispatch_event(dispatcher: Dispatcher, mtproto: MTProto, encryption_key: Key | DhGenKey | None):
+async def dispatch_event(dispatcher: Dispatcher, mtproto: MTProto, encryption_key: Key | DhGenKey | None) -> None:
     if encryption_key is not None:
         signaling, body = await mtproto.read_encrypted(encryption_key)
     else:

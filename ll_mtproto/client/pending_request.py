@@ -59,7 +59,7 @@ class PendingRequest:
         self.allow_container = allow_container
         self.expect_answer = expect_answer
 
-    def finalize(self):
+    def finalize(self) -> None:
         if not (response := self.response).done():
             response.set_exception(ConnectionResetError())
 

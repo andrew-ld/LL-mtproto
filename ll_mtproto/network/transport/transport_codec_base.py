@@ -27,5 +27,5 @@ class TransportCodecBase(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    async def write_packet(self, writer: asyncio.StreamWriter, data: bytes):
+    async def write_packet(self, writer: asyncio.StreamWriter, data: bytes) -> None:
         raise NotImplementedError()

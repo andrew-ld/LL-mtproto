@@ -30,10 +30,10 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
 
     _cached_resolved: dict[DatacenterInfo, list[tuple[str, int]]]
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._cached_resolved = dict()
 
-    def on_new_address(self, datacenter_info: DatacenterInfo, direct_address: str, direct_port: int):
+    def on_new_address(self, datacenter_info: DatacenterInfo, direct_address: str, direct_port: int) -> None:
         self._cached_resolved.setdefault(datacenter_info, []).append((direct_address, direct_port))
 
     def get_cache_copy(self) -> dict[DatacenterInfo, list[tuple[str, int]]]:
@@ -44,7 +44,7 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
             datacenters: frozenset[DatacenterInfo],
             config: Structure,
             allow_ipv6: bool = False
-    ):
+    ) -> None:
         if config.constructor_name != "config":
             raise TypeError(f"Expected: config, Found: {config!r}")
 

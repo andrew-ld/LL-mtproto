@@ -29,14 +29,14 @@ class TransportCodecIntermediate(TransportCodecBase):
 
     _must_write_transport_type: bool
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._must_write_transport_type = True
 
     async def read_packet(self, reader: asyncio.StreamReader) -> bytes:
         packet_data_length = struct.unpack("<i", await reader.readexactly(4))
         return await reader.readexactly(*packet_data_length)
 
-    async def write_packet(self, writer: asyncio.StreamWriter, data: bytes):
+    async def write_packet(self, writer: asyncio.StreamWriter, data: bytes) -> None:
         packet_header = bytearray()
 
         if self._must_write_transport_type:

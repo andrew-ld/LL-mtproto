@@ -15,16 +15,17 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import cryptg  # type: ignore
+import typing
 
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 
 
 class CryptoProviderCryptg(CryptoProviderBase):
     def factorize_pq(self, pq: int) -> tuple[int, int]:
-        return cryptg.factorize_pq_pair(pq)
+        return typing.cast(tuple[int, int], cryptg.factorize_pq_pair(pq))
 
-    def decrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes):
-        return cryptg.decrypt_ige(data_in_out, key, iv)
+    def decrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes) -> bytes:
+        return typing.cast(bytes, cryptg.decrypt_ige(data_in_out, key, iv))
 
-    def encrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes):
-        return cryptg.encrypt_ige(data_in_out, key, iv)
+    def encrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes) -> bytes:
+        return typing.cast(bytes, cryptg.encrypt_ige(data_in_out, key, iv))
