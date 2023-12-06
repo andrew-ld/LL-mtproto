@@ -361,7 +361,7 @@ class Schema:
 
             return cons.deserialize_bare_data(reader)
 
-    def serialize(self, boxed: bool, _cons: str, **kwargs: dict[str, typing.Any]) -> "Value":
+    def serialize(self, boxed: bool, _cons: str, **kwargs: typing.Any) -> "Value":
         if cons := self.constructors.get(_cons, None):
             return cons.serialize(boxed=boxed, **kwargs)
         else:
@@ -697,7 +697,7 @@ class Constructor:
                     self.schema.typecheck(parameter, argument)
                     data.append_serialized_tl(argument)
 
-    def serialize(self, boxed: bool, **arguments: dict[str, typing.Any]) -> Value:
+    def serialize(self, boxed: bool, **arguments: typing.Any) -> Value:
         data = Value(self, boxed=boxed)
 
         for parameter in self._parameters:
