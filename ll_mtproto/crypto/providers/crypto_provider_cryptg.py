@@ -22,10 +22,13 @@ from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 
 class CryptoProviderCryptg(CryptoProviderBase):
     def factorize_pq(self, pq: int) -> tuple[int, int]:
+        # factorize_pq_pair is untyped, always return tuple[int, int]
         return typing.cast(tuple[int, int], cryptg.factorize_pq_pair(pq))
 
     def decrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes) -> bytes:
+        # decrypt_ige is untyped, always return tuple[int, int]
         return typing.cast(bytes, cryptg.decrypt_ige(data_in_out, key, iv))
 
     def encrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes) -> bytes:
+        # encrypt_ige is untyped, always return tuple[int, int]
         return typing.cast(bytes, cryptg.encrypt_ige(data_in_out, key, iv))

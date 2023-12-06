@@ -361,16 +361,18 @@ class Schema:
 
             return cons.deserialize_bare_data(reader)
 
-    def serialize(self, boxed: bool, _cons: str, **kwargs: typing.Any) -> "Value":
-        if cons := self.constructors.get(_cons, None):
+    def serialize(self, boxed: bool, **kwargs: "TlRequestBodyValue") -> "Value":
+        cons_name = typing.cast(str, kwargs["_cons"])
+
+        if cons := self.constructors.get(cons_name, None):
             return cons.serialize(boxed=boxed, **kwargs)
         else:
-            raise NotImplementedError(f"Constructor `{_cons}` not present in schema.")
+            raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
 
-    def bare(self, **kwargs: typing.Any) -> "Value":
+    def bare(self, **kwargs: "TlRequestBodyValue") -> "Value":
         return self.serialize(boxed=False, **kwargs)
 
-    def boxed(self, **kwargs: typing.Any) -> "Value":
+    def boxed(self, **kwargs: "TlRequestBodyValue") -> "Value":
         return self.serialize(boxed=True, **kwargs)
 
     def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "TlMessageBody":
@@ -697,7 +699,7 @@ class Constructor:
                     self.schema.typecheck(parameter, argument)
                     data.append_serialized_tl(argument)
 
-    def serialize(self, boxed: bool, **arguments: typing.Any) -> Value:
+    def serialize(self, boxed: bool, **arguments: "TlRequestBodyValue") -> Value:
         data = Value(self, boxed=boxed)
 
         for parameter in self._parameters:
@@ -851,7 +853,8 @@ TlRequestBodyValue = typing.Union[
     typing.Dict[str, 'TlRequestBodyValue'],
     'TlRequestBody',
     Structure,
-    None
+    None,
+    Value
 ]
 
 TlRequestBody = typing.Dict[str, TlRequestBodyValue]

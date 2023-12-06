@@ -247,6 +247,7 @@ class MTProto:
             finally:
                 reader_discard(message_body_reader)
 
+            # message_body is Structure, guaranteed at runtime by schema
             return message.message, typing.cast(Structure, message_body)
 
     def prepare_message_for_write(self, seq_no: int, **kwargs: TlRequestBodyValue) -> tuple[tl.Value, int]:
