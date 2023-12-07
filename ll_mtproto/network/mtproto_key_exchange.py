@@ -29,7 +29,7 @@ from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl.byteutils import to_bytes, sha1, to_reader, xor, SyncByteReaderApply
-from ll_mtproto.tl.tl import Structure
+from ll_mtproto.tl.structure import Structure
 from ll_mtproto.typed import InThread
 
 __all__ = ("MTProtoKeyExchange",)
@@ -223,7 +223,7 @@ class MTProtoKeyExchange(Dispatcher):
         answer_reader_sha1 = hashlib.sha1()
         answer_reader_with_hash = SyncByteReaderApply(answer_reader, answer_reader_sha1.update)
 
-        params2 = await self._in_thread(self._datacenter.schema.read_by_boxed_data, answer_reader_with_hash)
+        params2 = Structure.from_dict(await self._in_thread(self._datacenter.schema.read_by_boxed_data, answer_reader_with_hash))
         answer_hash_computed = await self._in_thread(answer_reader_sha1.digest)
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):

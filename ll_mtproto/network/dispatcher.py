@@ -22,7 +22,7 @@ import logging
 
 from ll_mtproto.crypto.auth_key import DhGenKey, Key
 from ll_mtproto.network.mtproto import MTProto
-from ll_mtproto.tl.tl import Structure
+from ll_mtproto.tl.structure import Structure
 
 
 class Dispatcher(abc.ABC):

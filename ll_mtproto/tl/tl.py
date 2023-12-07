@@ -28,14 +28,13 @@ from ll_mtproto.tl.byteutils import (
     pack_binary_string,
     unpack_binary_string,
     pack_long_binary_string,
-    unpack_binary_string_stream,
     unpack_long_binary_string_stream,
     GzipStreamReader,
-    pack_long_binary_string_padded
+    pack_long_binary_string_padded, unpack_binary_string_stream
 )
 from ll_mtproto.typed import SyncByteReader
 
-__all__ = ("Schema", "Value", "Structure", "Parameter", "Constructor", "TlRequestBody", "TlMessageBody", "TlRequestBodyValue")
+__all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue")
 
 
 @functools.lru_cache()
@@ -274,7 +273,6 @@ class Schema:
             parameters=parameters,
             flags=set(p.flag_name for p in parameters if p.is_flag and p.flag_name is not None) or None,
             is_function=is_function,
-            is_transparent_container=ptype == "Object",
             ptype_parameter=ptype_parameter
         )
 
@@ -315,7 +313,7 @@ class Schema:
             if argument.boxed:
                 raise TypeError("expected bare, found boxed", self._debug_type_error_msg(parameter, argument))
 
-    def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlMessageBody":
+    def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
         if parameter.is_boxed:
             if parameter.type is not None and parameter.type not in self.types:
                 raise ValueError(f"Unknown type `{parameter.type}`")
@@ -341,8 +339,8 @@ class Schema:
             if not cons:
                 raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
 
-            if cons.is_transparent_container:
-                return self.deserialize(cons.deserialize_bare_data(reader).data, parameter)
+            if cons.name == "gzip_packed":
+                return self.deserialize(GzipStreamReader(unpack_binary_string_stream(reader)), parameter)
 
             if parameter.type is not None and cons not in self.types[parameter.type] and cons.ptype:
                 raise ValueError(f"type mismatch, constructor `{cons.name}` not in type `{parameter.type}`")
@@ -361,7 +359,7 @@ class Schema:
 
             return cons.deserialize_bare_data(reader)
 
-    def serialize(self, boxed: bool, **kwargs: "TlRequestBodyValue") -> "Value":
+    def serialize(self, boxed: bool, **kwargs: "TlBodyDataValue") -> "Value":
         cons_name = typing.cast(str, kwargs["_cons"])
 
         if cons := self.constructors.get(cons_name, None):
@@ -369,16 +367,16 @@ class Schema:
         else:
             raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
 
-    def bare(self, **kwargs: "TlRequestBodyValue") -> "Value":
+    def bare(self, **kwargs: "TlBodyDataValue") -> "Value":
         return self.serialize(boxed=False, **kwargs)
 
-    def boxed(self, **kwargs: "TlRequestBodyValue") -> "Value":
+    def boxed(self, **kwargs: "TlBodyDataValue") -> "Value":
         return self.serialize(boxed=True, **kwargs)
 
-    def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "TlMessageBody":
+    def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
         return self.deserialize(reader, parameter)
 
-    def read_by_boxed_data(self, reader: SyncByteReader) -> "Structure":
+    def read_by_boxed_data(self, reader: SyncByteReader) -> "TlBodyData":
         cons_number = reader(4)
         cons = self.cons_numbers.get(cons_number, None)
 
@@ -457,85 +455,6 @@ class Value:
         return b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Flags) else k, (prefix, *self._buffers)))
 
 
-class Structure:
-    __slots__ = ("constructor_name", "_fields")
-
-    constructor_name: str
-    _fields: dict[str, typing.Any]
-
-    def __init__(self, constructor_name: str, fields: dict[str, typing.Any]):
-        self.constructor_name = constructor_name
-        self._fields = fields
-
-    def __eq__(self, other: typing.Any) -> bool:
-        if isinstance(other, str):
-            return self.constructor_name == other
-
-        raise NotImplementedError()
-
-    def __repr__(self) -> str:
-        return repr(self.get_dict())
-
-    def __getattr__(self, name: str) -> typing.Any:
-        try:
-            return self._fields[name]
-        except KeyError as parent_key_error:
-            raise KeyError(f"key `{name}` not found in `{self!r}`") from parent_key_error
-
-    def get_dict(self) -> dict[str, typing.Any]:
-        # _get_dict_inner from Structure always return dict
-        return typing.cast(dict[str, typing.Any], Structure._get_dict_inner(self))
-
-    @staticmethod
-    def from_dict(obj: dict[str, typing.Any]) -> "Structure":
-        # _from_obj_inner from dict always return Structure
-        return typing.cast(Structure, Structure._from_obj_inner(obj))
-
-    @staticmethod
-    def _from_obj_inner(obj: typing.Any) -> typing.Any:
-        if isinstance(obj, (list, tuple)):
-            return [Structure._from_obj_inner(x) for x in obj]
-
-        if not isinstance(obj, dict):
-            return obj
-
-        fields = dict(
-            (
-                k,
-                (
-                    Structure._from_obj_inner(v)
-                    if isinstance(v, dict)
-                    else
-                    [Structure._from_obj_inner(x) for x in v]
-                    if isinstance(v, (list, tuple))
-                    else
-                    v
-                )
-            )
-            for k, v in obj.items()
-            if k != "_cons"
-        )
-
-        return Structure(obj["_cons"], fields)
-
-    @staticmethod
-    def _get_dict_inner(obj: typing.Any) -> typing.Any:
-        if isinstance(obj, Structure):
-            return {
-                "_cons": obj.constructor_name,
-                **{
-                    key: Structure._get_dict_inner(value)
-                    for key, value in obj._fields.items()
-                }
-            }
-
-        elif isinstance(obj, (list, tuple)):
-            return [Structure._get_dict_inner(value) for value in obj]
-
-        else:
-            return obj
-
-
 class Parameter:
     __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name")
 
@@ -576,7 +495,7 @@ class Parameter:
 
 
 class Constructor:
-    __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags", "is_function", "is_transparent_container", "ptype_parameter")
+    __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags", "is_function", "ptype_parameter")
 
     schema: Schema
     ptype: str | None
@@ -596,7 +515,6 @@ class Constructor:
             parameters: list[Parameter],
             flags: set[int] | None,
             is_function: bool,
-            is_transparent_container: bool,
             ptype_parameter: Parameter | None
     ):
         self.schema = schema
@@ -606,7 +524,6 @@ class Constructor:
         self._parameters = parameters
         self.flags = flags
         self.is_function = is_function
-        self.is_transparent_container = is_transparent_container
         self.ptype_parameter = ptype_parameter
 
     def __repr__(self) -> str:
@@ -624,9 +541,6 @@ class Constructor:
 
         if argument is True and parameter.type == "Bool":
             argument = {"_cons": "boolTrue"}
-
-        if isinstance(argument, Structure):
-            argument = argument.get_dict()
 
         if isinstance(argument, dict):
             argument = self.schema.serialize(boxed=parameter.is_boxed, **argument)
@@ -699,7 +613,7 @@ class Constructor:
                     self.schema.typecheck(parameter, argument)
                     data.append_serialized_tl(argument)
 
-    def serialize(self, boxed: bool, **arguments: "TlRequestBodyValue") -> Value:
+    def serialize(self, boxed: bool, **arguments: "TlBodyDataValue") -> Value:
         data = Value(self, boxed=boxed)
 
         for parameter in self._parameters:
@@ -761,8 +675,7 @@ class Constructor:
                 return unpack_binary_string(reader)
 
             case "gzip":
-                string_stream = unpack_binary_string_stream(reader)
-                return GzipStreamReader(string_stream)
+                raise RuntimeError(f"must not directly deserialize gzip {reader!r} {parameter!r}")
 
             case "rawobject":
                 return reader(-1)
@@ -797,7 +710,7 @@ class Constructor:
         else:
             return self.schema.deserialize(reader, parameter)
 
-    def deserialize_boxed_data(self, reader: SyncByteReader) -> Structure:
+    def deserialize_boxed_data(self, reader: SyncByteReader) -> "TlBodyData":
         if self.number is None:
             raise TypeError(f"constructor `{self!r}` is bare")
 
@@ -808,7 +721,7 @@ class Constructor:
 
         return self.deserialize_bare_data(reader)
 
-    def deserialize_bare_data(self, reader: SyncByteReader) -> Structure:
+    def deserialize_bare_data(self, reader: SyncByteReader) -> "TlBodyData":
         fields: dict[str, typing.Any] = {"_cons": self.name}
 
         if self.flags:
@@ -840,21 +753,18 @@ class Constructor:
             for parameter in self._parameters:
                 fields[parameter.name] = self._deserialize_argument(reader, parameter)
 
-        return Structure.from_dict(fields)
+        return fields
 
 
-TlMessageBody = typing.Union[Structure, typing.List['TlMessageBody']]
-
-TlRequestBodyValue = typing.Union[
+TlBodyDataValue = typing.Union[
     bytes,
     str,
     int,
-    typing.Iterable['TlRequestBodyValue'],
-    typing.Dict[str, 'TlRequestBodyValue'],
-    'TlRequestBody',
-    Structure,
+    typing.Iterable['TlBodyDataValue'],
+    typing.Dict[str, 'TlBodyDataValue'],
+    'TlBodyData',
     None,
     Value
 ]
 
-TlRequestBody = typing.Dict[str, TlRequestBodyValue]
+TlBodyData = typing.Dict[str, TlBodyDataValue]

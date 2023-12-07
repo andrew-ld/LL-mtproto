@@ -18,7 +18,8 @@
 import asyncio
 
 from ll_mtproto.client.seqno_generator import SeqNoGenerator
-from ll_mtproto.tl.tl import TlMessageBody, TlRequestBody
+from ll_mtproto.tl.structure import StructureBody
+from ll_mtproto.tl.tl import TlBodyData
 
 __all__ = ("PendingRequest",)
 
@@ -34,8 +35,8 @@ class PendingRequest:
         "expect_answer"
     )
 
-    response: asyncio.Future[TlMessageBody]
-    request: TlRequestBody
+    response: asyncio.Future[StructureBody]
+    request: TlBodyData
     cleaner: asyncio.TimerHandle | None
     retries: int
     next_seq_no: SeqNoGenerator
@@ -45,8 +46,8 @@ class PendingRequest:
     def __init__(
             self,
             *,
-            response: asyncio.Future[TlMessageBody],
-            message: TlRequestBody,
+            response: asyncio.Future[StructureBody],
+            message: TlBodyData,
             seq_no_func: SeqNoGenerator,
             allow_container: bool,
             expect_answer: bool

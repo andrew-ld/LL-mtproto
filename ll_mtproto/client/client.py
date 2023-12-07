@@ -34,7 +34,8 @@ from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.mtproto_key_exchange import MTProtoKeyExchange
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl.byteutils import reader_discard, reader_is_empty, to_reader
-from ll_mtproto.tl.tl import TlMessageBody, TlRequestBody, Structure, Constructor
+from ll_mtproto.tl.tl import TlBodyData, Constructor
+from ll_mtproto.tl.structure import Structure, StructureBody
 
 __all__ = ("Client",)
 
@@ -161,7 +162,7 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call(self, payload: TlRequestBody) -> TlMessageBody:
+    async def rpc_call(self, payload: TlBodyData) -> StructureBody:
         pending_request = PendingRequest(
             response=self._loop.create_future(),
             message=payload,
@@ -181,7 +182,7 @@ class Client:
         self._ensure_mtproto_loop()
         await self._write_queue.put(request)
 
-    def _wrap_request_in_layer_init(self, message: TlRequestBody) -> TlRequestBody:
+    def _wrap_request_in_layer_init(self, message: TlBodyData) -> TlBodyData:
         message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.to_request_body())
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
 
@@ -203,7 +204,7 @@ class Client:
         await self._create_ping_request()
 
     async def _create_destroy_session_request(self, destroyed_session_id: int) -> None:
-        destroy_session_message: TlRequestBody = dict(_cons="destroy_session", session_id=destroyed_session_id)
+        destroy_session_message: TlBodyData = dict(_cons="destroy_session", session_id=destroyed_session_id)
 
         destroy_session_request = PendingRequest(
             response=self._loop.create_future(),
@@ -216,7 +217,7 @@ class Client:
         await self._rpc_call(destroy_session_request)
 
     async def _create_future_salt_request(self) -> None:
-        get_future_salts_message: TlRequestBody = dict(_cons="get_future_salts", num=32)
+        get_future_salts_message: TlBodyData = dict(_cons="get_future_salts", num=32)
 
         get_future_salts_request = PendingRequest(
             response=self._loop.create_future(),
@@ -248,7 +249,7 @@ class Client:
 
         self._pending_pong = self._loop.call_later(20, self.disconnect)
 
-        ping_message: TlRequestBody = dict(_cons="ping_delay_disconnect", ping_id=ping_id, disconnect_delay=35)
+        ping_message: TlBodyData = dict(_cons="ping_delay_disconnect", ping_id=ping_id, disconnect_delay=35)
 
         ping_request = PendingRequest(
             response=self._loop.create_future(),
@@ -533,7 +534,7 @@ class Client:
         if not self._msgids_to_ack or not self._used_session_key.session.stable_seqno:
             return
 
-        message: TlRequestBody = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
+        message: TlBodyData = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
         self._msgids_to_ack.clear()
 
         request = PendingRequest(
@@ -620,13 +621,13 @@ class Client:
 
         try:
             if response_constructor is not None:
-                result = await self._in_thread(response_constructor.deserialize_boxed_data, body_result_reader)
+                result = Structure.from_obj(await self._in_thread(response_constructor.deserialize_boxed_data, body_result_reader))
 
             elif response_parameter is not None:
-                result = await self._in_thread(self._datacenter.schema.read_by_parameter, body_result_reader, response_parameter)
+                result = Structure.from_obj(await self._in_thread(self._datacenter.schema.read_by_parameter, body_result_reader, response_parameter))
 
             else:
-                result = await self._in_thread(self._datacenter.schema.read_by_boxed_data, body_result_reader)
+                result = Structure.from_obj(await self._in_thread(self._datacenter.schema.read_by_boxed_data, body_result_reader))
 
             assert reader_is_empty(body_result_reader)
         finally:

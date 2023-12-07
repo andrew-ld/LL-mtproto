@@ -29,10 +29,10 @@ from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundExcep
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
-from ll_mtproto.tl import tl
 from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
-from ll_mtproto.tl.tl import Structure, Constructor, TlRequestBodyValue
+from ll_mtproto.tl.tl import Constructor, TlBodyDataValue, Value
 from ll_mtproto.typed import InThread
+from ll_mtproto.tl.structure import Structure
 
 __all__ = ("MTProto",)
 
@@ -143,7 +143,7 @@ class MTProto:
             full_message_reader = to_composed_reader(server_auth_key_id, message_id, body_len_envelope, body_envelope)
 
             try:
-                message = await self._in_thread(self._unencrypted_message_constructor.deserialize_bare_data, full_message_reader)
+                message = Structure.from_dict(await self._in_thread(self._unencrypted_message_constructor.deserialize_bare_data, full_message_reader))
             finally:
                 reader_discard(full_message_reader)
 
@@ -159,7 +159,7 @@ class MTProto:
 
         await self._link.write(message.get_flat_bytes())
 
-    async def write_encrypted(self, message: tl.Value, key: Key | DhGenKey) -> None:
+    async def write_encrypted(self, message: Value, key: Key | DhGenKey) -> None:
         auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
         message_inner_data = self._datacenter.schema.bare(
@@ -215,7 +215,7 @@ class MTProto:
             message_inner_data_reader = to_reader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
 
             try:
-                message = self._message_inner_data_from_server_constructor.deserialize_bare_data(message_inner_data_reader)
+                message = Structure.from_dict(self._message_inner_data_from_server_constructor.deserialize_bare_data(message_inner_data_reader))
             finally:
                 reader_discard(message_inner_data_reader)
 
@@ -243,14 +243,13 @@ class MTProto:
             message_body_reader = to_reader(message_body_envelope)
 
             try:
-                message_body = await self._in_thread(self._datacenter.schema.read_by_boxed_data, message_body_reader)
+                message_body = Structure.from_dict(await self._in_thread(self._datacenter.schema.read_by_boxed_data, message_body_reader))
             finally:
                 reader_discard(message_body_reader)
 
-            # message_body is Structure, guaranteed at runtime by schema
-            return message.message, typing.cast(Structure, message_body)
+            return message.message, message_body
 
-    def prepare_message_for_write(self, seq_no: int, **kwargs: TlRequestBodyValue) -> tuple[tl.Value, int]:
+    def prepare_message_for_write(self, seq_no: int, **kwargs: TlBodyDataValue) -> tuple[Value, int]:
         boxed_message_id = self.get_next_message_id()
 
         boxed_message = self._datacenter.schema.bare(
