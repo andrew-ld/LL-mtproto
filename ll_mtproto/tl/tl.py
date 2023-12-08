@@ -642,7 +642,7 @@ class Constructor:
 
         return data
 
-    def _deserialize_argument(self, reader: SyncByteReader, parameter: Parameter) -> typing.Any:
+    def _deserialize_argument(self, reader: SyncByteReader, parameter: Parameter) -> "TlBodyDataValue":
         match parameter.type:
             case "int":
                 return int.from_bytes(reader(4), "little", signed=True)
@@ -666,7 +666,7 @@ class Constructor:
                 return reader(32)
 
             case "double":
-                return struct.unpack(b"<d", reader(8))
+                return typing.cast(float, struct.unpack(b"<d", reader(8))[0])
 
             case "string":
                 return unpack_binary_string(reader).decode()
@@ -722,7 +722,7 @@ class Constructor:
         return self.deserialize_bare_data(reader)
 
     def deserialize_bare_data(self, reader: SyncByteReader) -> "TlBodyData":
-        fields: dict[str, typing.Any] = {"_cons": self.name}
+        fields: TlBodyData = {"_cons": self.name}
 
         if self.flags:
             flags: dict[int, set[int]] = {}
@@ -760,6 +760,7 @@ TlBodyDataValue = typing.Union[
     bytes,
     str,
     int,
+    float,
     typing.Iterable['TlBodyDataValue'],
     typing.Dict[str, 'TlBodyDataValue'],
     'TlBodyData',
