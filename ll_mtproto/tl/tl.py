@@ -106,9 +106,9 @@ _ptypeRE = re.compile(
 class Schema:
     __slots__ = ("constructors", "types", "cons_numbers", "layer")
 
-    constructors: dict[str, "Constructor"]
-    types: dict[str, set["Constructor"]]
-    cons_numbers: dict[bytes, "Constructor"]
+    constructors: typing.Final[dict[str, "Constructor"]]
+    types: typing.Final[dict[str, set["Constructor"]]]
+    cons_numbers: typing.Final[dict[bytes, "Constructor"]]
     layer: int
 
     def __init__(self) -> None:
@@ -389,7 +389,7 @@ class Schema:
 class Flags:
     __slots__ = ("_flags",)
 
-    _flags: set[int]
+    _flags: typing.Final[set[int]]
 
     def __init__(self) -> None:
         self._flags = set()
@@ -404,10 +404,10 @@ class Flags:
 class Value:
     __slots__ = ("cons", "boxed", "_flags", "_buffers")
 
-    cons: "Constructor"
-    boxed: bool
+    cons: typing.Final["Constructor"]
+    boxed: typing.Final[bool]
     _flags: dict[int, Flags] | None
-    _buffers: list["bytes | Flags"]
+    _buffers: typing.Final[list["bytes | Flags"]]
 
     def __init__(self, cons: "Constructor", boxed: bool = False):
         self.cons = cons
@@ -458,14 +458,14 @@ class Value:
 class Parameter:
     __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name")
 
-    name: str
-    type: str | None
-    flag_number: int | None
-    flag_name: int | None
-    is_vector: bool
-    is_boxed: bool
-    is_flag: bool
-    element_parameter: "Parameter | None"
+    name: typing.Final[str]
+    type: typing.Final[str | None]
+    flag_number: typing.Final[int | None]
+    flag_name: typing.Final[int | None]
+    is_vector: typing.Final[bool]
+    is_boxed: typing.Final[bool]
+    is_flag: typing.Final[bool]
+    element_parameter: typing.Final["Parameter | None"]
 
     def __init__(
             self,
@@ -497,14 +497,14 @@ class Parameter:
 class Constructor:
     __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags", "is_function", "ptype_parameter")
 
-    schema: Schema
-    ptype: str | None
-    name: str
-    number: bytes | None
-    flags: set[int] | None
-    _parameters: list[Parameter]
-    is_function: bool
-    ptype_parameter: Parameter | None
+    schema: typing.Final[Schema]
+    ptype: typing.Final[str | None]
+    name: typing.Final[str]
+    number: typing.Final[bytes | None]
+    flags: typing.Final[set[int] | None]
+    _parameters: typing.Final[list[Parameter]]
+    is_function: typing.Final[bool]
+    ptype_parameter: typing.Final[Parameter | None]
 
     def __init__(
             self,
