@@ -171,13 +171,6 @@ class Schema:
             return
 
         parameter_tokens: list[str] = cons_parsed["parameters"].split(" ")[1:]
-
-        cons_parsed["cons"] = sys.intern(cons_parsed["cons"])
-        cons_parsed["name"] = sys.intern(cons_parsed["name"])
-
-        if "xtype" not in cons_parsed:
-            cons_parsed["type"] = sys.intern(cons_parsed["type"])
-
         parameters = []
 
         if "number" in cons_parsed:
@@ -207,16 +200,12 @@ class Schema:
                 raise SyntaxError(f"Error in parameter `{parameter_token}`")
 
             if parameter_parsed:
-                parameter_parsed["name"] = sys.intern(parameter_parsed["name"])
-                parameter_parsed["type"] = sys.intern(parameter_parsed["type"])
-                parameter_parsed["element_type"] = sys.intern(parameter_parsed["element_type"])
-
                 is_vector = "vector" in parameter_parsed
 
                 if is_vector:
                     element_parameter = Parameter(
                         pname=f"<element of vector `{parameter_parsed['name']}`>",
-                        ptype=parameter_parsed["element_type"],
+                        ptype=sys.intern(parameter_parsed["element_type"]),
                         is_boxed="boxed" in parameter_parsed,
                     )
                 else:
@@ -227,8 +216,8 @@ class Schema:
 
             if parameter_parsed:
                 parameter = Parameter(
-                    pname=parameter_parsed["name"],
-                    ptype=parameter_parsed["type"],
+                    pname=sys.intern(parameter_parsed["name"]),
+                    ptype=sys.intern(parameter_parsed["type"]),
                     flag_number=int(parameter_parsed["flag_number"])
                     if "flag_number" in parameter_parsed
                     else None,
@@ -275,8 +264,8 @@ class Schema:
 
         if ptype_parsed:
             ptype_is_vector = "is_vector" in ptype_parsed
-            ptype_vector_ptype = ptype_parsed["vector_element_type"] if ptype_is_vector else None
-            ptype_type = ptype_parsed["element_type"] if not ptype_is_vector else None
+            ptype_vector_ptype = sys.intern(ptype_parsed["vector_element_type"]) if ptype_is_vector else None
+            ptype_type = sys.intern(ptype_parsed["element_type"]) if not ptype_is_vector else None
 
             if ptype_is_vector:
                 element_parameter = Parameter(
@@ -298,7 +287,7 @@ class Schema:
         cons = Constructor(
             schema=self,
             ptype=ptype,
-            name=cons_parsed["name"],
+            name=sys.intern(cons_parsed["name"]),
             number=cons_number,
             parameters=parameters,
             flags=set(p.flag_name for p in parameters if p.is_flag and p.flag_name is not None) or None,
