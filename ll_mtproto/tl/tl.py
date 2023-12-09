@@ -547,7 +547,7 @@ class Constructor:
             argument = {"_cons": "boolTrue"}
 
         if isinstance(argument, dict):
-            argument = self.schema.serialize(parameter.is_boxed, typing.cast(str, body["_cons"]), argument)
+            argument = self.schema.serialize(parameter.is_boxed, typing.cast(str, argument["_cons"]), argument)
 
         if argument is not None and parameter.flag_number is not None and parameter.flag_name is not None:
             data.set_flag(parameter.flag_number, parameter.flag_name)
