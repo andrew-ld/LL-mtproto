@@ -283,7 +283,7 @@ class MTProtoKeyExchange(Dispatcher):
         new_auth_key.auth_key_id = Key.generate_auth_key_id(new_auth_key.auth_key)
         new_auth_key.server_salt = server_salt
 
-        client_dh_inner_data = self._datacenter.schema.boxed(
+        client_dh_inner_data = self._datacenter.schema.boxed_kwargs(
             _cons="client_DH_inner_data",
             nonce=state.nonce,
             server_nonce=state.server_nonce,
@@ -327,7 +327,7 @@ class MTProtoKeyExchange(Dispatcher):
 
         temp_key_expires_in = self.TEMP_AUTH_KEY_EXPIRE_TIME + self._datacenter.get_synchronized_time()
 
-        p_q_inner_data = self._datacenter.schema.boxed(
+        p_q_inner_data = self._datacenter.schema.boxed_kwargs(
             _cons="p_q_inner_data_temp_dc" if temp else "p_q_inner_data_dc",
             pq=res_pq.pq,
             p=p_string,
@@ -374,7 +374,7 @@ class MTProtoKeyExchange(Dispatcher):
 
         bind_temp_auth_nonce = int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True)
 
-        bind_temp_auth_inner = self._datacenter.schema.boxed(
+        bind_temp_auth_inner = self._datacenter.schema.boxed_kwargs(
             _cons="bind_auth_key_inner",
             nonce=bind_temp_auth_nonce,
             temp_auth_key_id=state.key.auth_key_id,
@@ -383,11 +383,11 @@ class MTProtoKeyExchange(Dispatcher):
             expires_at=state.temp_key_expires_in
         )
 
-        bind_temp_auth_inner_data = self._datacenter.schema.bare(
+        bind_temp_auth_inner_data = self._datacenter.schema.bare_kwargs(
             _cons="message_inner_data",
             salt=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True),
             session_id=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=False),
-            message=self._datacenter.schema.bare(
+            message=self._datacenter.schema.bare_kwargs(
                 _cons="message",
                 msg_id=state.req_msg_id,
                 seqno=0,
@@ -410,14 +410,14 @@ class MTProtoKeyExchange(Dispatcher):
             bind_temp_auth_inner_data
         )
 
-        bind_temp_auth_inner_data_encrypted_boxed = self._datacenter.schema.bare(
+        bind_temp_auth_inner_data_encrypted_boxed = self._datacenter.schema.bare_kwargs(
             _cons="encrypted_message",
             auth_key_id=perm_auth_key_id,
             msg_key=bind_temp_auth_inner_data_msg_key,
             encrypted_data=bind_temp_auth_inner_data_encrypted,
         )
 
-        bind_temp_auth_message = self._datacenter.schema.boxed(
+        bind_temp_auth_message = self._datacenter.schema.boxed_kwargs(
             _cons="auth.bindTempAuthKey",
             perm_auth_key_id=perm_auth_key_id,
             nonce=bind_temp_auth_nonce,
@@ -425,7 +425,7 @@ class MTProtoKeyExchange(Dispatcher):
             encrypted_message=bind_temp_auth_inner_data_encrypted_boxed.get_flat_bytes()
         )
 
-        bind_temp_auth_boxed_message = self._datacenter.schema.bare(
+        bind_temp_auth_boxed_message = self._datacenter.schema.bare_kwargs(
             _cons="message",
             msg_id=state.req_msg_id,
             seqno=state.key.session.get_next_odd_seqno(),

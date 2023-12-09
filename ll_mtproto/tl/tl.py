@@ -359,19 +359,25 @@ class Schema:
 
             return cons.deserialize_bare_data(reader)
 
-    def serialize(self, boxed: bool, **kwargs: "TlBodyDataValue") -> "Value":
-        cons_name = typing.cast(str, kwargs["_cons"])
+    def serialize(self, boxed: bool, body: "TlBodyData") -> "Value":
+        cons_name = typing.cast(str, body["_cons"])
 
         if cons := self.constructors.get(cons_name, None):
-            return cons.serialize(boxed=boxed, **kwargs)
+            return cons.serialize(boxed, body)
         else:
             raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
 
-    def bare(self, **kwargs: "TlBodyDataValue") -> "Value":
-        return self.serialize(boxed=False, **kwargs)
+    def bare_kwargs(self, **body: "TlBodyDataValue") -> "Value":
+        return self.serialize(False, body)
 
-    def boxed(self, **kwargs: "TlBodyDataValue") -> "Value":
-        return self.serialize(boxed=True, **kwargs)
+    def bare(self, body: "TlBodyData") -> "Value":
+        return self.serialize(False, body)
+
+    def boxed_kwargs(self, **body: "TlBodyDataValue") -> "Value":
+        return self.serialize(True, body)
+
+    def boxed(self, body: "TlBodyData") -> "Value":
+        return self.serialize(True, body)
 
     def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
         return self.deserialize(reader, parameter)
@@ -543,7 +549,7 @@ class Constructor:
             argument = {"_cons": "boolTrue"}
 
         if isinstance(argument, dict):
-            argument = self.schema.serialize(boxed=parameter.is_boxed, **argument)
+            argument = self.schema.serialize(parameter.is_boxed, argument)
 
         if argument is not None and parameter.flag_number is not None and parameter.flag_name is not None:
             data.set_flag(parameter.flag_number, parameter.flag_name)
@@ -613,7 +619,7 @@ class Constructor:
                     self.schema.typecheck(parameter, argument)
                     data.append_serialized_tl(argument)
 
-    def serialize(self, boxed: bool, **arguments: "TlBodyDataValue") -> Value:
+    def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
         data = Value(self, boxed=boxed)
 
         for parameter in self._parameters:
@@ -625,12 +631,12 @@ class Constructor:
 
                 data.append_serializable_flag(flag_name)
 
-            elif parameter.name not in arguments:
+            elif parameter.name not in body:
                 if parameter.flag_number is None:
                     raise TypeError(f"required `{parameter}` not found in `{self.name}`")
 
             else:
-                argument = arguments[parameter.name]
+                argument = body[parameter.name]
 
                 if parameter.flag_number is None and argument is None:
                     raise TypeError(f"required `{parameter}` is None in `{self.name}`")

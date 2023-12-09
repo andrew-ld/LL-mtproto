@@ -20,7 +20,6 @@ import hashlib
 import hmac
 import logging
 import secrets
-import typing
 
 from ll_mtproto.crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ll_mtproto.crypto.auth_key import Key, DhGenKey
@@ -30,9 +29,9 @@ from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
-from ll_mtproto.tl.tl import Constructor, TlBodyDataValue, Value
-from ll_mtproto.typed import InThread
 from ll_mtproto.tl.structure import Structure
+from ll_mtproto.tl.tl import Constructor, TlBodyDataValue, Value, TlBodyData
+from ll_mtproto.typed import InThread
 
 __all__ = ("MTProto",)
 
@@ -149,12 +148,12 @@ class MTProto:
 
             return message, message.body
 
-    async def write_unencrypted_message(self, **kwargs: typing.Any) -> None:
-        message = self._datacenter.schema.bare(
+    async def write_unencrypted_message(self, **body: TlBodyDataValue) -> None:
+        message = self._datacenter.schema.bare_kwargs(
             _cons="unencrypted_message",
             auth_key_id=0,
             msg_id=self.get_next_message_id(),
-            body=self._datacenter.schema.boxed(**kwargs),
+            body=self._datacenter.schema.boxed(body),
         )
 
         await self._link.write(message.get_flat_bytes())
@@ -162,7 +161,7 @@ class MTProto:
     async def write_encrypted(self, message: Value, key: Key | DhGenKey) -> None:
         auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
-        message_inner_data = self._datacenter.schema.bare(
+        message_inner_data = self._datacenter.schema.bare_kwargs(
             _cons="message_inner_data",
             salt=key.server_salt,
             session_id=session.id,
@@ -176,7 +175,7 @@ class MTProto:
         aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, True, self._crypto_provider)
         encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
 
-        full_message = self._datacenter.schema.bare(
+        full_message = self._datacenter.schema.bare_kwargs(
             _cons="encrypted_message",
             auth_key_id=auth_key_id,
             msg_key=msg_key,
@@ -249,14 +248,14 @@ class MTProto:
 
             return message.message, message_body
 
-    def prepare_message_for_write(self, seq_no: int, **kwargs: TlBodyDataValue) -> tuple[Value, int]:
+    def prepare_message_for_write(self, seq_no: int, body: TlBodyData) -> tuple[Value, int]:
         boxed_message_id = self.get_next_message_id()
 
-        boxed_message = self._datacenter.schema.bare(
+        boxed_message = self._datacenter.schema.bare_kwargs(
             _cons="message",
             msg_id=boxed_message_id,
             seqno=seq_no,
-            body=self._datacenter.schema.boxed(**kwargs),
+            body=self._datacenter.schema.boxed(body),
         )
 
         return boxed_message, boxed_message_id
