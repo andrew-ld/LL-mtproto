@@ -53,7 +53,7 @@ def _pack_flags(flags: set[int]) -> bytes:
 
 
 @functools.lru_cache()
-def unpack_flags(n: int) -> set[int]:
+def _unpack_flags(n: int) -> set[int]:
     i = 0
     flags = set()
 
@@ -66,6 +66,25 @@ def unpack_flags(n: int) -> set[int]:
 
     return flags
 
+_primitives = frozenset(
+    (
+        "int",
+        "uint",
+        "long",
+        "ulong",
+        "int128",
+        "sha1",
+        "int256",
+        "double",
+        "string",
+        "bytes",
+        "rawobject",
+        "object",
+        "padded_object",
+        "bytesobject",
+        "flags"
+    )
+)
 
 _schemaRE = re.compile(
     r"^(?P<empty>$)"
@@ -256,13 +275,24 @@ class Schema:
 
         if ptype_parsed:
             ptype_is_vector = "is_vector" in ptype_parsed
-            ptype_type = ptype_parsed["vector_element_type"] if ptype_is_vector else ptype_parsed["element_type"]
+            ptype_vector_ptype = ptype_parsed["vector_element_type"] if ptype_is_vector else None
+            ptype_type = ptype_parsed["element_type"] if not ptype_is_vector else None
+
+            if ptype_is_vector:
+                element_parameter = Parameter(
+                    pname=f"<element of vector `{ptype_vector_ptype}`>",
+                    ptype=ptype_vector_ptype,
+                    is_boxed=True,
+                )
+            else:
+                element_parameter = None
 
             ptype_parameter = Parameter(
                 is_boxed=True,
                 is_vector=ptype_is_vector,
                 ptype=ptype_type,
-                pname=""
+                pname=f"<return type of `{ptype}`>",
+                element_parameter=element_parameter
             )
 
         cons = Constructor(
@@ -289,7 +319,58 @@ class Schema:
     def _debug_type_error_msg(parameter: "Parameter", argument: "Value") -> str:
         return f"expected: {parameter!r}, found: {argument!r}"
 
-    def typecheck(self, parameter: "Parameter", argument: "Value") -> None:
+    def deserialize_primitive(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
+        match parameter.type:
+            case "int":
+                return int.from_bytes(reader(4), "little", signed=True)
+
+            case "uint":
+                return int.from_bytes(reader(4), "little", signed=False)
+
+            case "long":
+                return int.from_bytes(reader(8), "little", signed=True)
+
+            case "ulong":
+                return int.from_bytes(reader(8), "little", signed=False)
+
+            case "int128":
+                return reader(16)
+
+            case "sha1":
+                return reader(20)
+
+            case "int256":
+                return reader(32)
+
+            case "double":
+                return typing.cast(float, struct.unpack(b"<d", reader(8))[0])
+
+            case "string":
+                return unpack_binary_string(reader).decode()
+
+            case "bytes":
+                return unpack_binary_string(reader)
+
+            case "gzip":
+                raise RuntimeError(f"must not directly deserialize gzip {reader!r} {parameter!r}")
+
+            case "rawobject":
+                return reader(-1)
+
+            case "object" | "padded_object":
+                return self.read_by_boxed_data(unpack_long_binary_string_stream(reader))
+
+            case "bytesobject":
+                return reader(int.from_bytes(reader(4), "little", signed=False))
+
+            case "flags":
+                return _unpack_flags(int.from_bytes(reader(4), "little", signed=False))
+
+            case _:
+                raise TypeError(f"Unknown primitive type {parameter!r}")
+
+
+    def _typecheck(self, parameter: "Parameter", argument: "Value") -> None:
         if not isinstance(argument, Value):
             raise TypeError("not an object for nonbasic type", self._debug_type_error_msg(parameter, argument))
 
@@ -314,6 +395,9 @@ class Schema:
                 raise TypeError("expected bare, found boxed", self._debug_type_error_msg(parameter, argument))
 
     def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
+        if parameter.is_primitive:
+            return self.deserialize_primitive(reader, parameter)
+
         if parameter.is_boxed:
             if parameter.type is not None and parameter.type not in self.types:
                 raise ValueError(f"Unknown type `{parameter.type}`")
@@ -327,7 +411,7 @@ class Schema:
                 element_parameter = parameter.element_parameter
 
                 if element_parameter is None:
-                    raise TypeError(f"Unknown vector parameter type {parameter:!r}")
+                    raise TypeError(f"Unknown vector parameter type {parameter!r}")
 
                 return [
                     self.deserialize(reader, element_parameter)
@@ -460,7 +544,7 @@ class Value:
 
 
 class Parameter:
-    __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name")
+    __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name", "is_primitive")
 
     name: typing.Final[str]
     type: typing.Final[str | None]
@@ -470,6 +554,7 @@ class Parameter:
     is_boxed: typing.Final[bool]
     is_flag: typing.Final[bool]
     element_parameter: typing.Final["Parameter | None"]
+    is_primitive: typing.Final[bool]
 
     def __init__(
             self,
@@ -480,7 +565,7 @@ class Parameter:
             is_vector: bool = False,
             is_flag: bool = False,
             flag_name: int | None = None,
-            element_parameter: "Parameter | None" = None
+            element_parameter: "Parameter | None" = None,
     ):
         self.name = pname
         self.type = ptype
@@ -490,6 +575,7 @@ class Parameter:
         self.element_parameter = element_parameter
         self.is_flag = is_flag
         self.flag_name = flag_name
+        self.is_primitive = ptype in _primitives
 
     def __repr__(self) -> str:
         if self.flag_number is not None:
@@ -614,7 +700,7 @@ class Constructor:
                         self._serialize_argument(data, element_parameter, element_argument)
 
                 else:
-                    self.schema.typecheck(parameter, argument)
+                    self.schema._typecheck(parameter, argument)
                     data.append_serialized_tl(argument)
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
@@ -647,51 +733,8 @@ class Constructor:
         return data
 
     def _deserialize_argument(self, reader: SyncByteReader, parameter: Parameter) -> "TlBodyDataValue":
-        match parameter.type:
-            case "int":
-                return int.from_bytes(reader(4), "little", signed=True)
-
-            case "uint":
-                return int.from_bytes(reader(4), "little", signed=False)
-
-            case "long":
-                return int.from_bytes(reader(8), "little", signed=True)
-
-            case "ulong":
-                return int.from_bytes(reader(8), "little", signed=False)
-
-            case "int128":
-                return reader(16)
-
-            case "sha1":
-                return reader(20)
-
-            case "int256":
-                return reader(32)
-
-            case "double":
-                return typing.cast(float, struct.unpack(b"<d", reader(8))[0])
-
-            case "string":
-                return unpack_binary_string(reader).decode()
-
-            case "bytes":
-                return unpack_binary_string(reader)
-
-            case "gzip":
-                raise RuntimeError(f"must not directly deserialize gzip {reader!r} {parameter!r}")
-
-            case "rawobject":
-                return reader(-1)
-
-            case "object" | "padded_object":
-                return self.schema.read_by_boxed_data(unpack_long_binary_string_stream(reader))
-
-            case "bytesobject":
-                return reader(int.from_bytes(reader(4), "little", signed=False))
-
-            case "flags":
-                return unpack_flags(int.from_bytes(reader(4), "little", signed=False))
+        if parameter.is_primitive:
+            return self.schema.deserialize_primitive(reader, parameter)
 
         if parameter.is_vector:
             if parameter.is_boxed:
@@ -738,7 +781,7 @@ class Constructor:
                     if flag_name is None:
                         raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
 
-                    flags[flag_name] = unpack_flags(int.from_bytes(reader(4), "little", signed=False))
+                    flags[flag_name] = _unpack_flags(int.from_bytes(reader(4), "little", signed=False))
 
                 elif parameter.flag_number is not None:
                     flag_name = parameter.flag_name
