@@ -728,7 +728,7 @@ class Constructor:
     def deserialize_bare_data(self, reader: SyncByteReader) -> "TlBodyData":
         fields: TlBodyData = {"_cons": self.name}
 
-        if self.flags:
+        if self.flags is not None:
             flags: dict[int, set[int]] = {}
 
             for parameter in self._parameters:
