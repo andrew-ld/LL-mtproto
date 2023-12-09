@@ -359,25 +359,23 @@ class Schema:
 
             return cons.deserialize_bare_data(reader)
 
-    def serialize(self, boxed: bool, body: "TlBodyData") -> "Value":
-        cons_name = typing.cast(str, body["_cons"])
-
+    def serialize(self, boxed: bool, cons_name: str, body: "TlBodyData") -> "Value":
         if cons := self.constructors.get(cons_name, None):
             return cons.serialize(boxed, body)
         else:
             raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
 
-    def bare_kwargs(self, **body: "TlBodyDataValue") -> "Value":
-        return self.serialize(False, body)
+    def bare_kwargs(self, _cons: str, **body: "TlBodyDataValue") -> "Value":
+        return self.serialize(False, _cons, body)
 
     def bare(self, body: "TlBodyData") -> "Value":
-        return self.serialize(False, body)
+        return self.serialize(False, typing.cast(str, body["_cons"]), body)
 
-    def boxed_kwargs(self, **body: "TlBodyDataValue") -> "Value":
-        return self.serialize(True, body)
+    def boxed_kwargs(self, _cons: str, **body: "TlBodyDataValue") -> "Value":
+        return self.serialize(True, _cons, body)
 
     def boxed(self, body: "TlBodyData") -> "Value":
-        return self.serialize(True, body)
+        return self.serialize(True, typing.cast(str, body["_cons"]), body)
 
     def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
         return self.deserialize(reader, parameter)
@@ -549,7 +547,7 @@ class Constructor:
             argument = {"_cons": "boolTrue"}
 
         if isinstance(argument, dict):
-            argument = self.schema.serialize(parameter.is_boxed, argument)
+            argument = self.schema.serialize(parameter.is_boxed, argument["_cons"], argument)
 
         if argument is not None and parameter.flag_number is not None and parameter.flag_name is not None:
             data.set_flag(parameter.flag_number, parameter.flag_name)
