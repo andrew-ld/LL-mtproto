@@ -388,7 +388,7 @@ class MTProtoKeyExchange(Dispatcher):
             salt=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True),
             session_id=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=False),
             message=self._datacenter.schema.bare_kwargs(
-                _cons="message",
+                _cons="message_from_client",
                 msg_id=state.req_msg_id,
                 seqno=0,
                 body=bind_temp_auth_inner
@@ -426,7 +426,7 @@ class MTProtoKeyExchange(Dispatcher):
         )
 
         bind_temp_auth_boxed_message = self._datacenter.schema.bare_kwargs(
-            _cons="message",
+            _cons="message_from_client",
             msg_id=state.req_msg_id,
             seqno=state.key.session.get_next_odd_seqno(),
             body=bind_temp_auth_message,

@@ -252,7 +252,7 @@ class MTProto:
         boxed_message_id = self.get_next_message_id()
 
         boxed_message = self._datacenter.schema.bare_kwargs(
-            _cons="message",
+            _cons="message_from_client",
             msg_id=boxed_message_id,
             seqno=seq_no,
             body=self._datacenter.schema.boxed(body),
