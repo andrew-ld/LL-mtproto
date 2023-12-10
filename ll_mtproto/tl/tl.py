@@ -445,13 +445,13 @@ class Schema:
         else:
             raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
 
-    def bare_kwargs(self, _cons: str, **body: "TlBodyDataValue") -> "Value":
+    def bare_kwargs(self, *, _cons: str, **body: "TlBodyDataValue") -> "Value":
         return self.serialize(False, _cons, body)
 
     def bare(self, body: "TlBodyData") -> "Value":
         return self.serialize(False, typing.cast(str, body["_cons"]), body)
 
-    def boxed_kwargs(self, _cons: str, **body: "TlBodyDataValue") -> "Value":
+    def boxed_kwargs(self, *, _cons: str, **body: "TlBodyDataValue") -> "Value":
         return self.serialize(True, _cons, body)
 
     def boxed(self, body: "TlBodyData") -> "Value":
