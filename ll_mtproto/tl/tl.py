@@ -24,7 +24,6 @@ import sys
 import typing
 
 from ll_mtproto.tl.byteutils import (
-    long_hex,
     pack_binary_string,
     unpack_binary_string,
     pack_long_binary_string,
@@ -388,9 +387,6 @@ class Schema:
             return self.deserialize_primitive(reader, parameter)
 
         if parameter.is_boxed:
-            if parameter.type is not None and parameter.type not in self.types:
-                raise ValueError(f"Unknown type `{parameter.type}`")
-
             cons_number = reader(4)
 
             if parameter.is_vector:
@@ -420,6 +416,17 @@ class Schema:
 
             return cons.deserialize_bare_data(reader)
         else:
+            if parameter.is_vector:
+                element_parameter = parameter.element_parameter
+
+                if element_parameter is None:
+                    raise TypeError(f"Unknown vector parameter type {parameter!r}")
+
+                return [
+                    self.deserialize(reader, element_parameter)
+                    for _ in range(int.from_bytes(reader(4), "little", signed=False))
+                ]
+
             parameter_type = parameter.type
 
             if parameter_type is None:
@@ -721,31 +728,6 @@ class Constructor:
 
         return data
 
-    def _deserialize_argument(self, reader: SyncByteReader, parameter: Parameter) -> "TlBodyDataValue":
-        if parameter.is_primitive:
-            return self.schema.deserialize_primitive(reader, parameter)
-
-        if parameter.is_vector:
-            if parameter.is_boxed:
-                vcons = reader(4)
-
-                if vcons != _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
-                    raise ValueError(f"Not vector `{long_hex(vcons)}` in `{parameter!r}` in `{self!r}`")
-
-            vector_len = int.from_bytes(reader(4), "little", signed=False)
-
-            element_parameter = parameter.element_parameter
-
-            if element_parameter is None:
-                raise TypeError(f"Unknown vector parameter type {parameter:!r}")
-
-            return [
-                self._deserialize_argument(reader, element_parameter)
-                for _ in range(vector_len)
-            ]
-        else:
-            return self.schema.deserialize(reader, parameter)
-
     def deserialize_boxed_data(self, reader: SyncByteReader) -> "TlBodyData":
         if self.number is None:
             raise TypeError(f"constructor `{self!r}` is bare")
@@ -779,15 +761,15 @@ class Constructor:
                         raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
 
                     if parameter.flag_number in flags[flag_name]:
-                        fields[parameter.name] = self._deserialize_argument(reader, parameter)
+                        fields[parameter.name] = self.schema.deserialize(reader, parameter)
                     else:
                         fields[parameter.name] = None
 
                 else:
-                    fields[parameter.name] = self._deserialize_argument(reader, parameter)
+                    fields[parameter.name] = self.schema.deserialize(reader, parameter)
         else:
             for parameter in self._parameters:
-                fields[parameter.name] = self._deserialize_argument(reader, parameter)
+                fields[parameter.name] = self.schema.deserialize(reader, parameter)
 
         return fields
 
