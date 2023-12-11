@@ -581,14 +581,14 @@ class Parameter:
 
 
 class Constructor:
-    __slots__ = ("schema", "ptype", "name", "number", "_parameters", "flags", "is_function", "ptype_parameter")
+    __slots__ = ("schema", "ptype", "name", "number", "parameters", "flags", "is_function", "ptype_parameter")
 
     schema: typing.Final[Schema]
     ptype: typing.Final[str | None]
     name: typing.Final[str]
     number: typing.Final[bytes | None]
     flags: typing.Final[set[int] | None]
-    _parameters: typing.Final[list[Parameter]]
+    parameters: typing.Final[list[Parameter]]
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
 
@@ -607,13 +607,13 @@ class Constructor:
         self.name = name
         self.number = number
         self.ptype = ptype
-        self._parameters = parameters
+        self.parameters = parameters
         self.flags = flags
         self.is_function = is_function
         self.ptype_parameter = ptype_parameter
 
     def __repr__(self) -> str:
-        return f"{self.name} {''.join(repr(p) for p in self._parameters)}= {self.ptype};"
+        return f"{self.name} {''.join(repr(p) for p in self.parameters)}= {self.ptype};"
 
     def _serialize_argument(self, data: Value, parameter: Parameter, argument: typing.Any) -> None:
         if isinstance(argument, str):
@@ -702,7 +702,7 @@ class Constructor:
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
         data = Value(self, boxed=boxed)
 
-        for parameter in self._parameters:
+        for parameter in self.parameters:
             if parameter.is_flag:
                 flag_name = parameter.flag_name
 
@@ -745,7 +745,7 @@ class Constructor:
         if self.flags is not None:
             flags: dict[int, set[int]] = {}
 
-            for parameter in self._parameters:
+            for parameter in self.parameters:
                 if parameter.is_flag:
                     flag_name = parameter.flag_name
 
@@ -768,7 +768,7 @@ class Constructor:
                 else:
                     fields[parameter.name] = self.schema.deserialize(reader, parameter)
         else:
-            for parameter in self._parameters:
+            for parameter in self.parameters:
                 fields[parameter.name] = self.schema.deserialize(reader, parameter)
 
         return fields
