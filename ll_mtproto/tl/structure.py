@@ -62,18 +62,7 @@ class Structure:
             return obj
 
         fields = dict(
-            (
-                k,
-                (
-                    Structure.from_obj(v)
-                    if isinstance(v, dict)
-                    else
-                    [Structure.from_obj(x) for x in v]
-                    if isinstance(v, (list, tuple))
-                    else
-                    v
-                )
-            )
+            (k, Structure.from_obj(v))
             for k, v in obj.items()
             if k != "_cons"
         )
