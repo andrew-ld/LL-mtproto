@@ -55,19 +55,20 @@ class Structure:
 
     @staticmethod
     def from_obj(obj: typing.Any) -> typing.Any:
-        if isinstance(obj, (list, tuple)):
+        if isinstance(obj, dict):
+            fields = dict(
+                (k, Structure.from_obj(v))
+                for k, v in obj.items()
+                if k != "_cons"
+            )
+
+            return Structure(obj["_cons"], fields)
+
+        elif isinstance(obj, (list, tuple)):
             return [Structure.from_obj(x) for x in obj]
 
-        if not isinstance(obj, dict):
+        else:
             return obj
-
-        fields = dict(
-            (k, Structure.from_obj(v))
-            for k, v in obj.items()
-            if k != "_cons"
-        )
-
-        return Structure(obj["_cons"], fields)
 
     @staticmethod
     def _get_dict_inner(obj: typing.Any) -> typing.Any:
