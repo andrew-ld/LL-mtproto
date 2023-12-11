@@ -22,8 +22,8 @@ __all__ = ("Structure", "StructureBody")
 class Structure:
     __slots__ = ("constructor_name", "_fields")
 
-    constructor_name: str
-    _fields: dict[str, typing.Any]
+    constructor_name: typing.Final[str]
+    _fields: typing.Final[dict[str, typing.Any]]
 
     def __init__(self, constructor_name: str, fields: dict[str, typing.Any]):
         self.constructor_name = constructor_name
