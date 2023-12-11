@@ -605,14 +605,15 @@ class Client:
         if pending_request is None:
             return logging.error("rpc_result %d not associated with a request", body.req_msg_id)
 
-        response_parameter = None
-        response_constructor = None
-
         if body.result.startswith(self._rpc_error_constructor.number):
             response_constructor = self._rpc_error_constructor
+        else:
+            response_constructor = None
 
         if request_type := pending_request.request.get("_cons", None):
             response_parameter = self._datacenter.schema.constructors[typing.cast(str, request_type)].ptype_parameter
+        else:
+            response_parameter = None
 
         body_result_reader = to_reader(body.result)
 
