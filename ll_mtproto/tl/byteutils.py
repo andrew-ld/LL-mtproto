@@ -109,6 +109,11 @@ class GzipStreamReader:
         self._decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
 
     def __call__(self, nbytes: int) -> bytes:
+        if nbytes == -1:
+            buffer = self._buffer[:]
+            del self._buffer[:]
+            return buffer + bytearray(self._decompressor.decompress(self._parent(-1)))
+
         while len(self._buffer) < nbytes:
             self._buffer += bytearray(self._decompressor.decompress(self._parent(4096)))
 
