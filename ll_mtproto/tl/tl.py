@@ -618,7 +618,7 @@ class OptimizedDeserializationParameters:
             case _:
                 raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
 
-    def deserialize_bare_data(self, reader: SyncByteReader) -> typing.Iterable[tuple[str, "TlBodyData"]]:
+    def deserialize_bare_data(self, reader: SyncByteReader) -> typing.Iterable[tuple[str, "TlBodyDataValue"]]:
         return zip(self._keys, self._struct.unpack(reader(self._struct.size)))
 
 
