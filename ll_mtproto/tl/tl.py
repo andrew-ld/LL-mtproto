@@ -477,6 +477,9 @@ class Schema:
         if cons is None:
             raise TypeError(f"Unknown constructor for constructor number {cons_number!r}")
 
+        if cons.name == "gzip_packed":
+            return self.read_by_boxed_data(GzipStreamReader(unpack_binary_string_stream(reader)))
+
         return cons.deserialize_bare_data(reader)
 
 
