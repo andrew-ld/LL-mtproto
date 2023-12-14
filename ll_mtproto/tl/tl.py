@@ -87,6 +87,15 @@ _primitives = frozenset(
     )
 )
 
+_optimizable_params_types = frozenset(
+    (
+        "int",
+        "uint",
+        "long",
+        "ulong"
+    )
+)
+
 _schemaRE = re.compile(
     r"^(?P<empty>$)"
     r"|(?P<comment>//.*)"
@@ -581,8 +590,40 @@ class Parameter:
             return f"{self.name}:{self.type}"
 
 
+class OptimizedDeserializationParameters:
+    __slots__ = ( "_struct", "_keys")
+
+    _struct: typing.Final[struct.Struct]
+    _keys: typing.Final[list[str]]
+
+    def __init__(self, parameters: list[Parameter]):
+        self._struct = struct.Struct("<" + "".join(map(self._generate_struct_fmt, parameters)))
+        self._keys = [p.name for p in parameters]
+
+    @staticmethod
+    def _generate_struct_fmt(parameter: Parameter) -> str:
+        match parameter.type:
+            case "int":
+                return "i"
+
+            case "uint":
+                return "I"
+
+            case "long":
+                return "q"
+
+            case "ulong":
+                return "Q"
+
+            case _:
+                raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
+
+    def deserialize_bare_data(self, reader: SyncByteReader) -> typing.Iterable[tuple[str, "TlBodyData"]]:
+        return zip(self._keys, self._struct.unpack(reader(self._struct.size)))
+
+
 class Constructor:
-    __slots__ = ("schema", "ptype", "name", "number", "parameters", "flags", "is_function", "ptype_parameter")
+    __slots__ = ("schema", "ptype", "name", "number", "parameters", "flags", "is_function", "ptype_parameter", "optimized_parameters_for_deserialization")
 
     schema: typing.Final[Schema]
     ptype: typing.Final[str | None]
@@ -592,6 +633,7 @@ class Constructor:
     parameters: typing.Final[list[Parameter]]
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
+    optimized_parameters_for_deserialization: typing.Final[list[Parameter | OptimizedDeserializationParameters]]
 
     def __init__(
             self,
@@ -612,6 +654,33 @@ class Constructor:
         self.flags = flags
         self.is_function = is_function
         self.ptype_parameter = ptype_parameter
+        self.optimized_parameters_for_deserialization = self._optimize_parameters_for_deserialization(parameters)
+
+    @staticmethod
+    def _optimize_parameters_for_deserialization(parameters: list[Parameter]) -> list[Parameter | OptimizedDeserializationParameters]:
+        sequential_optimizable_params: list[Parameter] = []
+        output: list[Parameter | OptimizedDeserializationParameters] = []
+
+        def flush_sequential_optimizable_params() -> None:
+            if len(sequential_optimizable_params) > 1:
+                output.append(OptimizedDeserializationParameters(sequential_optimizable_params))
+
+            elif len(sequential_optimizable_params) == 1:
+                output.append(sequential_optimizable_params[0])
+
+            sequential_optimizable_params.clear()
+
+        for parameter in parameters:
+            if parameter.type in _optimizable_params_types and parameter.flag_number is None:
+                sequential_optimizable_params.append(parameter)
+
+            else:
+                flush_sequential_optimizable_params()
+                output.append(parameter)
+
+        flush_sequential_optimizable_params()
+
+        return output
 
     def __repr__(self) -> str:
         return f"{self.name} {''.join(repr(p) for p in self.parameters)}= {self.ptype};"
@@ -750,31 +819,37 @@ class Constructor:
         if self.flags is not None:
             flags: dict[int, set[int]] = {}
 
-            for parameter in self.parameters:
-                if parameter.is_flag:
-                    flag_name = parameter.flag_name
+            for parameter in self.optimized_parameters_for_deserialization:
+                if isinstance(parameter, OptimizedDeserializationParameters):
+                    fields.update(parameter.deserialize_bare_data(reader))
+                else:
+                    if parameter.is_flag:
+                        flag_name = parameter.flag_name
 
-                    if flag_name is None:
-                        raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
+                        if flag_name is None:
+                            raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
 
-                    flags[flag_name] = _unpack_flags(int.from_bytes(reader(4), "little", signed=False))
+                        flags[flag_name] = _unpack_flags(int.from_bytes(reader(4), "little", signed=False))
 
-                elif parameter.flag_number is not None:
-                    flag_name = parameter.flag_name
+                    elif parameter.flag_number is not None:
+                        flag_name = parameter.flag_name
 
-                    if flag_name is None:
-                        raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
+                        if flag_name is None:
+                            raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
 
-                    if parameter.flag_number in flags[flag_name]:
-                        fields[parameter.name] = self.schema.deserialize(reader, parameter)
+                        if parameter.flag_number in flags[flag_name]:
+                            fields[parameter.name] = self.schema.deserialize(reader, parameter)
+                        else:
+                            fields[parameter.name] = None
+
                     else:
-                        fields[parameter.name] = None
-
+                        fields[parameter.name] = self.schema.deserialize(reader, parameter)
+        else:
+            for parameter in self.optimized_parameters_for_deserialization:
+                if isinstance(parameter, OptimizedDeserializationParameters):
+                    fields.update(parameter.deserialize_bare_data(reader))
                 else:
                     fields[parameter.name] = self.schema.deserialize(reader, parameter)
-        else:
-            for parameter in self.parameters:
-                fields[parameter.name] = self.schema.deserialize(reader, parameter)
 
         return fields
 
