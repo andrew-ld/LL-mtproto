@@ -92,7 +92,8 @@ _optimizable_params_types = frozenset(
         "int",
         "uint",
         "long",
-        "ulong"
+        "ulong",
+        "double"
     )
 )
 
@@ -617,6 +618,9 @@ class OptimizedDeserializationParameters:
 
             case "ulong":
                 return "Q"
+
+            case "double":
+                return "d"
 
             case _:
                 raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
