@@ -393,11 +393,11 @@ class Schema:
             if expected.type not in self.constructors:
                 raise TypeError("expected boxed, found bare", _debug_type_error_msg())
 
-            if resolved_found.name != self.constructors[expected.type].name:
-                raise TypeError("wrong constructor", _debug_type_error_msg())
-
             if resolved_found.number is not None:
                 raise TypeError("expected bare, found boxed", _debug_type_error_msg())
+
+            if resolved_found.name != self.constructors[expected.type].name:
+                raise TypeError("wrong constructor", _debug_type_error_msg())
 
     def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
         if parameter.is_primitive:
