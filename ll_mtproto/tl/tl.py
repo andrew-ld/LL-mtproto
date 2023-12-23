@@ -378,6 +378,9 @@ class Schema:
         if not isinstance(found, Value):
             raise TypeError("not an object for nonbasic type", _debug_type_error_msg())
 
+        if expected.type is None:
+            raise TypeError("unsupported Parameter, type is None", _debug_type_error_msg())
+
         resolved_found = self.constructors[found.cons.name]
 
         if expected.is_boxed:
