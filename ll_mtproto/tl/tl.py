@@ -792,7 +792,6 @@ class Constructor:
                     self._serialize_argument(data, element_parameter, element_argument)
 
             else:
-                self.schema.typecheck(parameter, argument)
                 data.append_serialized_tl(argument)
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
