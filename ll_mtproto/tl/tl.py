@@ -381,22 +381,20 @@ class Schema:
         if expected.type is None:
             raise TypeError("unsupported Parameter, type is None", _debug_type_error_msg())
 
-        resolved_found = self.constructors[found.cons.name]
-
         if expected.is_boxed:
-            if resolved_found not in self.types[expected.type]:
+            if found.cons not in self.types[expected.type]:
                 raise TypeError("type mismatch", _debug_type_error_msg())
 
-            if resolved_found.number is None:
+            if found.cons.number is None:
                 raise TypeError("expected boxed, found bare", _debug_type_error_msg())
         else:
             if expected.type not in self.constructors:
                 raise TypeError("expected boxed, found bare", _debug_type_error_msg())
 
-            if resolved_found.number is not None:
+            if found.cons.number is not None:
                 raise TypeError("expected bare, found boxed", _debug_type_error_msg())
 
-            if resolved_found.name != self.constructors[expected.type].name:
+            if found.cons.name != self.constructors[expected.type].name:
                 raise TypeError("wrong constructor", _debug_type_error_msg())
 
     def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
