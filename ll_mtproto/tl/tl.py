@@ -368,32 +368,32 @@ class Schema:
             case _:
                 raise TypeError(f"Unknown primitive type {parameter!r}")
 
+    def typecheck(self, expected: "Parameter", found: "TlBodyDataValue") -> None:
+        if expected.is_primitive or expected.is_vector:
+            return
 
-    def typecheck(self, parameter: "Parameter", argument: "Value") -> None:
         def _debug_type_error_msg() -> str:
-            return f"expected: {parameter!r}, found: {argument!r}"
+            return f"expected: {expected!r}, found: {found!r}"
 
-        if not isinstance(argument, Value):
+        if not isinstance(found, Value):
             raise TypeError("not an object for nonbasic type", _debug_type_error_msg())
 
-        if parameter.is_boxed:
-            if parameter.type not in self.types:
-                raise TypeError("unknown type", _debug_type_error_msg())
+        resolved_found = self.constructors[found.cons.name]
 
-            if argument.cons not in self.types[parameter.type]:
+        if expected.is_boxed:
+            if resolved_found not in self.types[expected.type]:
                 raise TypeError("type mismatch", _debug_type_error_msg())
 
-            if not argument.boxed:
+            if resolved_found.number is None:
                 raise TypeError("expected boxed, found bare", _debug_type_error_msg())
-
         else:
-            if parameter.type not in self.constructors:
+            if expected.type not in self.constructors:
                 raise TypeError("expected boxed, found bare", _debug_type_error_msg())
 
-            if argument.cons != self.constructors[parameter.type]:
+            if resolved_found.name != self.constructors[expected.type].name:
                 raise TypeError("wrong constructor", _debug_type_error_msg())
 
-            if argument.boxed:
+            if resolved_found.number is not None:
                 raise TypeError("expected bare, found boxed", _debug_type_error_msg())
 
     def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
@@ -722,6 +722,8 @@ class Constructor:
 
         if argument is not None and parameter.flag_number is not None and parameter.flag_name is not None:
             data.set_flag(parameter.flag_number, parameter.flag_name)
+
+        self.schema.typecheck(parameter, argument)
 
         if parameter.is_primitive:
             match parameter.type:
