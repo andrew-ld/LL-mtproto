@@ -14,8 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import cryptg  # type: ignore
 import typing
+
+import cryptg  # type: ignore
 
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 

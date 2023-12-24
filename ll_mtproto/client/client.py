@@ -28,14 +28,14 @@ from ll_mtproto.client.update import Update
 from ll_mtproto.crypto.auth_key import AuthKey, Key
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
-from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
 from ll_mtproto.network.datacenter_info import DatacenterInfo
+from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.mtproto_key_exchange import MTProtoKeyExchange
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
-from ll_mtproto.tl.byteutils import reader_discard, reader_is_empty, to_reader
-from ll_mtproto.tl.tl import TlBodyData, Constructor
+from ll_mtproto.tl.byteutils import reader_discard, to_reader
 from ll_mtproto.tl.structure import Structure, StructureBody
+from ll_mtproto.tl.tl import TlBodyData, Constructor
 
 __all__ = ("Client",)
 
@@ -626,8 +626,6 @@ class Client:
 
             else:
                 result = Structure.from_obj(await self._in_thread(self._datacenter.schema.read_by_boxed_data, body_result_reader))
-
-            assert reader_is_empty(body_result_reader)
         finally:
             reader_discard(body_result_reader)
 
