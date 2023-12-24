@@ -369,9 +369,6 @@ class Schema:
                 raise TypeError(f"Unknown primitive type {parameter!r}")
 
     def typecheck(self, expected: "Parameter", found: "TlBodyDataValue") -> None:
-        if expected.is_primitive or expected.is_vector:
-            return
-
         def _debug_type_error_msg() -> str:
             return f"expected: {expected!r}, found: {found!r}"
 
@@ -705,7 +702,7 @@ class Constructor:
     def __repr__(self) -> str:
         return f"{self.name} {''.join(repr(p) for p in self.parameters)}= {self.ptype};"
 
-    def _serialize_argument(self, data: Value, parameter: Parameter, argument: typing.Any) -> None:
+    def _serialize_argument(self, data: Value, parameter: Parameter, argument: "TlBodyDataValue") -> None:
         if isinstance(argument, str):
             argument = argument.encode("utf-8")
 
@@ -724,62 +721,72 @@ class Constructor:
         if argument is not None and parameter.flag_number is not None and parameter.flag_name is not None:
             data.set_flag(parameter.flag_number, parameter.flag_name)
 
-        self.schema.typecheck(parameter, argument)
-
         if parameter.is_primitive:
-            match parameter.type:
-                case "int":
-                    data.append_serialized_tl(int(argument).to_bytes(4, "little", signed=True))
+            if isinstance(argument, int):
+                match parameter.type:
+                    case "int":
+                        data.append_serialized_tl(argument.to_bytes(4, "little", signed=True))
 
-                case "uint":
-                    data.append_serialized_tl(int(argument).to_bytes(4, "little", signed=False))
+                    case "uint":
+                        data.append_serialized_tl(argument.to_bytes(4, "little", signed=False))
 
-                case "long":
-                    data.append_serialized_tl(int(argument).to_bytes(8, "little", signed=True))
+                    case "long":
+                        data.append_serialized_tl(argument.to_bytes(8, "little", signed=True))
 
-                case "ulong":
-                    data.append_serialized_tl(int(argument).to_bytes(8, "little", signed=False))
+                    case "ulong":
+                        data.append_serialized_tl(argument.to_bytes(8, "little", signed=False))
 
-                case "int128":
-                    data.append_serialized_tl(argument)
+                    case "double":
+                        data.append_serialized_tl(struct.pack(b"<d", float(argument)))
 
-                case "sha1":
-                    data.append_serialized_tl(argument)
+                    case _:
+                        raise TypeError(f"Cannot serializer python integer `{argument!r}` as `{parameter!r}`")
 
-                case "int256":
-                    data.append_serialized_tl(argument)
+            elif isinstance(argument, float):
+                match parameter.type:
+                    case "double":
+                        data.append_serialized_tl(struct.pack(b"<d", argument))
 
-                case "double":
-                    data.append_serialized_tl(struct.pack(b"<d", float(argument)))
+                    case _:
+                        raise TypeError(f"Cannot serializer python float `{argument!r}` as `{parameter!r}`")
 
-                case "string":
-                    data.append_serialized_tl(pack_binary_string(argument))
+            elif isinstance(argument, bytes):
+                match parameter.type:
+                    case "int128" | "sha1" | "int256" | "rawobject" | "encrypted":
+                        data.append_serialized_tl(argument)
 
-                case "bytes":
-                    data.append_serialized_tl(pack_binary_string(argument))
+                    case "string" | "bytes":
+                        data.append_serialized_tl(pack_binary_string(argument))
 
-                case "object":
-                    data.append_serialized_tl(pack_long_binary_string(argument.get_flat_bytes()))
+                    case _:
+                        raise TypeError(f"Cannot serializer python bytes `{argument!r}` as `{parameter!r}`")
 
-                case "padded_object":
-                    data.append_serialized_tl(pack_long_binary_string_padded(argument.get_flat_bytes()))
+            elif isinstance(argument, Value):
+                match parameter.type:
+                    case "object":
+                        data.append_serialized_tl(pack_long_binary_string(argument.get_flat_bytes()))
 
-                case "rawobject":
-                    data.append_serialized_tl(argument)
+                    case "rawobject":
+                        data.append_serialized_tl(argument.get_flat_bytes())
 
-                case "encrypted":
-                    data.append_serialized_tl(argument)
+                    case "padded_object":
+                        data.append_serialized_tl(pack_long_binary_string_padded(argument.get_flat_bytes()))
 
-                case "gzip":
-                    data.append_serialized_tl(pack_binary_string(gzip.compress(argument.get_flat_bytes())))
+                    case "gzip":
+                        data.append_serialized_tl(pack_binary_string(gzip.compress(argument.get_flat_bytes())))
 
-                case _:
-                    raise TypeError(f"Unknown primitive type `{parameter!r}`")
+                    case _:
+                        raise TypeError(f"Cannot serializer Value `{argument!r}` as `{parameter!r}`")
 
+            else:
+                raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
         else:
             if parameter.is_vector:
                 if parameter.is_boxed:
                     data.append_serialized_tl(_compile_cons_number(b"vector t:Type # [ t ] = Vector t"))
+
+                if not isinstance(argument, list):
+                    raise TypeError(f"Expected a list for parameter `{parameter!r}` but found `{argument!r}`")
 
                 data.append_serialized_tl(len(argument).to_bytes(4, "little", signed=False))
 
@@ -792,6 +799,11 @@ class Constructor:
                     self._serialize_argument(data, element_parameter, element_argument)
 
             else:
+                self.schema.typecheck(parameter, argument)
+
+                if not isinstance(argument, (bytes, Value)):
+                    raise TypeError(f"For parameter {parameter!r} expected a serialized value, but found `{argument!r}`")
+
                 data.append_serialized_tl(argument)
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
