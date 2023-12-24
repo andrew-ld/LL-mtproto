@@ -400,6 +400,11 @@ class Schema:
 
             if parameter.is_vector:
                 if cons_number != _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
+                    cons = self.cons_numbers.get(cons_number, None)
+
+                    if cons is not None and cons.name == "gzip_packed":
+                        return self.deserialize(GzipStreamReader(unpack_binary_string_stream(reader)), parameter)
+
                     raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))} for vector")
 
                 element_parameter = parameter.element_parameter
