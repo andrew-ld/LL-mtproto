@@ -29,12 +29,14 @@ _PWRTELEGRAM_database_url = "https://rpc.madelineproto.xyz/v4.json"
 
 
 class PwrTelegramErrorDescriptionResolver(BaseErrorDescriptionResolver):
-    __slots__ = ("_database",)
+    __slots__ = ("_database", "_database_url")
 
     _database: dict[str, str] | None
+    _database_url: str
 
-    def __init__(self) -> None:
+    def __init__(self, database_url: str = _PWRTELEGRAM_database_url) -> None:
         self._database = None
+        self._database_url = database_url
 
     @staticmethod
     @functools.lru_cache()
@@ -42,7 +44,7 @@ class PwrTelegramErrorDescriptionResolver(BaseErrorDescriptionResolver):
         return _RE_replace_number.sub(r"_%d", message)
 
     def synchronous_fetch_database(self) -> None:
-        with urllib.request.urlopen(_PWRTELEGRAM_database_url) as response:
+        with urllib.request.urlopen(self._database_url) as response:
             self._database = typing.cast(dict[str, str], json.loads(response.read())["human_result"])
 
     def resolve(self, _code: int, message: str) -> str | None:
