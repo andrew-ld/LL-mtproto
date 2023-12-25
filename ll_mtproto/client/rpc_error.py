@@ -31,7 +31,7 @@ class RpcError(BaseException):
         self.error_description = error_description
 
     def __str__(self) -> str:
-        return f"RpcError {self.code} {repr(self.message)} {self.error_description if self.error_description is not None else ''}"
+        return f"RpcError {self.code} {repr(self.message)} {repr(self.error_description) if self.error_description is not None else ''}"
 
     def __repr__(self) -> str:
         return f"RpcError({self.code}, {repr(self.message)}, {repr(self.error_description)})"
