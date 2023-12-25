@@ -25,14 +25,18 @@ from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCry
 from ll_mtproto.network.transport.transport_address_resolver_cached import CachedTransportAddressResolver
 from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediateFactory
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
+from ll_mtproto.client.error_description_resolver.pwrtelegram_error_description_resolver import PwrTelegramErrorDescriptionResolver
 
 __all__ = (
     "Client",
     "TelegramDatacenter",
-    "AuthKey", "RpcError",
-    "ConnectionInfo", "Update",
+    "AuthKey",
+    "RpcError",
+    "ConnectionInfo",
+    "Update",
     "CryptoProviderCryptg",
     "CachedTransportAddressResolver",
     "TransportCodecIntermediateFactory",
-    "TransportLinkTcpFactory"
+    "TransportLinkTcpFactory",
+    "PwrTelegramErrorDescriptionResolver"
 )
