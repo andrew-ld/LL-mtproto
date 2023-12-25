@@ -17,10 +17,10 @@
 
 import abc
 
-__all__ = ("AbstractErrorDescriptionResolver",)
+__all__ = ("BaseErrorDescriptionResolver",)
 
 
-class AbstractErrorDescriptionResolver(abc.ABC):
+class BaseErrorDescriptionResolver(abc.ABC):
     @abc.abstractmethod
     def resolve(self, code: int, message: str) -> str | None:
         raise NotImplementedError

@@ -22,7 +22,7 @@ import traceback
 import typing
 
 from ll_mtproto.client.connection_info import ConnectionInfo
-from ll_mtproto.client.error_description_resolver.AbstractErrorDescriptionResolver import AbstractErrorDescriptionResolver
+from ll_mtproto.client.error_description_resolver.base_error_description_resolver import BaseErrorDescriptionResolver
 from ll_mtproto.client.pending_request import PendingRequest
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.client.update import Update
@@ -107,7 +107,7 @@ class Client:
     _rpc_error_constructor: Constructor
     _dispatcher: _ClientDispatcher
     _crypto_provider: CryptoProviderBase
-    _error_description_resolver: AbstractErrorDescriptionResolver | None
+    _error_description_resolver: BaseErrorDescriptionResolver | None
 
     def __init__(
             self,
@@ -119,7 +119,7 @@ class Client:
             crypto_provider: CryptoProviderBase,
             no_updates: bool = True,
             use_perfect_forward_secrecy: bool = False,
-            error_description_resolver: AbstractErrorDescriptionResolver | None = None
+            error_description_resolver: BaseErrorDescriptionResolver | None = None
     ):
         self._datacenter = datacenter
         self._layer_init_info = connection_info

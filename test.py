@@ -2,7 +2,7 @@ import traceback
 
 import typeguard
 
-from ll_mtproto.client.error_description_resolver.PwrTelegramErrorDescriptionResolver import PwrTelegramErrorDescriptionResolver
+from ll_mtproto.client.error_description_resolver.pwrtelegram_error_description_resolver import PwrTelegramErrorDescriptionResolver
 
 typeguard.install_import_hook()
 

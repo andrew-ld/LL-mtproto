@@ -20,7 +20,7 @@ import re
 import typing
 import urllib.request
 
-from ll_mtproto.client.error_description_resolver.AbstractErrorDescriptionResolver import AbstractErrorDescriptionResolver
+from ll_mtproto.client.error_description_resolver.base_error_description_resolver import BaseErrorDescriptionResolver
 
 __all__ = ("PwrTelegramErrorDescriptionResolver",)
 
@@ -28,7 +28,7 @@ _RE_replace_number = re.compile(r"_\d+$")
 _PWRTELEGRAM_database_url = "https://rpc.madelineproto.xyz/v4.json"
 
 
-class PwrTelegramErrorDescriptionResolver(AbstractErrorDescriptionResolver):
+class PwrTelegramErrorDescriptionResolver(BaseErrorDescriptionResolver):
     __slots__ = ("_database",)
 
     _database: dict[str, str] | None
