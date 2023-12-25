@@ -2,7 +2,7 @@ import traceback
 
 import typeguard
 
-from ll_mtproto.client.error_description_resolver.PwrTelegramErrorDescriptionResolver import PwrTelegramRpcErrorDescriptionResolver
+from ll_mtproto.client.error_description_resolver.PwrTelegramErrorDescriptionResolver import PwrTelegramErrorDescriptionResolver
 
 typeguard.install_import_hook()
 
@@ -53,7 +53,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     crypto_provider = CryptoProviderCryptg()
 
-    error_description_resolver = PwrTelegramRpcErrorDescriptionResolver()
+    error_description_resolver = PwrTelegramErrorDescriptionResolver()
 
     try:
         error_description_resolver.synchronous_fetch_database()

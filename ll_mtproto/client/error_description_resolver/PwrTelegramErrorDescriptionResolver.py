@@ -22,13 +22,13 @@ import urllib.request
 
 from ll_mtproto.client.error_description_resolver.AbstractErrorDescriptionResolver import AbstractErrorDescriptionResolver
 
-__all__ = ("PwrTelegramRpcErrorDescriptionResolver",)
+__all__ = ("PwrTelegramErrorDescriptionResolver",)
 
 _RE_replace_number = re.compile(r"_\d+$")
 _PWRTELEGRAM_database_url = "https://rpc.madelineproto.xyz/v4.json"
 
 
-class PwrTelegramRpcErrorDescriptionResolver(AbstractErrorDescriptionResolver):
+class PwrTelegramErrorDescriptionResolver(AbstractErrorDescriptionResolver):
     __slots__ = ("_database",)
 
     _database: dict[str, str] | None
