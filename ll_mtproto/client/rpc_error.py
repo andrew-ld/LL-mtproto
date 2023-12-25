@@ -28,8 +28,8 @@ class RpcError(BaseException):
         self.code = code
         self.message = message
 
-    def __str__(self):
+    def __str__(self) -> str:
         return f"RpcError {self.code} {repr(self.message)}"
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         return f"RpcError({self.code}, {repr(self.message)})"
