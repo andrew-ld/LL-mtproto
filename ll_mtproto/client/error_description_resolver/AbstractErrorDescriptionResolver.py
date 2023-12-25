@@ -15,8 +15,12 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import typing
+import abc
 
-__all__ = ("SeqNoGenerator",)
+__all__ = ("AbstractErrorDescriptionResolver",)
 
-SeqNoGenerator = typing.Callable[[], int]
+
+class AbstractErrorDescriptionResolver(abc.ABC):
+    @abc.abstractmethod
+    def resolve(self, code: int, message: str) -> str | None:
+        raise NotImplementedError

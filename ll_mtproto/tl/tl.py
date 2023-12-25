@@ -65,6 +65,7 @@ def _unpack_flags(n: int) -> set[int]:
 
     return flags
 
+
 _primitives = frozenset(
     (
         "int",
@@ -598,7 +599,7 @@ class Parameter:
 
 
 class OptimizedDeserializationParameters:
-    __slots__ = ( "_struct", "_keys")
+    __slots__ = ("_struct", "_keys")
 
     _struct: typing.Final[struct.Struct]
     _keys: typing.Final[list[str]]

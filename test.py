@@ -1,4 +1,8 @@
+import traceback
+
 import typeguard
+
+from ll_mtproto.client.error_description_resolver.PwrTelegramErrorDescriptionResolver import PwrTelegramRpcErrorDescriptionResolver
 
 typeguard.install_import_hook()
 
@@ -49,6 +53,14 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     crypto_provider = CryptoProviderCryptg()
 
+    error_description_resolver = PwrTelegramRpcErrorDescriptionResolver()
+
+    try:
+        error_description_resolver.synchronous_fetch_database()
+    except:
+        traceback.print_exc()
+        error_description_resolver = None
+
     session = Client(
         datacenter_info,
         auth_key,
@@ -57,7 +69,8 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         blocking_executor,
         crypto_provider,
         use_perfect_forward_secrecy=True,
-        no_updates=False
+        no_updates=False,
+        error_description_resolver=error_description_resolver
     )
 
     get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))

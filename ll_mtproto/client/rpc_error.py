@@ -19,17 +19,19 @@ __all__ = ("RpcError",)
 
 
 class RpcError(BaseException):
-    __slots__ = ("code", "message")
+    __slots__ = ("code", "message", "error_description")
 
     code: int
     message: str
+    error_description: str | None
 
-    def __init__(self, code: int, message: str):
+    def __init__(self, code: int, message: str, error_description: str | None):
         self.code = code
         self.message = message
+        self.error_description = error_description
 
     def __str__(self) -> str:
-        return f"RpcError {self.code} {repr(self.message)}"
+        return f"RpcError {self.code} {repr(self.message)} {self.error_description if self.error_description is not None else ''}"
 
     def __repr__(self) -> str:
-        return f"RpcError({self.code}, {repr(self.message)})"
+        return f"RpcError({self.code}, {repr(self.message)}, {repr(self.error_description)})"

@@ -22,6 +22,7 @@ import traceback
 import typing
 
 from ll_mtproto.client.connection_info import ConnectionInfo
+from ll_mtproto.client.error_description_resolver.AbstractErrorDescriptionResolver import AbstractErrorDescriptionResolver
 from ll_mtproto.client.pending_request import PendingRequest
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.client.update import Update
@@ -80,7 +81,8 @@ class Client:
         "_persistent_session_key",
         "_rpc_error_constructor",
         "_dispatcher",
-        "_crypto_provider"
+        "_crypto_provider",
+        "_error_description_resolver"
     )
 
     _mtproto: MTProto
@@ -105,6 +107,7 @@ class Client:
     _rpc_error_constructor: Constructor
     _dispatcher: _ClientDispatcher
     _crypto_provider: CryptoProviderBase
+    _error_description_resolver: AbstractErrorDescriptionResolver | None
 
     def __init__(
             self,
@@ -116,6 +119,7 @@ class Client:
             crypto_provider: CryptoProviderBase,
             no_updates: bool = True,
             use_perfect_forward_secrecy: bool = False,
+            error_description_resolver: AbstractErrorDescriptionResolver | None = None
     ):
         self._datacenter = datacenter
         self._layer_init_info = connection_info
@@ -123,6 +127,7 @@ class Client:
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
         self._blocking_executor = blocking_executor
         self._crypto_provider = crypto_provider
+        self._error_description_resolver = error_description_resolver
 
         rpc_error_constructor = datacenter.schema.constructors.get("rpc_error", None)
 
@@ -572,7 +577,7 @@ class Client:
 
     async def _process_bad_msg_notification_reject_message(self, body: Structure) -> None:
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            bad_request.response.set_exception(RpcError(body.error_code, "BAD_MSG_NOTIFICATION"))
+            bad_request.response.set_exception(RpcError(body.error_code, "BAD_MSG_NOTIFICATION", None))
             bad_request.finalize()
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
@@ -649,7 +654,13 @@ class Client:
             await self._rpc_call(pending_request)
 
         elif result == "rpc_error":
-            pending_request.response.set_exception(RpcError(result.error_code, result.error_message))
+            error_description_resolver = self._error_description_resolver
+            error_description: str | None = None
+
+            if error_description_resolver is not None:
+                error_description = error_description_resolver.resolve(result.error_code, result.error_message)
+
+            pending_request.response.set_exception(RpcError(result.error_code, result.error_message, error_description))
             pending_request.finalize()
 
         else:

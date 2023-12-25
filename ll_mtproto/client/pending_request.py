@@ -16,12 +16,14 @@
 
 
 import asyncio
+import typing
 
-from ll_mtproto.client.seqno_generator import SeqNoGenerator
 from ll_mtproto.tl.structure import StructureBody
 from ll_mtproto.tl.tl import TlBodyData
 
 __all__ = ("PendingRequest",)
+
+SeqNoGenerator = typing.Callable[[], int]
 
 
 class PendingRequest:

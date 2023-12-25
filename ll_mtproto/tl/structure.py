@@ -19,6 +19,7 @@ import typing
 
 __all__ = ("Structure", "StructureBody")
 
+
 class Structure:
     __slots__ = ("constructor_name", "_fields")
 
