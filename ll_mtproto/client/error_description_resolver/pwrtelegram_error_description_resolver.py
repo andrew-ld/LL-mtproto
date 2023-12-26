@@ -34,23 +34,27 @@ class PwrTelegramErrorDescriptionResolver(BaseErrorDescriptionResolver):
     _database: dict[str, str] | None
     _database_url: str
 
-    def __init__(self, database_url: str = _PWRTELEGRAM_database_url) -> None:
-        self._database = None
+    def __init__(self, database_url: str = _PWRTELEGRAM_database_url, initial_database: dict[str, str] | None = None) -> None:
+        self._database = initial_database
         self._database_url = database_url
 
     @staticmethod
     @functools.lru_cache()
-    def _sanitize_error_message(message: str) -> str:
+    def _normalize_error_message(message: str) -> str:
         return _RE_replace_number.sub(r"_%d", message)
+
+    @property
+    def current_database(self) -> dict[str, str]:
+        database = self._database
+
+        if database is None:
+            raise RuntimeError("database not initialized, must call synchronous_fetch_database")
+
+        return database
 
     def synchronous_fetch_database(self) -> None:
         with urllib.request.urlopen(self._database_url) as response:
             self._database = typing.cast(dict[str, str], json.loads(response.read())["human_result"])
 
     def resolve(self, _code: int, message: str) -> str | None:
-        database = self._database
-
-        if database is None:
-            raise RuntimeError("database not initialized, must call synchronous_fetch_database")
-
-        return database.get(self._sanitize_error_message(message), None)
+        return self.current_database.get(self._normalize_error_message(message), None)
