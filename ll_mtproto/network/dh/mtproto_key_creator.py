@@ -19,39 +19,32 @@ import asyncio
 import hashlib
 import hmac
 import secrets
-import typing
 
 from ll_mtproto.crypto.aes_ige import AesIge
 from ll_mtproto.crypto.auth_key import Key, DhGenKey
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.math import primes
 from ll_mtproto.network.datacenter_info import DatacenterInfo
-from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl.byteutils import to_bytes, sha1, to_reader, xor, SyncByteReaderApply
 from ll_mtproto.tl.structure import Structure
 from ll_mtproto.typed import InThread
 
-__all__ = ("MTProtoKeyExchange",)
+__all__ = ("MTProtoKeyCreator",)
 
 
 class _KeyExchangeStateWaitingResPq:
-    __slots__ = ("nonce",)
-
-    def __init__(self, *, nonce: bytes):
-        self.nonce = nonce
-
+    def __init__(self) -> None:
+        pass
 
 class _KeyExchangeStateWaitingDhParams:
-    __slots__ = ("nonce", "new_nonce", "server_nonce", "temp_key_expires_in")
+    __slots__ = ("new_nonce", "server_nonce", "temp_key_expires_in")
 
-    nonce: bytes
     new_nonce: bytes
     server_nonce: bytes
     temp_key_expires_in: int
 
-    def __init__(self, *, nonce: bytes, new_nonce: bytes, server_nonce: bytes, temp_key_expires_in: int):
-        self.nonce = nonce
+    def __init__(self, *, new_nonce: bytes, server_nonce: bytes, temp_key_expires_in: int):
         self.new_nonce = new_nonce
         self.server_nonce = server_nonce
         self.temp_key_expires_in = temp_key_expires_in
@@ -77,37 +70,16 @@ class _KeyExchangeStateCompleted:
         self.key = key
 
 
-class _KeyExchangeStateBindCompleted:
-    __slots__ = ("key",)
-
-    key: DhGenKey
-
-    def __init__(self, *, key: DhGenKey):
-        self.key = key
-
-
-class _KeyExchangeStateBindParentKey:
-    __slots__ = ("key", "temp_key_expires_in", "req_msg_id")
-
-    key: DhGenKey
-    temp_key_expires_in: int
-    req_msg_id: int
-
-    def __init__(self, *, key: DhGenKey, temp_key_expires_in: int, req_msg_id: int):
-        self.key = key
-        self.temp_key_expires_in = temp_key_expires_in
-        self.req_msg_id = req_msg_id
-
-
-class MTProtoKeyExchange(Dispatcher):
+class MTProtoKeyCreator:
     __slots__ = (
         "_mtproto",
         "_in_thread",
         "_datacenter",
         "_crypto_provider",
-        "_parent_dispatcher",
-        "_parent_key",
-        "_exchange_state"
+        "_exchange_state",
+        "_temp_key",
+        "_nonce",
+        "_result"
     )
 
     TEMP_AUTH_KEY_EXPIRE_TIME = 24 * 60 * 60
@@ -116,8 +88,23 @@ class MTProtoKeyExchange(Dispatcher):
     _mtproto: MTProto
     _datacenter: DatacenterInfo
     _crypto_provider: CryptoProviderBase
-    _parent_key: Key | None
-    _exchange_state: object | None
+    _temp_key: bool
+    _exchange_state: _KeyExchangeStateWaitingResPq | _KeyExchangeStateWaitingDhParams | _KeyExchangeStateWaitingDhGenOk | _KeyExchangeStateCompleted
+    _nonce: bytes
+    _result: asyncio.Future[DhGenKey]
+
+    @staticmethod
+    async def initializate(
+            mtproto: MTProto,
+            in_thread: InThread,
+            datacenter: DatacenterInfo,
+            crypto_provider: CryptoProviderBase,
+            temp_key: bool,
+            result: asyncio.Future[DhGenKey]
+    ) -> "MTProtoKeyCreator":
+        nonce = await in_thread(secrets.token_bytes, 16)
+        await mtproto.write_unencrypted_message(_cons="req_pq_multi", nonce=nonce)
+        return MTProtoKeyCreator(mtproto, in_thread, datacenter, crypto_provider, temp_key, nonce, result)
 
     def __init__(
             self,
@@ -125,27 +112,23 @@ class MTProtoKeyExchange(Dispatcher):
             in_thread: InThread,
             datacenter: DatacenterInfo,
             crypto_provider: CryptoProviderBase,
-            parent_dispatcher: Dispatcher,
-            parent_key: Key | None
+            temp_key: bool,
+            nonce: bytes,
+            result: asyncio.Future[DhGenKey]
     ):
         self._mtproto = mtproto
         self._in_thread = in_thread
         self._datacenter = datacenter
         self._crypto_provider = crypto_provider
-        self._parent_dispatcher = parent_dispatcher
-        self._parent_key = parent_key
-        self._exchange_state = None
+        self._temp_key = temp_key
+        self._nonce = nonce
+        self._exchange_state = _KeyExchangeStateWaitingResPq()
+        self._result = result
 
-    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
-        if crypto_flag:
-            await self._parent_dispatcher.process_telegram_signaling_message(signaling, crypto_flag)
-        else:
-            await self._mtproto.write_unencrypted_message(_cons="msgs_ack", msg_ids=[signaling.msg_id])
-
-    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
+    async def process_telegram_message_body(self, body: Structure) -> None:
         match (state := self._exchange_state):
             case _KeyExchangeStateWaitingResPq():
-                await self._process_res_pq(body, state)
+                await self._process_res_pq(body)
 
             case _KeyExchangeStateWaitingDhParams():
                 await self._process_dh_params(body, state)
@@ -153,52 +136,30 @@ class MTProtoKeyExchange(Dispatcher):
             case _KeyExchangeStateWaitingDhGenOk():
                 await self._process_dh_gen_ok(body, state)
 
-            case _KeyExchangeStateBindParentKey():
-                assert crypto_flag
-                await self._process_bind_parent_key(body, state)
+            case _KeyExchangeStateCompleted():
+                pass
 
             case _:
                 raise TypeError("Unknown exchange state `%r`", state)
 
-    async def _process_bind_parent_key(self, body: Structure, state: _KeyExchangeStateBindParentKey) -> None:
-        if body == "new_session_created" or body == "msgs_ack":
-            return await self._parent_dispatcher.process_telegram_message_body(body, True)
-
-        if body != "rpc_result":
-            raise RuntimeError("Diffie–Hellman exchange failed: `%r`, unexpected message", body)
-
-        if body.req_msg_id != state.req_msg_id:
-            raise RuntimeError("Diffie–Hellman exchange failed: `%r`, unexpected req_msg_id", body)
-
-        bool_true = self._datacenter.schema.constructors.get("boolTrue", None)
-
-        if bool_true is None:
-            raise TypeError(f"Unable to find bool_true constructor")
-
-        if body.result != bool_true.number:
-            raise RuntimeError("Diffie–Hellman exchange failed: `%r`, expected response", body)
-
-        self._exchange_state = _KeyExchangeStateBindCompleted(key=state.key)
+        if isinstance(self._exchange_state, _KeyExchangeStateCompleted):
+            self._result.set_result(self._exchange_state.key)
 
     async def _process_dh_gen_ok(self, params3: Structure, state: _KeyExchangeStateWaitingDhGenOk) -> None:
         if params3 != "dh_gen_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
-        if self._parent_key is None:
-            self._exchange_state = _KeyExchangeStateCompleted(key=state.key)
-        else:
-            self._exchange_state = _KeyExchangeStateBindParentKey(
-                key=state.key,
-                temp_key_expires_in=state.temp_key_expires_in,
-                req_msg_id=self._mtproto.get_next_message_id()
-            )
+        if not hmac.compare_digest(params3.nonce, self._nonce):
+            raise RuntimeError("Diffie–Hellman exchange failed: nonce mismatch: `%r`", params3)
+
+        self._exchange_state = _KeyExchangeStateCompleted(key=state.key)
 
     async def _process_dh_params(self, params: Structure, state: _KeyExchangeStateWaitingDhParams) -> None:
         if params != "server_DH_params_ok":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params)
 
-        if not hmac.compare_digest(params.nonce, state.nonce):
-            raise RuntimeError("Diffie–Hellman exchange failed: params nonce mismatch")
+        if not hmac.compare_digest(params.nonce, self._nonce):
+            raise RuntimeError("Diffie–Hellman exchange failed: nonce mismatch: `%r`", params)
 
         if not hmac.compare_digest(params.server_nonce, state.server_nonce):
             raise RuntimeError("Diffie–Hellman exchange failed: params server nonce mismatch")
@@ -232,7 +193,7 @@ class MTProtoKeyExchange(Dispatcher):
         if params2 != "server_DH_inner_data":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
 
-        if not hmac.compare_digest(params2.nonce, state.nonce):
+        if not hmac.compare_digest(params2.nonce, self._nonce):
             raise RuntimeError("Diffie–Hellman exchange failed: params2 nonce mismatch")
 
         if not hmac.compare_digest(params2.server_nonce, state.server_nonce):
@@ -282,10 +243,11 @@ class MTProtoKeyExchange(Dispatcher):
         new_auth_key.auth_key = to_bytes(auth_key)
         new_auth_key.auth_key_id = Key.generate_auth_key_id(new_auth_key.auth_key)
         new_auth_key.server_salt = server_salt
+        new_auth_key.expire_at = state.temp_key_expires_in
 
         client_dh_inner_data = self._datacenter.schema.boxed_kwargs(
             _cons="client_DH_inner_data",
-            nonce=state.nonce,
+            nonce=self._nonce,
             server_nonce=state.server_nonce,
             retry_id=0,
             g_b=to_bytes(g_b),
@@ -295,16 +257,19 @@ class MTProtoKeyExchange(Dispatcher):
 
         await self._mtproto.write_unencrypted_message(
             _cons="set_client_DH_params",
-            nonce=state.nonce,
+            nonce=self._nonce,
             server_nonce=state.server_nonce,
             encrypted_data=await self._in_thread(tmp_aes.encrypt_with_hash, client_dh_inner_data),
         )
 
         self._exchange_state = _KeyExchangeStateWaitingDhGenOk(key=new_auth_key, temp_key_expires_in=state.temp_key_expires_in)
 
-    async def _process_res_pq(self, res_pq: Structure, state: _KeyExchangeStateWaitingResPq) -> None:
+    async def _process_res_pq(self, res_pq: Structure) -> None:
         if res_pq != "resPQ":
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", res_pq)
+
+        if not hmac.compare_digest(res_pq.nonce, self._nonce):
+            raise RuntimeError("Diffie–Hellman exchange failed: nonce mismatch: `%r`", res_pq)
 
         if self._datacenter.public_rsa.fingerprint not in res_pq.server_public_key_fingerprints:
             raise ValueError("Our certificate is not supported by the server")
@@ -323,16 +288,14 @@ class MTProtoKeyExchange(Dispatcher):
         if len(p_string) + len(q_string) != 8:
             raise RuntimeError("Diffie–Hellman exchange failed: p q length is invalid, `%r`", pq)
 
-        temp = self._parent_key is not None
-
         temp_key_expires_in = self.TEMP_AUTH_KEY_EXPIRE_TIME + self._datacenter.get_synchronized_time()
 
         p_q_inner_data = self._datacenter.schema.boxed_kwargs(
-            _cons="p_q_inner_data_temp_dc" if temp else "p_q_inner_data_dc",
+            _cons="p_q_inner_data_temp_dc" if self._temp_key else "p_q_inner_data_dc",
             pq=res_pq.pq,
             p=p_string,
             q=q_string,
-            nonce=state.nonce,
+            nonce=self._nonce,
             server_nonce=server_nonce,
             new_nonce=new_nonce,
             expires_in=temp_key_expires_in,
@@ -349,109 +312,16 @@ class MTProtoKeyExchange(Dispatcher):
 
         await self._mtproto.write_unencrypted_message(
             _cons="req_DH_params",
-            nonce=state.nonce,
             server_nonce=server_nonce,
             p=p_string,
             q=q_string,
+            nonce=self._nonce,
             public_key_fingerprint=self._datacenter.public_rsa.fingerprint,
             encrypted_data=p_q_inner_data_encrypted,
         )
 
         self._exchange_state = _KeyExchangeStateWaitingDhParams(
-            nonce=state.nonce,
             new_nonce=new_nonce,
             server_nonce=server_nonce,
             temp_key_expires_in=temp_key_expires_in
         )
-
-    async def _write_bind_parent_key_request(self, state: _KeyExchangeStateBindParentKey) -> None:
-        parent_key = self._parent_key
-
-        if parent_key is None:
-            raise RuntimeError("Diffie–Hellman exchange failed: parent key become None WTF")
-
-        perm_auth_key_key, perm_auth_key_id, _ = parent_key.get_or_assert_empty()
-
-        bind_temp_auth_nonce = int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True)
-
-        bind_temp_auth_inner = self._datacenter.schema.boxed_kwargs(
-            _cons="bind_auth_key_inner",
-            nonce=bind_temp_auth_nonce,
-            temp_auth_key_id=state.key.auth_key_id,
-            perm_auth_key_id=perm_auth_key_id,
-            temp_session_id=state.key.session.id,
-            expires_at=state.temp_key_expires_in
-        )
-
-        bind_temp_auth_inner_data = self._datacenter.schema.bare_kwargs(
-            _cons="message_inner_data",
-            salt=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=True),
-            session_id=int.from_bytes(await self._in_thread(secrets.token_bytes, 8), "big", signed=False),
-            message=self._datacenter.schema.bare_kwargs(
-                _cons="message_from_client",
-                msg_id=state.req_msg_id,
-                seqno=0,
-                body=bind_temp_auth_inner
-            ),
-        ).get_flat_bytes()
-
-        bind_temp_auth_inner_data_sha1 = await self._in_thread(sha1, bind_temp_auth_inner_data)
-        bind_temp_auth_inner_data_msg_key = bind_temp_auth_inner_data_sha1[4:20]
-
-        bind_temp_auth_inner_data_aes: AesIge = await self._in_thread(
-            MTProto.prepare_key_v1_write,
-            perm_auth_key_key,
-            bind_temp_auth_inner_data_msg_key,
-            self._crypto_provider
-        )
-
-        bind_temp_auth_inner_data_encrypted = await self._in_thread(
-            bind_temp_auth_inner_data_aes.encrypt,
-            bind_temp_auth_inner_data
-        )
-
-        bind_temp_auth_inner_data_encrypted_boxed = self._datacenter.schema.bare_kwargs(
-            _cons="encrypted_message",
-            auth_key_id=perm_auth_key_id,
-            msg_key=bind_temp_auth_inner_data_msg_key,
-            encrypted_data=bind_temp_auth_inner_data_encrypted,
-        )
-
-        bind_temp_auth_message = self._datacenter.schema.boxed_kwargs(
-            _cons="auth.bindTempAuthKey",
-            perm_auth_key_id=perm_auth_key_id,
-            nonce=bind_temp_auth_nonce,
-            expires_at=state.temp_key_expires_in,
-            encrypted_message=bind_temp_auth_inner_data_encrypted_boxed.get_flat_bytes()
-        )
-
-        bind_temp_auth_boxed_message = self._datacenter.schema.bare_kwargs(
-            _cons="message_from_client",
-            msg_id=state.req_msg_id,
-            seqno=state.key.session.get_next_odd_seqno(),
-            body=bind_temp_auth_message,
-        )
-
-        await self._mtproto.write_encrypted(bind_temp_auth_boxed_message, state.key)
-
-    async def _write_req_pq_multi(self, nonce: bytes) -> None:
-        await self._mtproto.write_unencrypted_message(_cons="req_pq_multi", nonce=nonce)
-
-    async def generate_key(self) -> DhGenKey:
-        nonce = await self._in_thread(secrets.token_bytes, 16)
-        await self._write_req_pq_multi(nonce)
-
-        self._exchange_state = _KeyExchangeStateWaitingResPq(nonce=nonce)
-
-        while not isinstance(self._exchange_state, (_KeyExchangeStateCompleted, _KeyExchangeStateBindParentKey)):
-            await dispatch_event(self, self._mtproto, None)
-
-        generated_key = typing.cast(_KeyExchangeStateCompleted | _KeyExchangeStateBindParentKey, self._exchange_state).key
-
-        if isinstance(self._exchange_state, _KeyExchangeStateBindParentKey):
-            await self._write_bind_parent_key_request(self._exchange_state)
-
-            while not isinstance(self._exchange_state, _KeyExchangeStateBindCompleted):
-                await dispatch_event(self, self._mtproto, generated_key)
-
-        return generated_key

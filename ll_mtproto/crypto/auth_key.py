@@ -93,17 +93,19 @@ class KeySession:
 
 
 class DhGenKey:
-    __slots__ = ("auth_key", "auth_key_id", "server_salt", "session")
+    __slots__ = ("auth_key", "auth_key_id", "server_salt", "session", "expire_at")
 
     auth_key: None | bytes
     auth_key_id: None | int
     server_salt: None | int
     session: KeySession
+    expire_at: None | int
 
     def __init__(self) -> None:
         self.auth_key = None
         self.auth_key_id = None
         self.server_salt = None
+        self.expire_at = None
         self.session = KeySession()
 
     def get_or_assert_empty(self) -> tuple[bytes, int, KeySession]:
@@ -123,6 +125,7 @@ class Key:
         "session",
         "unused_sessions",
         "created_at",
+        "expire_at",
         "_update_callback",
     )
 
@@ -132,6 +135,7 @@ class Key:
     session: KeySession
     unused_sessions: set[int]
     created_at: None | float
+    expire_at: None | int
     _update_callback: AuthKeyUpdatedCallbackHolder
 
     def __init__(
@@ -139,12 +143,14 @@ class Key:
             update_callback: AuthKeyUpdatedCallbackHolder,
             auth_key: bytes | None = None,
             server_salt: int | None = None,
-            created_at: int | None = None
+            created_at: int | None = None,
+            expire_at: int | None = None
     ):
         self._update_callback = update_callback
         self.auth_key = auth_key
         self.server_salt = server_salt
         self.created_at = created_at
+        self.expire_at = expire_at
 
         self.session = KeySession()
         self.unused_sessions = set()
@@ -158,7 +164,8 @@ class Key:
             "server_salt": self.server_salt,
             "session": self.session,
             "unused_sessions": self.unused_sessions,
-            "created_at": self.created_at
+            "created_at": self.created_at,
+            "expire_at": self.expire_at
         }
 
     def __setstate__(self, state: dict[str, typing.Any]) -> None:
@@ -168,6 +175,7 @@ class Key:
         self.session = state["session"]
         self.unused_sessions = state["unused_sessions"]
         self.created_at = state.get("created_at", -1.)
+        self.expire_at = state.get("expire_at", None)
 
     @staticmethod
     def generate_auth_key_id(auth_key: bytes | None) -> int | None:
@@ -197,6 +205,7 @@ class Key:
         self.auth_key = dh_gen_key.auth_key
         self.auth_key_id = dh_gen_key.auth_key_id
         self.server_salt = dh_gen_key.server_salt
+        self.expire_at = dh_gen_key.expire_at
 
         if (old_session := self.session).seqno > 0:
             self.unused_sessions.add(old_session.id)

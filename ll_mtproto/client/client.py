@@ -26,13 +26,14 @@ from ll_mtproto.client.error_description_resolver.base_error_description_resolve
 from ll_mtproto.client.pending_request import PendingRequest
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.client.update import Update
-from ll_mtproto.crypto.auth_key import AuthKey, Key
+from ll_mtproto.crypto.auth_key import AuthKey, Key, DhGenKey
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
 from ll_mtproto.network.datacenter_info import DatacenterInfo
+from ll_mtproto.network.dh.mtproto_key_binder_dispatcher import MTProtoKeyBinderDispatcher
+from ll_mtproto.network.dh.mtproto_key_creator_dispatcher import initialize_key_creator_dispatcher
 from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
 from ll_mtproto.network.mtproto import MTProto
-from ll_mtproto.network.mtproto_key_exchange import MTProtoKeyExchange
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl.byteutils import reader_discard, to_reader
 from ll_mtproto.tl.structure import Structure, StructureBody
@@ -78,7 +79,7 @@ class Client:
         "_blocking_executor",
         "_write_queue",
         "_used_session_key",
-        "_persistent_session_key",
+        "_used_persistent_key",
         "_rpc_error_constructor",
         "_dispatcher",
         "_crypto_provider",
@@ -103,7 +104,7 @@ class Client:
     _blocking_executor: concurrent.futures.Executor
     _write_queue: asyncio.Queue[PendingRequest]
     _used_session_key: Key
-    _persistent_session_key: Key
+    _used_persistent_key: Key
     _rpc_error_constructor: Constructor
     _dispatcher: _ClientDispatcher
     _crypto_provider: CryptoProviderBase
@@ -155,7 +156,7 @@ class Client:
         self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread, crypto_provider)
 
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
-        self._persistent_session_key = auth_key.persistent_key
+        self._used_persistent_key = auth_key.persistent_key
 
     async def _in_thread(self, *args: typing.Any, **kwargs: typing.Any) -> typing.Any:
         return await self._loop.run_in_executor(self._blocking_executor, *args, **kwargs)
@@ -270,19 +271,56 @@ class Client:
         if pending_request := self._pending_requests.pop(msg_id, None):
             pending_request.finalize()
 
+    async def _start_auth_key_exchange_for_key(self, key: Key, is_temp_key: bool) -> None:
+        result: asyncio.Future[DhGenKey] = self._loop.create_future()
+
+        dispatcher = await initialize_key_creator_dispatcher(
+            result,
+            is_temp_key,
+            self._mtproto,
+            self._in_thread,
+            self._datacenter,
+            self._crypto_provider
+        )
+
+        while not result.done():
+            await dispatch_event(dispatcher, self._mtproto, None)
+
+        key.import_dh_gen_key(result.result())
+
+    async def _start_auth_key_bind_for_keys(self, persistent: Key, temp: Key, expire_at: int) -> None:
+        result: asyncio.Future[None] = self._loop.create_future()
+
+        dispatcher = await MTProtoKeyBinderDispatcher.initialize(
+            persistent,
+            temp,
+            result,
+            self._in_thread,
+            self._datacenter,
+            self._mtproto,
+            self._crypto_provider,
+            self._dispatcher,
+            expire_at
+        )
+
+        while not result.done():
+            await dispatch_event(dispatcher, self._mtproto, temp)
+
     async def _start_auth_key_exchange_if_needed(self) -> None:
         self._ensure_mtproto_loop()
 
         async with self._auth_key_lock:
-            if (perm_auth_key := self._persistent_session_key).is_empty():
-                exchanger = MTProtoKeyExchange(self._mtproto, self._in_thread, self._datacenter, self._crypto_provider, self._dispatcher, None)
-                generated_key = await exchanger.generate_key()
-                perm_auth_key.import_dh_gen_key(generated_key)
+            used_key = self._used_session_key
+            persistent_key = self._used_persistent_key
 
-            if self._use_perfect_forward_secrecy and (temp_auth_key := self._used_session_key).is_empty():
-                exchanger = MTProtoKeyExchange(self._mtproto, self._in_thread, self._datacenter, self._crypto_provider, self._dispatcher, self._persistent_session_key)
-                generated_key = await exchanger.generate_key()
-                temp_auth_key.import_dh_gen_key(generated_key)
+            if persistent_key.is_empty():
+                await self._start_auth_key_exchange_for_key(persistent_key, False)
+                persistent_key.flush_changes()
+
+            if self._use_perfect_forward_secrecy and used_key.is_empty():
+                await self._start_auth_key_exchange_for_key(used_key, True)
+                await self._start_auth_key_bind_for_keys(persistent_key, used_key, typing.cast(int, used_key.expire_at))
+                used_key.flush_changes()
 
     async def _process_outbound_message(self, message: PendingRequest) -> None:
         message.retries += 1
