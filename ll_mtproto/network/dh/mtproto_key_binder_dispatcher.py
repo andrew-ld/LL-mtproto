@@ -138,6 +138,9 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
         self._datacenter = datacenter
 
     async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
+        if not crypto_flag:
+            raise TypeError(f"Expected an encrypted message, found `{body!r}`")
+
         if body == "new_session_created" or body == "msgs_ack":
             return await self._parent_dispatcher.process_telegram_message_body(body, True)
 
@@ -158,4 +161,7 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
         self._result.set_result(None)
 
     async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
+        if not crypto_flag:
+            raise TypeError(f"Expected an encrypted signaling, found `{signaling!r}`")
+
         await self._parent_dispatcher.process_telegram_signaling_message(signaling, crypto_flag)
