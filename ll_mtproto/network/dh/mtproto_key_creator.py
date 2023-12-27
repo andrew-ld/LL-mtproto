@@ -243,7 +243,9 @@ class MTProtoKeyCreator:
         new_auth_key.auth_key = to_bytes(auth_key)
         new_auth_key.auth_key_id = Key.generate_auth_key_id(new_auth_key.auth_key)
         new_auth_key.server_salt = server_salt
-        new_auth_key.expire_at = state.temp_key_expires_in
+
+        if self._temp_key:
+            new_auth_key.expire_at = state.temp_key_expires_in
 
         client_dh_inner_data = self._datacenter.schema.boxed_kwargs(
             _cons="client_DH_inner_data",
