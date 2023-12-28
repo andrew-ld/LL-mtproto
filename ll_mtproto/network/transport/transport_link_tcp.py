@@ -137,16 +137,14 @@ class TransportLinkTcp(TransportLinkBase):
         return bytes(result)
 
     async def write(self, data: bytes):
+        data = bytearray(data)
+
         _, writer, codec = await self._reconnect_if_needed()
 
         async with self._write_lock:
-            if len(data) <= 0x7FFFFF:
-                await codec.write_packet(writer, data)
-            else:
-                data = bytearray(data)
-                while (writable_len := min(len(data), 0x7FFFFF)) > 0:
-                    await codec.write_packet(writer, data[:writable_len])
-                    del data[:writable_len]
+            while (writable_len := min(len(data), 0x7FFFFF)) > 0:
+                await codec.write_packet(writer, data[:writable_len])
+                del data[:writable_len]
 
     def stop(self) -> None:
         if writer := self._writer:
