@@ -18,6 +18,7 @@
 import asyncio
 import concurrent.futures
 import logging
+import time
 import traceback
 import typing
 
@@ -316,6 +317,9 @@ class Client:
             if persistent_key.is_empty():
                 await self._start_auth_key_exchange_for_key(persistent_key, False)
                 persistent_key.flush_changes()
+
+            if self._use_perfect_forward_secrecy and used_key.expire_at and time.time() >= used_key.expire_at:
+                used_key.clear_key()
 
             if self._use_perfect_forward_secrecy and used_key.is_empty():
                 await self._start_auth_key_exchange_for_key(used_key, True)
