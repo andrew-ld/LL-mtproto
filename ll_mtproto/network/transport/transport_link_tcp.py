@@ -16,6 +16,9 @@
 
 
 import asyncio
+import _socket
+import ipaddress
+import socket
 
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_address_resolver_base import TransportAddressResolverBase
@@ -79,8 +82,36 @@ class TransportLinkTcp(TransportLinkBase):
 
             if reader is None or writer is None or transport_codec is None:
                 address, port = await self._resolver.get_address(self._datacenter)
-                reader, writer = await asyncio.open_connection(address, port)
+
+                match address_version := ipaddress.ip_address(address):
+                    case ipaddress.IPv4Address():
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+
+                    case ipaddress.IPv6Address():
+                        sock = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)
+
+                    case _:
+                        raise TypeError(f"Invalid IP address: `{address_version!r}` `{address!r}`")
+
+                if hasattr(_socket, "SO_REUSEADDR"):
+                    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+
+                if hasattr(_socket, "SO_KEEPALIVE"):
+                    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_KEEPALIVE, 1)
+
+                if hasattr(_socket, "SO_NOSIGPIPE"):
+                    sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_NOSIGPIPE, 1)
+
+                if hasattr(_socket, "TCP_NODELAY"):
+                    sock.setsockopt(_socket.IPPROTO_TCP, _socket.TCP_NODELAY, 1)
+
+                sock.setblocking(False)
+
+                await asyncio.get_running_loop().sock_connect(sock, (address, port))
+
+                reader, writer = await asyncio.open_connection(sock=sock)
                 transport_codec = self._transport_codec_factory.new_codec()
+
                 self._reader, self._writer, self._transport_codec = reader, writer, transport_codec
 
             return reader, writer, transport_codec
@@ -111,11 +142,7 @@ class TransportLinkTcp(TransportLinkBase):
         _, writer, codec = await self._reconnect_if_needed()
 
         async with self._write_lock:
-            while (data_len := len(data)) > 0:
-                chunk_len = min(data_len, 0x7FFFFF)
-                chunk_mem = data[:chunk_len]
-                del data[:chunk_len]
-                await codec.write_packet(writer, chunk_mem)
+            await codec.write_packet(writer, data)
 
     def stop(self) -> None:
         if writer := self._writer:
