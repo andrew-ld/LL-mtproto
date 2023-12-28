@@ -81,6 +81,11 @@ class TransportLinkTcp(TransportLinkBase):
             reader, writer, transport_codec = self._reader, self._writer, self._transport_codec
 
             if reader is None or writer is None or transport_codec is None:
+                self._read_buffer.clear()
+
+                if writer is not None:
+                   writer.close()
+
                 address, port = await self._resolver.get_address(self._datacenter)
 
                 match address_version := ipaddress.ip_address(address):
@@ -136,7 +141,7 @@ class TransportLinkTcp(TransportLinkBase):
         del self._read_buffer[:n]
         return bytes(result)
 
-    async def write(self, data: bytes):
+    async def write(self, data: bytes) -> None:
         data = bytearray(data)
 
         _, writer, codec = await self._reconnect_if_needed()
