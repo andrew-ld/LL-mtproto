@@ -285,7 +285,12 @@ class Client:
 
         key.import_dh_gen_key(result.result())
 
-    async def _start_auth_key_bind_for_keys(self, persistent: Key, temp: Key, expire_at: int) -> None:
+    async def _start_auth_key_bind_for_keys(self, persistent: Key, temp: Key) -> None:
+        expire_at = temp.expire_at
+
+        if expire_at is None:
+            raise TypeError(f"Temp key expire_at is None: `{temp!r}")
+
         dispatcher, result = await MTProtoKeyBinderDispatcher.initialize(
             persistent,
             temp,
@@ -311,13 +316,13 @@ class Client:
                 await self._start_auth_key_exchange_for_key(persistent_key, False)
                 persistent_key.flush_changes()
 
-            if self._use_perfect_forward_secrecy and used_key.expire_at and self._datacenter.get_synchronized_time() >= used_key.expire_at:
+            if used_key.expire_at is not None and self._datacenter.get_synchronized_time() >= used_key.expire_at:
                 used_key.clear_key()
                 used_key.flush_changes()
 
             if self._use_perfect_forward_secrecy and used_key.is_empty():
                 await self._start_auth_key_exchange_for_key(used_key, True)
-                await self._start_auth_key_bind_for_keys(persistent_key, used_key, typing.cast(int, used_key.expire_at))
+                await self._start_auth_key_bind_for_keys(persistent_key, used_key)
                 used_key.flush_changes()
 
     async def _process_outbound_message(self, message: PendingRequest) -> None:
