@@ -326,6 +326,9 @@ class Client:
                     await self._start_auth_key_bind_for_keys(persistent_key, used_key)
                     used_key.flush_changes()
 
+            elif used_key is not persistent_key:
+                raise RuntimeError(f"used key ({id(used_key)}) is not equal to persistent key {id(persistent_key)} and pfs is disabled")
+
     async def _process_outbound_message(self, message: PendingRequest) -> None:
         message.retries += 1
 
