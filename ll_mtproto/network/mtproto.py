@@ -146,6 +146,8 @@ class MTProto:
             finally:
                 reader_discard(full_message_reader)
 
+            self._link.discard_packet()
+
             return message, message.body
 
     async def write_unencrypted_message(self, **body: TlBodyDataValue) -> None:

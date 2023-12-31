@@ -49,11 +49,11 @@ class TelegramDatacenter:
     _telegram_public_rsa = _get_public_rsa(_ll_mtproto_resources_path)
     _telegram_api_schema = _get_schema(_ll_mtproto_resources_path)
 
-    PLUTO = DatacenterInfo("149.154.175.53", 443, _telegram_public_rsa, _telegram_api_schema, 1, False)
+    PLUTO = DatacenterInfo("149.154.175.50", 443, _telegram_public_rsa, _telegram_api_schema, 1, False)
     VENUS = DatacenterInfo("149.154.167.51", 443, _telegram_public_rsa, _telegram_api_schema, 2, False)
     AURORA = DatacenterInfo("149.154.175.100", 443, _telegram_public_rsa, _telegram_api_schema, 3, False)
     VESTA = DatacenterInfo("149.154.167.91", 443, _telegram_public_rsa, _telegram_api_schema, 4, False)
-    FLORA = DatacenterInfo("91.108.56.130", 443, _telegram_public_rsa, _telegram_api_schema, 5, False)
+    FLORA = DatacenterInfo("149.154.171.5", 443, _telegram_public_rsa, _telegram_api_schema, 5, False)
 
     VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _telegram_public_rsa, _telegram_api_schema, 2, True)
     VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _telegram_public_rsa, _telegram_api_schema, 4, True)

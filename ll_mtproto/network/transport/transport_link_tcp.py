@@ -131,6 +131,9 @@ class TransportLinkTcp(TransportLinkBase):
 
         return result
 
+    def discard_packet(self):
+        self._read_buffer.clear()
+
     async def readn(self, n: int) -> bytes:
         reader, _, codec = await self._reconnect_if_needed()
 

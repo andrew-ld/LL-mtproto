@@ -30,6 +30,10 @@ class TransportLinkBase(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
+    def discard_packet(self):
+        raise NotImplementedError
+
+    @abc.abstractmethod
     async def write(self, data: bytes) -> None:
         raise NotImplementedError
 
