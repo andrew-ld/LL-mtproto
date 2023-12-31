@@ -743,7 +743,7 @@ class Constructor:
                         data.append_serialized_tl(struct.pack(b"<d", float(argument)))
 
                     case _:
-                        raise TypeError(f"Cannot serializer python integer `{argument!r}` as `{parameter!r}`")
+                        raise TypeError(f"Cannot serialize python integer `{argument!r}` as `{parameter!r}`")
 
             elif isinstance(argument, float):
                 match parameter.type:
@@ -751,7 +751,7 @@ class Constructor:
                         data.append_serialized_tl(struct.pack(b"<d", argument))
 
                     case _:
-                        raise TypeError(f"Cannot serializer python float `{argument!r}` as `{parameter!r}`")
+                        raise TypeError(f"Cannot serialize python float `{argument!r}` as `{parameter!r}`")
 
             elif isinstance(argument, bytes):
                 match parameter.type:
@@ -762,7 +762,7 @@ class Constructor:
                         data.append_serialized_tl(pack_binary_string(argument))
 
                     case _:
-                        raise TypeError(f"Cannot serializer python bytes `{argument!r}` as `{parameter!r}`")
+                        raise TypeError(f"Cannot serialize python bytes `{argument!r}` as `{parameter!r}`")
 
             elif isinstance(argument, Value):
                 match parameter.type:
@@ -779,7 +779,7 @@ class Constructor:
                         data.append_serialized_tl(pack_binary_string(gzip.compress(argument.get_flat_bytes())))
 
                     case _:
-                        raise TypeError(f"Cannot serializer Value `{argument!r}` as `{parameter!r}`")
+                        raise TypeError(f"Cannot serialize Value `{argument!r}` as `{parameter!r}`")
 
             else:
                 raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
