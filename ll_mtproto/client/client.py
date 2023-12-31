@@ -316,14 +316,15 @@ class Client:
                 await self._start_auth_key_exchange_for_key(persistent_key, False)
                 persistent_key.flush_changes()
 
-            if used_key.expire_at is not None and self._datacenter.get_synchronized_time() >= used_key.expire_at:
-                used_key.clear_key()
-                used_key.flush_changes()
+            if self._use_perfect_forward_secrecy:
+                if used_key.expire_at is not None and self._datacenter.get_synchronized_time() >= used_key.expire_at:
+                    used_key.clear_key()
+                    used_key.flush_changes()
 
-            if self._use_perfect_forward_secrecy and used_key.is_empty():
-                await self._start_auth_key_exchange_for_key(used_key, True)
-                await self._start_auth_key_bind_for_keys(persistent_key, used_key)
-                used_key.flush_changes()
+                if used_key.is_empty():
+                    await self._start_auth_key_exchange_for_key(used_key, True)
+                    await self._start_auth_key_bind_for_keys(persistent_key, used_key)
+                    used_key.flush_changes()
 
     async def _process_outbound_message(self, message: PendingRequest) -> None:
         message.retries += 1
