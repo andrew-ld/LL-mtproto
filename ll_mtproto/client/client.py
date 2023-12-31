@@ -289,7 +289,7 @@ class Client:
         expire_at = temp.expire_at
 
         if expire_at is None:
-            raise TypeError(f"Temp key expire_at is None: `{temp!r}")
+            raise TypeError(f"Temp key expire_at is None: `{temp!r}`")
 
         dispatcher, result = await MTProtoKeyBinderDispatcher.initialize(
             persistent,
