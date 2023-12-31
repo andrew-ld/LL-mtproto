@@ -44,14 +44,13 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
     async def initialize(
             persistent_key: Key,
             used_key: Key,
-            result: asyncio.Future[None],
             in_thread: InThread,
             datacenter: DatacenterInfo,
             mtproto: MTProto,
             crypto_provider: CryptoProviderBase,
             parent_dispatcher: Dispatcher,
             expire_at: int
-    ) -> "MTProtoKeyBinderDispatcher":
+    ) -> tuple["MTProtoKeyBinderDispatcher", asyncio.Future[None]]:
         req_msg_id = mtproto.get_next_message_id()
 
         perm_auth_key_key, perm_auth_key_id, _ = persistent_key.get_or_assert_empty()
@@ -119,7 +118,8 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
 
         await mtproto.write_encrypted(bind_temp_auth_boxed_message, used_key)
 
-        return MTProtoKeyBinderDispatcher(persistent_key, used_key, result, req_msg_id, parent_dispatcher, datacenter)
+        result = asyncio.get_running_loop().create_future()
+        return MTProtoKeyBinderDispatcher(persistent_key, used_key, result, req_msg_id, parent_dispatcher, datacenter), result
 
     def __init__(
             self,

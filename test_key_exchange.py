@@ -30,10 +30,7 @@ async def main() -> typing.NoReturn:
     )
 
     while True:
-        result: asyncio.Future[DhGenKey] = asyncio.get_running_loop().create_future()
-
-        dispatcher = await initialize_key_creator_dispatcher(
-            result,
+        dispatcher, result = await initialize_key_creator_dispatcher(
             False,
             mtproto,
             in_thread,

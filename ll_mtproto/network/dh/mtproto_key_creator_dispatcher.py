@@ -50,12 +50,12 @@ class KeyCreatorDispatcher(Dispatcher):
 
 
 async def initialize_key_creator_dispatcher(
-        result: asyncio.Future[DhGenKey],
         temp_key: bool,
         mtproto: MTProto,
         in_thread: InThread,
         datacenter: DatacenterInfo,
         crypto_provider: CryptoProviderBase
-) -> Dispatcher:
+) -> tuple[Dispatcher, asyncio.Future[DhGenKey]]:
+    result = asyncio.get_running_loop().create_future()
     creator = await MTProtoKeyCreator.initializate(mtproto, in_thread, datacenter, crypto_provider, temp_key, result)
-    return KeyCreatorDispatcher(creator, mtproto)
+    return KeyCreatorDispatcher(creator, mtproto), result

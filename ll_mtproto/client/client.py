@@ -26,7 +26,7 @@ from ll_mtproto.client.error_description_resolver.base_error_description_resolve
 from ll_mtproto.client.pending_request import PendingRequest
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.client.update import Update
-from ll_mtproto.crypto.auth_key import AuthKey, Key, DhGenKey
+from ll_mtproto.crypto.auth_key import AuthKey, Key
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
 from ll_mtproto.network.datacenter_info import DatacenterInfo
@@ -272,10 +272,7 @@ class Client:
             pending_request.finalize()
 
     async def _start_auth_key_exchange_for_key(self, key: Key, is_temp_key: bool) -> None:
-        result: asyncio.Future[DhGenKey] = self._loop.create_future()
-
-        dispatcher = await initialize_key_creator_dispatcher(
-            result,
+        dispatcher, result = await initialize_key_creator_dispatcher(
             is_temp_key,
             self._mtproto,
             self._in_thread,
@@ -289,12 +286,9 @@ class Client:
         key.import_dh_gen_key(result.result())
 
     async def _start_auth_key_bind_for_keys(self, persistent: Key, temp: Key, expire_at: int) -> None:
-        result: asyncio.Future[None] = self._loop.create_future()
-
-        dispatcher = await MTProtoKeyBinderDispatcher.initialize(
+        dispatcher, result = await MTProtoKeyBinderDispatcher.initialize(
             persistent,
             temp,
-            result,
             self._in_thread,
             self._datacenter,
             self._mtproto,
