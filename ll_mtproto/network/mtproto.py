@@ -223,10 +223,12 @@ class MTProto:
             message_body_len = int.from_bytes(await msg_aes_stream_with_hash(4), signed=False, byteorder="little")
             message_body_envelope = await msg_aes_stream_with_hash(message_body_len)
 
-            if len(msg_aes_stream.remaining_plain_buffer()) not in range(12, 1024):
+            remaining_plain_buffer = msg_aes_stream.remaining_plain_buffer()
+
+            if len(remaining_plain_buffer) not in range(12, 1024):
                 raise ValueError("Received a message with wrong padding length!")
 
-            await self._in_thread(plain_sha256.update, msg_aes_stream.remaining_plain_buffer())
+            await self._in_thread(plain_sha256.update, remaining_plain_buffer)
             msg_key_computed = (await self._in_thread(plain_sha256.digest))[8:24]
 
             if not hmac.compare_digest(msg_key, msg_key_computed):
