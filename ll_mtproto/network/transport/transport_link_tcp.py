@@ -131,7 +131,7 @@ class TransportLinkTcp(TransportLinkBase):
 
         return result
 
-    def discard_packet(self):
+    def discard_packet(self) -> None:
         self._read_buffer.clear()
 
     async def readn(self, n: int) -> bytes:

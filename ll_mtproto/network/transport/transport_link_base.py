@@ -30,7 +30,7 @@ class TransportLinkBase(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def discard_packet(self):
+    def discard_packet(self) -> None:
         raise NotImplementedError
 
     @abc.abstractmethod
