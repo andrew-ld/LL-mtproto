@@ -4,8 +4,8 @@ import logging
 import typing
 
 from ll_mtproto import TelegramDatacenter
-from ll_mtproto.crypto.auth_key import DhGenKey
 from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCryptg
+from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.dh.mtproto_key_creator_dispatcher import initialize_key_creator_dispatcher
 from ll_mtproto.network.dispatcher import dispatch_event
 from ll_mtproto.network.mtproto import MTProto
@@ -14,17 +14,30 @@ from ll_mtproto.network.transport.transport_codec_abridged import TransportCodec
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 
-async def main() -> typing.NoReturn:
-    blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
-    datacenter = TelegramDatacenter.VESTA
-    crypto_provider = CryptoProviderCryptg()
+blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
 
-    async def in_thread(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
-        return await asyncio.get_running_loop().run_in_executor(blocking_executor, *args, **kwargs)
+crypto_provider = CryptoProviderCryptg()
 
+link = TransportLinkTcpFactory(TransportCodecAbridgedFactory(), CachedTransportAddressResolver())
+
+
+async def in_thread(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
+    return await asyncio.get_running_loop().run_in_executor(blocking_executor, *args, **kwargs)
+
+
+async def main():
+    tasks = []
+
+    for dc in TelegramDatacenter.ALL_DATACENTERS:
+        tasks.append(test_exchange(dc))
+
+    await asyncio.gather(*tasks)
+
+
+async def test_exchange(datacenter: DatacenterInfo) -> typing.NoReturn:
     mtproto = MTProto(
         datacenter,
-        TransportLinkTcpFactory(TransportCodecAbridgedFactory(), CachedTransportAddressResolver()),
+        link,
         in_thread,
         crypto_provider,
     )
@@ -34,7 +47,7 @@ async def main() -> typing.NoReturn:
             False,
             mtproto,
             in_thread,
-            TelegramDatacenter.VESTA,
+            datacenter,
             crypto_provider
         )
 
