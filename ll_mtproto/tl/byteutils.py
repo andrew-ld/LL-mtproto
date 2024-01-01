@@ -123,16 +123,15 @@ class GzipStreamReader:
 
 
 class _SyncByteReaderByteUtilsImpl:
-    __slots__ = ("_io",)
+    __slots__ = ("_io", "__call__")
 
     _io: io.BytesIO
+    __call__: SyncByteReader
 
     def __init__(self, buffer: bytes):
         bytes_io = self._io = io.BytesIO(buffer)
+        self.__call__ = bytes_io.read
         bytes_io.seek(0)
-
-    def __call__(self, n: int) -> bytes:
-        return self._io.read(n)
 
     def is_empty(self) -> bool:
         return self._io.tell() == self._io.getbuffer().nbytes
