@@ -545,12 +545,10 @@ class Value:
 
     def get_flat_bytes(self) -> bytes:
         if self.boxed:
-            cons_number = self.cons.number
+            prefix = self.cons.number
 
-            if cons_number is None:
+            if prefix is None:
                 raise TypeError(f"Tried to prefix cons number to data for a numberless Constructor `{self.cons!r}`")
-
-            prefix = cons_number
         else:
             prefix = b""
 
