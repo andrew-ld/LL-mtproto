@@ -120,7 +120,7 @@ _parameterRE = re.compile(
     r"(?P<type>"
     r"(?P<vector>((?P<bare_vector>vector)|(?P<boxed_vector>Vector))<)?"
     r"(?P<element_type>((?P<namespace>[a-zA-Z\d._]*)\.)?"
-    r"((?P<bare>[a-z][a-zA-Z\d._]*)|(?P<boxed>[A-Z][a-zA-Z\d._]*)))"
+    r"((?P<bare>(?!gzip)[a-z][a-zA-Z\d._]*)|(?P<boxed>[A-Zg][a-zA-Z\d._]*)))"
     r"(?(vector)>)?)$"
 )
 
@@ -196,9 +196,6 @@ class Schema:
 
         for parameter_token in parameter_tokens:
             parameter_parsed = self._parse_token(_parameterRE, parameter_token)
-
-            if parameter_parsed and parameter_parsed.get("name", None) == "self":
-                parameter_parsed["name"] = "_self"
 
             if not parameter_parsed and parameter_token.endswith(":#"):
                 flag_parsed = self._parse_token(_flagRE, parameter_token)
