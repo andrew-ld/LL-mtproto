@@ -18,7 +18,9 @@
 import asyncio
 import _socket
 import ipaddress
+import logging
 import socket
+import traceback
 
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_address_resolver_base import TransportAddressResolverBase
@@ -76,16 +78,18 @@ class TransportLinkTcp(TransportLinkBase):
         self._writer = None
         self._transport_codec = None
 
-    async def _reconnect_if_needed(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, TransportCodecBase]:
+    async def _reconnect_if_needed(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, TransportCodecBase, bytearray]:
         async with self._connect_lock:
-            reader, writer, transport_codec = self._reader, self._writer, self._transport_codec
+            reader, writer, transport_codec, read_buffer = self._reader, self._writer, self._transport_codec, self._read_buffer
 
             if reader is None or writer is None or transport_codec is None:
-                self._read_buffer.clear()
-
                 if writer is not None:
-                   writer.close()
+                    try:
+                        writer.close()
+                    except:
+                        logging.warning("usable to close leaked writer: %s", traceback.format_exc())
 
+                transport_codec = self._transport_codec_factory.new_codec()
                 address, port = await self._resolver.get_address(self._datacenter)
 
                 match address_version := ipaddress.ip_address(address):
@@ -115,18 +119,19 @@ class TransportLinkTcp(TransportLinkBase):
                 await asyncio.get_running_loop().sock_connect(sock, (address, port))
 
                 reader, writer = await asyncio.open_connection(sock=sock)
-                transport_codec = self._transport_codec_factory.new_codec()
+                read_buffer = bytearray()
 
-                self._reader, self._writer, self._transport_codec = reader, writer, transport_codec
+                self._reader, self._writer, self._transport_codec, self._read_buffer = reader, writer, transport_codec, read_buffer
 
-            return reader, writer, transport_codec
+            return reader, writer, transport_codec, read_buffer
 
     async def read(self) -> bytes:
-        if self._read_buffer:
-            result = bytes(self._read_buffer)
-            self._read_buffer.clear()
+        reader, _, codec, read_buffer = await self._reconnect_if_needed()
+
+        if read_buffer:
+            result = bytes(read_buffer)
+            read_buffer.clear()
         else:
-            reader, _, codec = await self._reconnect_if_needed()
             result = await codec.read_packet(reader)
 
         return result
@@ -135,19 +140,19 @@ class TransportLinkTcp(TransportLinkBase):
         self._read_buffer.clear()
 
     async def readn(self, n: int) -> bytes:
-        reader, _, codec = await self._reconnect_if_needed()
+        reader, _, codec, read_buffer = await self._reconnect_if_needed()
 
-        while len(self._read_buffer) < n:
-            self._read_buffer += bytearray(await codec.read_packet(reader))
+        while len(read_buffer) < n:
+            read_buffer += bytearray(await codec.read_packet(reader))
 
-        result = self._read_buffer[:n]
-        del self._read_buffer[:n]
+        result = read_buffer[:n]
+        del read_buffer[:n]
         return bytes(result)
 
     async def write(self, data: bytes) -> None:
         data = bytearray(data)
 
-        _, writer, codec = await self._reconnect_if_needed()
+        _, writer, codec, _ = await self._reconnect_if_needed()
 
         async with self._write_lock:
             while (writable_len := min(len(data), 0x7FFFFF)) > 0:
@@ -161,7 +166,6 @@ class TransportLinkTcp(TransportLinkBase):
         self._writer = None
         self._reader = None
         self._transport_codec = None
-
         self._read_buffer.clear()
 
 
