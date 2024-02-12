@@ -232,7 +232,6 @@ class Key:
         self.server_salt = None
         self.session = KeySession()
         self.created_at = -1.
-        self.unused_sessions = set()
 
     def get_next_odd_seqno(self) -> int:
         return self.session.get_next_odd_seqno()
