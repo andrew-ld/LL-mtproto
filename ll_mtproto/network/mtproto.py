@@ -20,6 +20,7 @@ import hashlib
 import hmac
 import logging
 import secrets
+import typing
 
 from ll_mtproto.crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ll_mtproto.crypto.auth_key import Key, DhGenKey
@@ -142,7 +143,7 @@ class MTProto:
             full_message_reader = to_composed_reader(server_auth_key_id, message_id, body_len_envelope, body_envelope)
 
             try:
-                message = Structure.from_dict(await self._in_thread(self._unencrypted_message_constructor.deserialize_bare_data, full_message_reader))
+                message = Structure.from_dict(await self._in_thread(lambda: self._unencrypted_message_constructor.deserialize_bare_data(full_message_reader)))
             finally:
                 reader_discard(full_message_reader)
 
@@ -172,10 +173,10 @@ class MTProto:
 
         message_inner_data_envelope = await self._in_thread(message_inner_data.get_flat_bytes)
 
-        padding = await self._in_thread(secrets.token_bytes, (-(len(message_inner_data_envelope) + 12) % 16 + 12))
-        msg_key = (await self._in_thread(sha256, auth_key_key[88:88 + 32] + message_inner_data_envelope + padding))[8:24]
-        aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, True, self._crypto_provider)
-        encrypted_message = await self._in_thread(aes.encrypt, message_inner_data_envelope + padding)
+        padding = await self._in_thread(lambda: secrets.token_bytes((-(len(message_inner_data_envelope) + 12) % 16 + 12)))
+        msg_key = (await self._in_thread(lambda: sha256(auth_key_key[88:88 + 32] + message_inner_data_envelope + padding)))[8:24]
+        aes = await self._in_thread(lambda: self.prepare_key_v2(auth_key_key, msg_key, True, self._crypto_provider))
+        encrypted_message = await self._in_thread(lambda: aes.encrypt(message_inner_data_envelope + padding))
 
         full_message = self._datacenter.schema.bare_kwargs(
             _cons="encrypted_message",
@@ -206,11 +207,11 @@ class MTProto:
                 raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
 
             msg_key = await self._link.readn(16)
-            msg_aes = await self._in_thread(self.prepare_key_v2, auth_key_key, msg_key, False, self._crypto_provider)
+            msg_aes = await self._in_thread(lambda: self.prepare_key_v2(auth_key_key, msg_key, False, self._crypto_provider))
             msg_aes_stream = AesIgeAsyncStream(msg_aes, self._in_thread, self._link.read)
 
             plain_sha256 = hashlib.sha256()
-            await self._in_thread(plain_sha256.update, auth_key_part)
+            await self._in_thread(lambda: plain_sha256.update(auth_key_part))
             msg_aes_stream_with_hash = ByteReaderApply(msg_aes_stream, plain_sha256.update, self._in_thread)
 
             message_inner_data_reader = to_reader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
@@ -228,7 +229,7 @@ class MTProto:
             if len(remaining_plain_buffer) not in range(12, 1024):
                 raise ValueError("Received a message with wrong padding length!")
 
-            await self._in_thread(plain_sha256.update, remaining_plain_buffer)
+            await self._in_thread(lambda: plain_sha256.update(remaining_plain_buffer))
             msg_key_computed = (await self._in_thread(plain_sha256.digest))[8:24]
 
             if not hmac.compare_digest(msg_key, msg_key_computed):
@@ -246,7 +247,7 @@ class MTProto:
             message_body_reader = to_reader(message_body_envelope)
 
             try:
-                message_body = Structure.from_dict(await self._in_thread(self._datacenter.schema.read_by_boxed_data, message_body_reader))
+                message_body = Structure.from_dict(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(message_body_reader)))
             finally:
                 reader_discard(message_body_reader)
 

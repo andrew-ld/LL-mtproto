@@ -16,6 +16,7 @@
 
 
 import secrets
+import typing
 
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.tl.byteutils import short_hex, sha1
@@ -76,7 +77,8 @@ class AesIgeAsyncStream:
 
     async def __call__(self, nbytes: int) -> bytes:
         while len(self._plain_buffer) < nbytes:
-            self._plain_buffer += await self._in_thread(self._aes.decrypt, await self._parent())
+            encrypted_buffer = await self._parent()
+            self._plain_buffer += await self._in_thread(lambda: self._aes.decrypt(encrypted_buffer))
 
         plain = self._plain_buffer[:nbytes]
         del self._plain_buffer[:nbytes]

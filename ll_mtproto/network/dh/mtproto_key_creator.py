@@ -37,6 +37,7 @@ class _KeyExchangeStateWaitingResPq:
     def __init__(self) -> None:
         pass
 
+
 class _KeyExchangeStateWaitingDhParams:
     __slots__ = ("new_nonce", "server_nonce", "temp_key_expires_in")
 
@@ -102,7 +103,7 @@ class MTProtoKeyCreator:
             temp_key: bool,
             result: asyncio.Future[DhGenKey]
     ) -> "MTProtoKeyCreator":
-        nonce = await in_thread(secrets.token_bytes, 16)
+        nonce = await in_thread(lambda: secrets.token_bytes(16))
         await mtproto.write_unencrypted_message(_cons="req_pq_multi", nonce=nonce)
         return MTProtoKeyCreator(mtproto, in_thread, datacenter, crypto_provider, temp_key, nonce, result)
 
@@ -165,10 +166,10 @@ class MTProtoKeyCreator:
             raise RuntimeError("Diffie–Hellman exchange failed: params server nonce mismatch")
 
         tmp_aes_key_1, tmp_aes_key_2, tmp_aes_iv_1, tmp_aes_iv_2 = await asyncio.gather(
-            self._in_thread(sha1, state.new_nonce + state.server_nonce),
-            self._in_thread(sha1, state.server_nonce + state.new_nonce),
-            self._in_thread(sha1, state.server_nonce + state.new_nonce),
-            self._in_thread(sha1, state.new_nonce + state.new_nonce)
+            self._in_thread(lambda: sha1(state.new_nonce + state.server_nonce)),
+            self._in_thread(lambda: sha1(state.server_nonce + state.new_nonce)),
+            self._in_thread(lambda: sha1(state.server_nonce + state.new_nonce)),
+            self._in_thread(lambda: sha1(state.new_nonce + state.new_nonce))
         )
 
         tmp_aes_key = tmp_aes_key_1 + tmp_aes_key_2[:12]
@@ -176,15 +177,15 @@ class MTProtoKeyCreator:
         tmp_aes = AesIge(tmp_aes_key, tmp_aes_iv, self._crypto_provider)
 
         (answer_hash, answer), b = await asyncio.gather(
-            self._in_thread(tmp_aes.decrypt_with_hash, params.encrypted_answer),
-            self._in_thread(secrets.randbits, 2048),
+            self._in_thread(lambda: tmp_aes.decrypt_with_hash(params.encrypted_answer)),
+            self._in_thread(lambda: secrets.randbits(2048)),
         )
 
         answer_reader = to_reader(answer)
         answer_reader_sha1 = hashlib.sha1()
         answer_reader_with_hash = SyncByteReaderApply(answer_reader, answer_reader_sha1.update)
 
-        params2 = Structure.from_dict(await self._in_thread(self._datacenter.schema.read_by_boxed_data, answer_reader_with_hash))
+        params2 = Structure.from_dict(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(answer_reader_with_hash)))
         answer_hash_computed = await self._in_thread(answer_reader_sha1.digest)
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):
@@ -205,7 +206,7 @@ class MTProtoKeyCreator:
         g = params2.g
         g_a = int.from_bytes(params2.g_a, "big")
 
-        if not await self._in_thread(primes.is_safe_dh_prime, g, dh_prime):
+        if not await self._in_thread(lambda: primes.is_safe_dh_prime(g, dh_prime)):
             raise RuntimeError("Diffie–Hellman exchange failed: unknown dh_prime")
 
         if g_a <= 1:
@@ -221,8 +222,8 @@ class MTProtoKeyCreator:
             raise RuntimeError("Diffie–Hellman exchange failed: g_a > dh_prime - (2 ** (2048 - 64))")
 
         g_b, auth_key = await asyncio.gather(
-            self._in_thread(pow, g, b, dh_prime),
-            self._in_thread(pow, g_a, b, dh_prime),
+            self._in_thread(lambda: pow(g, b, dh_prime)),
+            self._in_thread(lambda: pow(g_a, b, dh_prime)),
         )
 
         if g_b <= 1:
@@ -261,7 +262,7 @@ class MTProtoKeyCreator:
             _cons="set_client_DH_params",
             nonce=self._nonce,
             server_nonce=state.server_nonce,
-            encrypted_data=await self._in_thread(tmp_aes.encrypt_with_hash, client_dh_inner_data),
+            encrypted_data=await self._in_thread(lambda: tmp_aes.encrypt_with_hash(client_dh_inner_data)),
         )
 
         self._exchange_state = _KeyExchangeStateWaitingDhGenOk(key=new_auth_key, temp_key_expires_in=state.temp_key_expires_in)
@@ -280,8 +281,8 @@ class MTProtoKeyCreator:
         pq = int.from_bytes(res_pq.pq, "big", signed=False)
 
         new_nonce, (p, q) = await asyncio.gather(
-            self._in_thread(secrets.token_bytes, 32),
-            self._in_thread(self._crypto_provider.factorize_pq, pq),
+            self._in_thread(lambda: secrets.token_bytes(32)),
+            self._in_thread(lambda: self._crypto_provider.factorize_pq(pq)),
         )
 
         p_string = to_bytes(p)
@@ -304,13 +305,8 @@ class MTProtoKeyCreator:
             dc=-self._datacenter.datacenter_id if self._datacenter.is_media else self._datacenter.datacenter_id
         )
 
-        p_q_inner_data_rsa_pad = await self._in_thread(
-            self._datacenter.public_rsa.rsa_pad,
-            p_q_inner_data.get_flat_bytes(),
-            self._crypto_provider
-        )
-
-        p_q_inner_data_encrypted = await self._in_thread(self._datacenter.public_rsa.encrypt, p_q_inner_data_rsa_pad)
+        p_q_inner_data_rsa_pad = await self._in_thread(lambda: self._datacenter.public_rsa.rsa_pad(p_q_inner_data.get_flat_bytes(), self._crypto_provider))
+        p_q_inner_data_encrypted = await self._in_thread(lambda: self._datacenter.public_rsa.encrypt(p_q_inner_data_rsa_pad))
 
         await self._mtproto.write_unencrypted_message(
             _cons="req_DH_params",

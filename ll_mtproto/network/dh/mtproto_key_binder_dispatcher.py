@@ -56,7 +56,7 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
         perm_auth_key_key, perm_auth_key_id, _ = persistent_key.get_or_assert_empty()
         used_auth_key_key, used_auth_key_id, used_key_session = used_key.get_or_assert_empty()
 
-        bind_temp_auth_nonce = int.from_bytes(await in_thread(secrets.token_bytes, 8), "big", signed=True)
+        bind_temp_auth_nonce = int.from_bytes(await in_thread(lambda: secrets.token_bytes(8)), "big", signed=True)
 
         bind_temp_auth_inner = datacenter.schema.boxed_kwargs(
             _cons="bind_auth_key_inner",
@@ -69,8 +69,8 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
 
         bind_temp_auth_inner_data = datacenter.schema.bare_kwargs(
             _cons="message_inner_data",
-            salt=int.from_bytes(await in_thread(secrets.token_bytes, 8), "big", signed=True),
-            session_id=int.from_bytes(await in_thread(secrets.token_bytes, 8), "big", signed=False),
+            salt=int.from_bytes(await in_thread(lambda: secrets.token_bytes(8)), "big", signed=True),
+            session_id=int.from_bytes(await in_thread(lambda: secrets.token_bytes(8)), "big", signed=False),
             message=datacenter.schema.bare_kwargs(
                 _cons="message_from_client",
                 msg_id=req_msg_id,
@@ -79,20 +79,16 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
             ),
         ).get_flat_bytes()
 
-        bind_temp_auth_inner_data_sha1 = await in_thread(sha1, bind_temp_auth_inner_data)
+        bind_temp_auth_inner_data_sha1 = await in_thread(lambda: sha1(bind_temp_auth_inner_data))
         bind_temp_auth_inner_data_msg_key = bind_temp_auth_inner_data_sha1[4:20]
 
-        bind_temp_auth_inner_data_aes: AesIge = await in_thread(
-            MTProto.prepare_key_v1_write,
+        bind_temp_auth_inner_data_aes = await in_thread(lambda: MTProto.prepare_key_v1_write(
             perm_auth_key_key,
             bind_temp_auth_inner_data_msg_key,
             crypto_provider
-        )
+        ))
 
-        bind_temp_auth_inner_data_encrypted = await in_thread(
-            bind_temp_auth_inner_data_aes.encrypt,
-            bind_temp_auth_inner_data
-        )
+        bind_temp_auth_inner_data_encrypted = await in_thread(lambda: bind_temp_auth_inner_data_aes.encrypt(bind_temp_auth_inner_data))
 
         bind_temp_auth_inner_data_encrypted_boxed = datacenter.schema.bare_kwargs(
             _cons="encrypted_message",

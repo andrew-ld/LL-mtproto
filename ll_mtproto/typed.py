@@ -25,9 +25,12 @@ __all__ = (
     "Loop",
     "ByteConsumer",
     "SyncByteReader",
+    "InThreadRetType"
 )
 
-InThread = typing.Callable[..., typing.Awaitable[typing.Any]]
+InThreadRetType = typing.TypeVar("InThreadRetType")
+
+InThread = typing.Callable[[typing.Callable[[], InThreadRetType]], typing.Awaitable[InThreadRetType]]
 
 ByteReader = typing.Callable[[int], typing.Awaitable[bytes]]
 

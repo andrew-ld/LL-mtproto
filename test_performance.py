@@ -12,7 +12,7 @@ from ll_mtproto.network.transport.transport_codec_factory import TransportCodecF
 
 class TransportCodecPerformanceTrack(TransportCodecBase):
     _parent_codec: TransportCodecBase
-    _first_write_time: int | None
+    _first_write_time: float | None
     _first_read: bool
 
     def __init__(self, parent_codec: TransportCodecBase):
@@ -83,6 +83,7 @@ async def test():
     session.disconnect()
 
     while True:
+        # noinspection PyBroadException
         try:
             _ = await session.rpc_call({"_cons": "help.getConfig"})
         except:
