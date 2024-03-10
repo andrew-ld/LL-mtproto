@@ -41,6 +41,8 @@ from ll_mtproto.tl.tl import TlBodyData, Constructor
 
 __all__ = ("Client",)
 
+from ll_mtproto.typed import InThreadRetType
+
 
 class _ClientDispatcher(Dispatcher):
     __slots__ = ("_impl",)
@@ -51,11 +53,15 @@ class _ClientDispatcher(Dispatcher):
         self._impl = impl
 
     async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
-        assert crypto_flag
+        if not crypto_flag:
+            raise RuntimeError("process_telegram_message_body accepts only encrypted messages")
+        # noinspection PyProtectedMember
         await self._impl._process_telegram_message_body(body)
 
     async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
-        assert crypto_flag
+        if not crypto_flag:
+            raise RuntimeError("process_telegram_signaling_message accepts only encrypted messages")
+        # noinspection PyProtectedMember
         self._impl._process_telegram_signaling_message(signaling)
 
 
@@ -158,8 +164,8 @@ class Client:
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._used_persistent_key = auth_key.persistent_key
 
-    async def _in_thread(self, *args: typing.Any, **kwargs: typing.Any) -> typing.Any:
-        return await self._loop.run_in_executor(self._blocking_executor, *args, **kwargs)
+    async def _in_thread(self, function: typing.Callable[[], InThreadRetType]) -> InThreadRetType:
+        return typing.cast(InThreadRetType, await self._loop.run_in_executor(self._blocking_executor, function))
 
     async def get_update(self) -> Update | None:
         if self._no_updates:
@@ -237,8 +243,8 @@ class Client:
             pending_future_salt.cancel()
 
         def _initialize_future_salt_request() -> None:
-            if pending_future_salt := self._pending_future_salt:
-                pending_future_salt.cancel()
+            if new_pending_future_salt := self._pending_future_salt:
+                new_pending_future_salt.cancel()
 
             self._pending_future_salt = self._loop.create_task(self._create_future_salt_request())
 
@@ -391,6 +397,7 @@ class Client:
         for unused_session in self._used_session_key.unused_sessions:
             await self._create_destroy_session_request(unused_session)
 
+        # noinspection PyBroadException
         try:
             await asyncio.gather(write_task, read_task)
         except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
@@ -474,7 +481,7 @@ class Client:
                 self._process_msgs_state_info(body)
 
             case "msgs_ack":
-                self._process_msgs_ack(body)
+                pass
 
             case "destroy_session_ok" | "destroy_session_none":
                 self._process_session_destroy(body)
@@ -494,9 +501,6 @@ class Client:
     async def _process_update_short(self, body: Structure) -> None:
         if not self._no_updates:
             await self._updates_queue.put(Update([], [], body.update))
-
-    def _process_msgs_ack(self, body: Structure) -> None:
-        logging.debug("received msgs_ack %r", body.msg_ids)
 
     def _process_msgs_state_info(self, body: Structure) -> None:
         if pending_request := self._pending_requests.pop(body.req_msg_id, None):
@@ -527,8 +531,8 @@ class Client:
             salt_expire = max((valid_salt.valid_until - body.now) - 1800, 10)
 
             def _initialize_create_future_salt_request() -> None:
-                if pending_future_salt := self._pending_future_salt:
-                    pending_future_salt.cancel()
+                if new_pending_future_salt := self._pending_future_salt:
+                    new_pending_future_salt.cancel()
 
                 self._pending_future_salt = self._loop.create_task(self._create_future_salt_request())
 
@@ -566,8 +570,8 @@ class Client:
             pending_ping.cancel()
 
         def _initialize_create_ping_request() -> None:
-            if pending_ping := self._pending_ping:
-                pending_ping.cancel()
+            if new_pending_ping := self._pending_ping:
+                new_pending_ping.cancel()
 
             self._pending_ping = self._loop.create_task(self._create_ping_request())
 
@@ -669,13 +673,13 @@ class Client:
 
         try:
             if response_constructor is not None:
-                result = Structure.from_obj(await self._in_thread(response_constructor.deserialize_boxed_data, body_result_reader))
+                result = Structure.from_obj(await self._in_thread(lambda: response_constructor.deserialize_boxed_data(body_result_reader)))
 
             elif response_parameter is not None:
-                result = Structure.from_obj(await self._in_thread(self._datacenter.schema.read_by_parameter, body_result_reader, response_parameter))
+                result = Structure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_parameter(body_result_reader, response_parameter)))
 
             else:
-                result = Structure.from_obj(await self._in_thread(self._datacenter.schema.read_by_boxed_data, body_result_reader))
+                result = Structure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(body_result_reader)))
         finally:
             reader_discard(body_result_reader)
 
