@@ -20,7 +20,6 @@ import hashlib
 import hmac
 import logging
 import secrets
-import typing
 
 from ll_mtproto.crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ll_mtproto.crypto.auth_key import Key, DhGenKey
