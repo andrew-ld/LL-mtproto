@@ -4,6 +4,9 @@ import logging
 import typing
 
 from ll_mtproto import TelegramDatacenter
+from ll_mtproto.client.client import Client
+from ll_mtproto.client.connection_info import ConnectionInfo
+from ll_mtproto.crypto.auth_key import AuthKey
 from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCryptg
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.dh.mtproto_key_creator_dispatcher import initialize_key_creator_dispatcher
@@ -13,12 +16,13 @@ from ll_mtproto.network.transport.transport_address_resolver_cached import Cache
 from ll_mtproto.network.transport.transport_codec_abridged import TransportCodecAbridgedFactory
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
-
 blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
 
 crypto_provider = CryptoProviderCryptg()
 
-link = TransportLinkTcpFactory(TransportCodecAbridgedFactory(), CachedTransportAddressResolver())
+resolver = CachedTransportAddressResolver()
+
+link = TransportLinkTcpFactory(TransportCodecAbridgedFactory(), resolver)
 
 
 async def in_thread(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
@@ -28,8 +32,25 @@ async def in_thread(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
 async def main():
     tasks = []
 
+    async def configure_resolver():
+        tmp_connection_info = ConnectionInfo.generate_from_os_info(6)
+        tmp_datacenter_info = TelegramDatacenter.VENUS
+
+        tmp_auth_key = AuthKey()
+        tmp_auth_key.set_content_change_callback(lambda: None)
+
+        tmp_client = Client(tmp_datacenter_info, tmp_auth_key, tmp_connection_info, link, blocking_executor, crypto_provider)
+
+        try:
+            resolver.apply_telegram_config(TelegramDatacenter.ALL_DATACENTERS, await tmp_client.rpc_call({"_cons": "help.getConfig"}))
+        finally:
+            tmp_client.disconnect()
+
+    await configure_resolver()
+
     for dc in TelegramDatacenter.ALL_DATACENTERS:
-        tasks.append(test_exchange(dc))
+        for _ in range(4):
+            tasks.append(test_exchange(dc))
 
     await asyncio.gather(*tasks)
 

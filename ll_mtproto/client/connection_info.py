@@ -14,6 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
+import locale
+import logging
+import platform
+import functools
+import traceback
+
 from ll_mtproto.tl.tl import TlBodyData, TlBodyDataValue
 
 __all__ = ("ConnectionInfo",)
@@ -72,3 +78,34 @@ class ConnectionInfo:
             "lang_pack": self.lang_pack,
             "params": self.params
         }
+
+    @staticmethod
+    @functools.lru_cache()
+    def generate_from_os_info(app_id: int, fallback_lang_code: str = "en") -> "ConnectionInfo":
+        # noinspection PyBroadException
+        try:
+            current_locale = locale.getlocale()
+        except:
+            current_locale = None
+            logging.warning("unable to get current locale: `%s`", traceback.format_exc())
+
+        if current_locale:
+            lang_code = current_locale[0]
+
+            if not lang_code:
+                lang_code = fallback_lang_code
+        else:
+            lang_code = fallback_lang_code
+
+        system_version = platform.platform()
+
+        return ConnectionInfo(
+            api_id=app_id,
+            device_model="ll-mtproto",
+            system_version=system_version,
+            app_version="1.0",
+            lang_code=lang_code,
+            system_lang_code=lang_code,
+            lang_pack="",
+            params=None
+        )
