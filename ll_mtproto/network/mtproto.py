@@ -28,7 +28,8 @@ from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundExcep
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
-from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
+from ll_mtproto.tl.byteutils_nomypyc import ByteReaderApply
+from ll_mtproto.tl.byteutils import sha256, to_reader, reader_discard, sha1, to_composed_reader
 from ll_mtproto.tl.structure import Structure
 from ll_mtproto.tl.tl import Constructor, TlBodyDataValue, Value, TlBodyData
 from ll_mtproto.typed import InThread

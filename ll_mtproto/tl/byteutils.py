@@ -18,12 +18,12 @@
 import base64
 import functools
 import hashlib
-import io
 import secrets
 import typing
 import zlib
 
-from ll_mtproto.typed import ByteReader, InThread, ByteConsumer, SyncByteReader
+from ll_mtproto.tl.byteutils_nomypyc import _SyncByteReaderByteUtilsImpl
+from ll_mtproto.typed import ByteConsumer, SyncByteReader
 
 __all__ = (
     "xor",
@@ -34,7 +34,6 @@ __all__ = (
     "to_bytes",
     "pack_binary_string",
     "unpack_binary_string_header",
-    "ByteReaderApply",
     "unpack_binary_string_stream",
     "unpack_long_binary_string_stream",
     "unpack_binary_string",
@@ -122,24 +121,6 @@ class GzipStreamReader:
         return bytes(result)
 
 
-class _SyncByteReaderByteUtilsImpl:
-    __slots__ = ("_io", "__call__")
-
-    _io: io.BytesIO
-    __call__: SyncByteReader
-
-    def __init__(self, buffer: bytes):
-        bytes_io = self._io = io.BytesIO(buffer)
-        self.__call__ = bytes_io.read
-        bytes_io.seek(0)
-
-    def is_empty(self) -> bool:
-        return self._io.tell() == self._io.getbuffer().nbytes
-
-    def close(self) -> None:
-        self._io.close()
-
-
 def to_composed_reader(*buffers: bytes) -> SyncByteReader:
     return to_reader(b"".join(buffers))
 
@@ -170,24 +151,6 @@ def unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:
         padding_len = (3 - str_len) % 4
 
     return str_len, padding_len
-
-
-class ByteReaderApply:
-    __slots__ = ("_parent", "_apply_function", "_in_thread")
-
-    _parent: ByteReader
-    _apply_function: ByteConsumer
-    _in_thread: InThread
-
-    def __init__(self, parent: ByteReader, apply_function: ByteConsumer, in_thread:  InThread):
-        self._parent = parent
-        self._apply_function = apply_function
-        self._in_thread = in_thread
-
-    async def __call__(self, nbytes: int) -> bytes:
-        result = await self._parent(nbytes)
-        await self._in_thread(lambda: self._apply_function(result))
-        return result
 
 
 class SyncByteReaderApply:

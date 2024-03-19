@@ -38,10 +38,9 @@ from ll_mtproto.network.transport.transport_link_factory import TransportLinkFac
 from ll_mtproto.tl.byteutils import reader_discard, to_reader
 from ll_mtproto.tl.structure import Structure, StructureBody
 from ll_mtproto.tl.tl import TlBodyData, Constructor
+from ll_mtproto.typed import InThreadRetType
 
 __all__ = ("Client",)
-
-from ll_mtproto.typed import InThreadRetType
 
 
 class _ClientDispatcher(Dispatcher):

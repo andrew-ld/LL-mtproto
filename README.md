@@ -9,7 +9,7 @@ ll-mtproto unlike many alternatives does not generate code to deserialize the re
 
 To compile the deserializer simply run mypyc by giving as input the file tl.py
 
-`python3 -m mypyc --strict ll_mtproto/tl/tl.py`
+`python3 -m mypyc --strict ll_mtproto/tl/tl.py ll_mtproto/tl/byteutils.py`
 
 # LICESING
 it must be noted that ll-mtproto is a derivative work of mtproto2json developed by @nikat, the publication of ll-mtproto under agplv3 license is possible only thanks to the approval of nikat to change the license of mtproto2json with agplv3.
