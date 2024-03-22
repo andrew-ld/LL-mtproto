@@ -49,13 +49,16 @@ async def main():
     await configure_resolver()
 
     for dc in TelegramDatacenter.ALL_DATACENTERS:
-        for _ in range(4):
-            tasks.append(test_exchange(dc))
+        for _ in range(2):
+            tasks.append(test_exchange(dc, True))
+
+        for _ in range(2):
+            tasks.append(test_exchange(dc, False))
 
     await asyncio.gather(*tasks)
 
 
-async def test_exchange(datacenter: DatacenterInfo) -> typing.NoReturn:
+async def test_exchange(datacenter: DatacenterInfo, temp_key: bool) -> typing.NoReturn:
     mtproto = MTProto(
         datacenter,
         link,
@@ -65,7 +68,7 @@ async def test_exchange(datacenter: DatacenterInfo) -> typing.NoReturn:
 
     while True:
         dispatcher, result = await initialize_key_creator_dispatcher(
-            False,
+            temp_key,
             mtproto,
             in_thread,
             datacenter,
