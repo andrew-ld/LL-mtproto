@@ -33,7 +33,7 @@ class InThread(metaclass=abc.ABCMeta):
     InThreadRetType = typing.TypeVar("InThreadRetType")
 
     @abc.abstractmethod
-    async def __call__(self, target: typing.Callable[[], InThreadRetType]) -> InThreadRetType:
+    def __call__(self, target: typing.Callable[[], InThreadRetType]) -> asyncio.Future[InThreadRetType]:
         raise NotImplementedError()
 
 

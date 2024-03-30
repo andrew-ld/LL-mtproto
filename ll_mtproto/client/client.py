@@ -70,8 +70,8 @@ class _ClientInThreadImpl(InThread):
     def __init__(self, blocking_executor: concurrent.futures.Executor):
         self._blocking_executor = blocking_executor
 
-    async def __call__(self, target: typing.Callable[[], InThread.InThreadRetType]) -> InThread.InThreadRetType:
-        return await asyncio.get_running_loop().run_in_executor(self._blocking_executor, target)
+    def __call__(self, target: typing.Callable[[], InThread.InThreadRetType]) -> asyncio.Future[InThread.InThreadRetType]:
+        return asyncio.get_running_loop().run_in_executor(self._blocking_executor, target)
 
 
 class Client:
@@ -174,7 +174,6 @@ class Client:
 
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._used_persistent_key = auth_key.persistent_key
-
 
     async def get_update(self) -> Update | None:
         if self._no_updates:
