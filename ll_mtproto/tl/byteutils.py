@@ -179,7 +179,7 @@ class ByteReaderApply:
     _apply_function: ByteConsumer
     _in_thread: InThread
 
-    def __init__(self, parent: ByteReader, apply_function: ByteConsumer, in_thread:  InThread):
+    def __init__(self, parent: ByteReader, apply_function: ByteConsumer, in_thread: InThread):
         self._parent = parent
         self._apply_function = apply_function
         self._in_thread = in_thread

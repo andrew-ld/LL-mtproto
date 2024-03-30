@@ -38,10 +38,9 @@ from ll_mtproto.network.transport.transport_link_factory import TransportLinkFac
 from ll_mtproto.tl.byteutils import reader_discard, to_reader
 from ll_mtproto.tl.structure import Structure, StructureBody
 from ll_mtproto.tl.tl import TlBodyData, Constructor
+from ll_mtproto.typed import InThread
 
 __all__ = ("Client",)
-
-from ll_mtproto.typed import InThreadRetType
 
 
 class _ClientDispatcher(Dispatcher):
@@ -65,6 +64,16 @@ class _ClientDispatcher(Dispatcher):
         self._impl._process_telegram_signaling_message(signaling)
 
 
+class _ClientInThreadImpl(InThread):
+    __slots__ = ("_blocking_executor",)
+
+    def __init__(self, blocking_executor: concurrent.futures.Executor):
+        self._blocking_executor = blocking_executor
+
+    async def __call__(self, target: typing.Callable[[], InThread.InThreadRetType]) -> InThread.InThreadRetType:
+        return await asyncio.get_running_loop().run_in_executor(self._blocking_executor, target)
+
+
 class Client:
     __slots__ = (
         "_mtproto",
@@ -82,14 +91,14 @@ class Client:
         "_layer_init_required",
         "_auth_key_lock",
         "_use_perfect_forward_secrecy",
-        "_blocking_executor",
         "_write_queue",
         "_used_session_key",
         "_used_persistent_key",
         "_rpc_error_constructor",
         "_dispatcher",
         "_crypto_provider",
-        "_error_description_resolver"
+        "_error_description_resolver",
+        "_in_thread"
     )
 
     _mtproto: MTProto
@@ -115,6 +124,7 @@ class Client:
     _dispatcher: _ClientDispatcher
     _crypto_provider: CryptoProviderBase
     _error_description_resolver: BaseErrorDescriptionResolver | None
+    _in_thread: InThread
 
     def __init__(
             self,
@@ -132,9 +142,10 @@ class Client:
         self._layer_init_info = connection_info
         self._no_updates = no_updates
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
-        self._blocking_executor = blocking_executor
         self._crypto_provider = crypto_provider
         self._error_description_resolver = error_description_resolver
+
+        self._in_thread = _ClientInThreadImpl(blocking_executor)
 
         rpc_error_constructor = datacenter.schema.constructors.get("rpc_error", None)
 
@@ -164,8 +175,6 @@ class Client:
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._used_persistent_key = auth_key.persistent_key
 
-    async def _in_thread(self, function: typing.Callable[[], InThreadRetType]) -> InThreadRetType:
-        return typing.cast(InThreadRetType, await self._loop.run_in_executor(self._blocking_executor, function))
 
     async def get_update(self) -> Update | None:
         if self._no_updates:

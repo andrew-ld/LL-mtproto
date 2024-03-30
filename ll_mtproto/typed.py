@@ -17,6 +17,7 @@
 
 import asyncio
 import typing
+import abc
 
 __all__ = (
     "InThread",
@@ -25,12 +26,16 @@ __all__ = (
     "Loop",
     "ByteConsumer",
     "SyncByteReader",
-    "InThreadRetType"
 )
 
-InThreadRetType = typing.TypeVar("InThreadRetType")
 
-InThread = typing.Callable[[typing.Callable[[], InThreadRetType]], typing.Awaitable[InThreadRetType]]
+class InThread(metaclass=abc.ABCMeta):
+    InThreadRetType = typing.TypeVar("InThreadRetType")
+
+    @abc.abstractmethod
+    async def __call__(self, target: typing.Callable[[], InThreadRetType]) -> InThreadRetType:
+        raise NotImplementedError()
+
 
 ByteReader = typing.Callable[[int], typing.Awaitable[bytes]]
 
