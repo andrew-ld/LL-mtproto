@@ -149,6 +149,7 @@ class Schema:
         self.constructors = dict()
         self.types = dict()
         self.cons_numbers = dict()
+        self.layer = -1
 
     def __repr__(self) -> str:
         return "\n".join(repr(cons) for cons in self.constructors.values())
@@ -670,6 +671,15 @@ class Constructor:
         self.is_function = is_function
         self.ptype_parameter = ptype_parameter
         self.optimized_parameters_for_deserialization = self._optimize_parameters_for_deserialization(parameters)
+
+    def boxed_buffer_match(self, buffer: bytes | bytearray) -> bool:
+        if self.number is None:
+            raise TypeError(f"Tried to check a boxed value for a numberless constructor `{self!r}`")
+
+        if len(buffer) < len(self.number):
+            raise RuntimeError(f"EOF, buffer size {len(buffer)} < constructor number {len(self.number)}")
+
+        return buffer.startswith(self.number)
 
     @staticmethod
     def _optimize_parameters_for_deserialization(parameters: list[Parameter]) -> list[Parameter | OptimizedDeserializationParameters]:

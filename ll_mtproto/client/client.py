@@ -667,7 +667,7 @@ class Client:
         if pending_request is None:
             return logging.error("rpc_result %d not associated with a request", body.req_msg_id)
 
-        if body.result.startswith(self._rpc_error_constructor.number):
+        if self._rpc_error_constructor.boxed_buffer_match(body.result):
             response_constructor = self._rpc_error_constructor
         else:
             response_constructor = None

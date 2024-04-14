@@ -17,6 +17,7 @@
 import asyncio
 import secrets
 
+from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.crypto.auth_key import Key
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.network.datacenter_info import DatacenterInfo
@@ -145,15 +146,23 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
         if body.req_msg_id != self._req_msg_id:
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`, unexpected req_msg_id", body)
 
-        bool_true = self._datacenter.schema.constructors.get("boolTrue", None)
+        bool_true_cons = self._datacenter.schema.constructors.get("boolTrue", None)
 
-        if bool_true is None:
+        if bool_true_cons is None:
             raise TypeError(f"Unable to find bool_true constructor")
 
-        if body.result != bool_true.number:
-            raise RuntimeError("Diffie–Hellman exchange failed: `%r`, expected response", body)
+        rpc_error_cons = self._datacenter.schema.constructors.get("rpc_error", None)
 
-        self._result.set_result(None)
+        if rpc_error_cons is None:
+            raise TypeError(f"Unable to find rpc_error constructor")
+
+        if bool_true_cons.boxed_buffer_match(body.result):
+            return self._result.set_result(None)
+
+        if rpc_error_cons.boxed_buffer_match(body.result):
+            raise RpcError.from_rpc_error(Structure.from_dict(rpc_error_cons.deserialize_boxed_data(body.result)))
+
+        raise RuntimeError("Diffie–Hellman exchange failed: `%r`, expected response", body)
 
     async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
         if not crypto_flag:

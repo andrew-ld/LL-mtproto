@@ -17,6 +17,8 @@
 
 __all__ = ("RpcError",)
 
+from ll_mtproto.tl.structure import Structure
+
 
 class RpcError(BaseException):
     __slots__ = ("code", "message", "error_description")
@@ -29,6 +31,13 @@ class RpcError(BaseException):
         self.code = code
         self.message = message
         self.error_description = error_description
+
+    @staticmethod
+    def from_rpc_error(error: Structure) -> "RpcError":
+        if error != "rpc_error":
+            raise TypeError(f"Expected `rpc_error` Found `{error!r}`")
+
+        return RpcError(error.error_code, error.error_message, None)
 
     def __str__(self) -> str:
         return f"RpcError {self.code} {repr(self.message)} {repr(self.error_description) if self.error_description is not None else ''}"
