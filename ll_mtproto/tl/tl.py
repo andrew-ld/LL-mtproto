@@ -1,6 +1,6 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
 # Copyright (C) 2020-2023 (andrew) https://github.com/andrew-ld/LL-mtproto
-
+import abc
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -594,7 +594,13 @@ class Parameter:
             return f"{self.name}:{self.type}"
 
 
-class OptimizedDeserializationParameters:
+class AbstractSpecializedDeserialization(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def deserialize_bare_data(self, reader: SyncByteReader) -> typing.Iterable[tuple[str, "TlBodyDataValue"]]:
+        raise NotImplementedError()
+
+
+class ContinuousBareValuesBatchDeserialization(AbstractSpecializedDeserialization):
     __slots__ = ("_struct", "_keys")
 
     _struct: typing.Final[struct.Struct]
@@ -639,7 +645,18 @@ class OptimizedDeserializationParameters:
 
 
 class Constructor:
-    __slots__ = ("schema", "ptype", "name", "number", "parameters", "flags", "is_function", "ptype_parameter", "optimized_parameters_for_deserialization")
+    __slots__ = (
+        "schema",
+        "ptype",
+        "name",
+        "number",
+        "parameters",
+        "flags",
+        "is_function",
+        "ptype_parameter",
+        "specialized_parameters_for_deserialization",
+        "flags_check_table"
+    )
 
     schema: typing.Final[Schema]
     ptype: typing.Final[str | None]
@@ -649,7 +666,8 @@ class Constructor:
     parameters: typing.Final[list[Parameter]]
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
-    optimized_parameters_for_deserialization: typing.Final[list[Parameter | OptimizedDeserializationParameters]]
+    specialized_parameters_for_deserialization: typing.Final[list[Parameter | AbstractSpecializedDeserialization]]
+    flags_check_table: typing.Final[dict[int, set[str]]]
 
     def __init__(
             self,
@@ -670,7 +688,8 @@ class Constructor:
         self.flags = flags
         self.is_function = is_function
         self.ptype_parameter = ptype_parameter
-        self.optimized_parameters_for_deserialization = self._optimize_parameters_for_deserialization(parameters)
+        self.specialized_parameters_for_deserialization = self._generate_specialized_parameters_for_deserialization(parameters)
+        self.flags_check_table = self._generate_flags_check_table(parameters)
 
     def boxed_buffer_match(self, buffer: bytes | bytearray) -> bool:
         if self.number is None:
@@ -682,13 +701,23 @@ class Constructor:
         return buffer.startswith(self.number)
 
     @staticmethod
-    def _optimize_parameters_for_deserialization(parameters: list[Parameter]) -> list[Parameter | OptimizedDeserializationParameters]:
+    def _generate_flags_check_table(parameters: list[Parameter]) -> dict[int, set[str]]:
+        result = dict()
+
+        for parameter in parameters:
+            if parameter.flag_number is not None:
+                result.setdefault(parameter.flag_number, set()).add(parameter.name)
+
+        return result
+
+    @staticmethod
+    def _generate_specialized_parameters_for_deserialization(parameters: list[Parameter]) -> list[Parameter | AbstractSpecializedDeserialization]:
         sequential_optimizable_params: list[Parameter] = []
-        output: list[Parameter | OptimizedDeserializationParameters] = []
+        output: list[Parameter | AbstractSpecializedDeserialization] = []
 
         def flush_sequential_optimizable_params() -> None:
             if len(sequential_optimizable_params) > 1:
-                output.append(OptimizedDeserializationParameters(sequential_optimizable_params))
+                output.append(ContinuousBareValuesBatchDeserialization(sequential_optimizable_params))
 
             elif len(sequential_optimizable_params) == 1:
                 output.append(sequential_optimizable_params[0])
@@ -815,6 +844,14 @@ class Constructor:
                 data.append_serialized_tl(argument)
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
+        for flag_number, parameters in self.flags_check_table.items():
+            present = {p for p in parameters if body.get(p, None) is not None}
+
+            if len(present) == 0 or len(present) == len(parameters):
+                continue
+
+            raise TypeError(f"Missing flag parameters `{(parameters - present)!r}` in `{self.name}` for flag number `{flag_number}`")
+
         data = Value(self, boxed=boxed)
 
         for parameter in self.parameters:
@@ -860,8 +897,8 @@ class Constructor:
         if self.flags is not None:
             flags: dict[int, set[int]] = {}
 
-            for parameter in self.optimized_parameters_for_deserialization:
-                if isinstance(parameter, OptimizedDeserializationParameters):
+            for parameter in self.specialized_parameters_for_deserialization:
+                if isinstance(parameter, AbstractSpecializedDeserialization):
                     fields.update(parameter.deserialize_bare_data(reader))
                 else:
                     if parameter.is_flag:
@@ -886,8 +923,8 @@ class Constructor:
                     else:
                         fields[parameter.name] = self.schema.deserialize(reader, parameter)
         else:
-            for parameter in self.optimized_parameters_for_deserialization:
-                if isinstance(parameter, OptimizedDeserializationParameters):
+            for parameter in self.specialized_parameters_for_deserialization:
+                if isinstance(parameter, AbstractSpecializedDeserialization):
                     fields.update(parameter.deserialize_bare_data(reader))
                 else:
                     fields[parameter.name] = self.schema.deserialize(reader, parameter)
