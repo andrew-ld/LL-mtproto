@@ -851,7 +851,7 @@ class Constructor:
             if len(present) == 0 or len(present) == len(parameters):
                 continue
 
-            raise TypeError(f"Missing flag parameters `{(parameters - present)!r}` in `{self.name}` for flag number `{flag_number}`")
+            raise TypeError(f"Missing parameters `{(parameters - present)!r}` in `{self.name}` for flag number `{flag_number}`")
 
         data = Value(self, boxed=boxed)
 
