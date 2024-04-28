@@ -89,7 +89,7 @@ _primitives = frozenset(
     )
 )
 
-_optimizable_params_types = frozenset(
+_fixed_size_primitives = frozenset(
     (
         "int",
         "uint",
@@ -663,12 +663,12 @@ class Constructor:
     ptype: typing.Final[str | None]
     name: typing.Final[str]
     number: typing.Final[bytes | None]
-    flags: typing.Final[set[int] | None]
+    flags: typing.Final[frozenset[int] | None]
     parameters: typing.Final[list[Parameter]]
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
     specialized_parameters_for_deserialization: typing.Final[list[Parameter | AbstractSpecializedDeserialization]]
-    flags_check_table: typing.Final[dict[int, set[str]]]
+    flags_check_table: typing.Final[dict[int, frozenset[str]]]
 
     def __init__(
             self,
@@ -686,7 +686,7 @@ class Constructor:
         self.number = number
         self.ptype = ptype
         self.parameters = parameters
-        self.flags = flags
+        self.flags = None if flags is None else frozenset(flags)
         self.is_function = is_function
         self.ptype_parameter = ptype_parameter
         self.specialized_parameters_for_deserialization = self._generate_specialized_parameters_for_deserialization(parameters)
@@ -702,14 +702,14 @@ class Constructor:
         return buffer.startswith(self.number)
 
     @staticmethod
-    def _generate_flags_check_table(parameters: list[Parameter]) -> dict[int, set[str]]:
-        result: dict[int, set[str]] = dict()
+    def _generate_flags_check_table(parameters: list[Parameter]) -> dict[int, frozenset[str]]:
+        table: dict[int, set[str]] = dict()
 
         for parameter in parameters:
             if parameter.flag_number is not None:
-                result.setdefault(parameter.flag_number, set()).add(parameter.name)
+                table.setdefault(parameter.flag_number, set()).add(parameter.name)
 
-        return result
+        return dict((k, frozenset(v)) for k, v in table.items())
 
     @staticmethod
     def _generate_specialized_parameters_for_deserialization(parameters: list[Parameter]) -> list[Parameter | AbstractSpecializedDeserialization]:
@@ -726,7 +726,7 @@ class Constructor:
             sequential_optimizable_params.clear()
 
         for parameter in parameters:
-            if parameter.type in _optimizable_params_types and parameter.flag_number is None:
+            if parameter.type in _fixed_size_primitives and parameter.flag_number is None:
                 sequential_optimizable_params.append(parameter)
 
             else:
