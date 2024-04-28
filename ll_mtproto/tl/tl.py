@@ -702,7 +702,7 @@ class Constructor:
 
     @staticmethod
     def _generate_flags_check_table(parameters: list[Parameter]) -> dict[int, set[str]]:
-        result = dict()
+        result: dict[int, set[str]] = dict()
 
         for parameter in parameters:
             if parameter.flag_number is not None:
