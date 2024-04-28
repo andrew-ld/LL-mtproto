@@ -1,6 +1,6 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
-# Copyright (C) 2020-2023 (andrew) https://github.com/andrew-ld/LL-mtproto
-import abc
+# Copyright (C) 2020-2024 (andrew) https://github.com/andrew-ld/LL-mtproto
+
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -15,13 +15,14 @@ import abc
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import binascii
 import functools
 import gzip
 import re
 import struct
 import sys
 import typing
+import abc
+import binascii
 
 from ll_mtproto.tl.byteutils import (
     pack_binary_string,
