@@ -690,6 +690,7 @@ class Client:
                 result = Structure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(body_result_reader)))
         finally:
             reader_discard(body_result_reader)
+            del body_result_reader
 
         if self._use_perfect_forward_secrecy and \
                 result == "rpc_error" and \

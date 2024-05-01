@@ -145,6 +145,7 @@ class MTProto:
                 message = Structure.from_dict(await self._in_thread(lambda: self._unencrypted_message_constructor.deserialize_bare_data(full_message_reader)))
             finally:
                 reader_discard(full_message_reader)
+                del full_message_reader
 
             self._link.discard_packet()
 
@@ -219,6 +220,7 @@ class MTProto:
                 message = Structure.from_dict(self._message_inner_data_from_server_constructor.deserialize_bare_data(message_inner_data_reader))
             finally:
                 reader_discard(message_inner_data_reader)
+                del message_inner_data_reader
 
             message_body_len = int.from_bytes(await msg_aes_stream_with_hash(4), signed=False, byteorder="little")
             message_body_envelope = await msg_aes_stream_with_hash(message_body_len)
@@ -249,6 +251,7 @@ class MTProto:
                 message_body = Structure.from_dict(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(message_body_reader)))
             finally:
                 reader_discard(message_body_reader)
+                del message_body_reader
 
             return message.message, message_body
 
