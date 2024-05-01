@@ -503,51 +503,48 @@ class Flags:
 
 
 class Value:
-    __slots__ = ("cons", "boxed", "_flags", "_buffers")
+    __slots__ = ("cons", "boxed", "flags", "buffers")
 
     cons: typing.Final["Constructor"]
     boxed: typing.Final[bool]
-    _flags: typing.Final[dict[int, Flags] | None]
-    _buffers: typing.Final[list["bytes | Flags"]]
+    buffers: typing.Final[list["bytes | Flags"]]
+    flags: typing.Final[dict[int, Flags] | None]
 
     def __init__(self, cons: "Constructor", boxed: bool = False):
         self.cons = cons
         self.boxed = boxed
 
-        if self.boxed and self.cons.number is None:
+        cons_number = self.cons.number
+
+        if boxed and cons_number is None:
             raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{cons!r}`")
 
-        self._flags = dict((flag_name, Flags()) for flag_name in cons.flags) if cons.flags else None
-        self._buffers = []
+        self.flags = dict((flag_name, Flags()) for flag_name in cons.flags) if cons.flags else None
+        self.buffers = [typing.cast(bytes, cons_number)] if boxed else []
 
     def set_flag(self, flag_number: int, flag_name: int) -> None:
-        if (flags := self._flags) is None:
+        if (flags := self.flags) is None:
             raise TypeError(f"Tried to set flag for a flagless Value `{self.cons!r}`")
         else:
             flags[flag_name].add_flag(flag_number)
 
     def append_serializable_flag(self, flag_name: int) -> None:
-        if (flags := self._flags) is None:
+        if (flags := self.flags) is None:
             raise TypeError(f"Tried to append flag to data for a flagless Value `{self.cons!r}`")
         else:
-            self._buffers.append(flags[flag_name])
+            self.buffers.append(flags[flag_name])
 
     def append_serialized_tl(self, data: typing.Union["Value", bytes]) -> None:
-        self._buffers.append(data if isinstance(data, bytes) else data.get_flat_bytes())
+        if isinstance(data, bytes):
+            self.buffers.append(data)
+        else:
+            self.buffers.extend(data.buffers)
 
     def __repr__(self) -> str:
         return f'{"boxed" if self.boxed else "bare"}({self.cons!r})'
 
     def get_flat_bytes(self) -> bytes:
-        if self.boxed:
-            prefix = self.cons.number
-
-            if prefix is None:
-                raise TypeError(f"Tried to prefix cons number to data for a numberless Constructor `{self.cons!r}`")
-        else:
-            prefix = b""
-
-        return b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Flags) else k, (prefix, *self._buffers)))
+        return b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Flags) else k, self.buffers))
 
 
 class Parameter:
