@@ -507,7 +507,7 @@ class Value:
 
     cons: typing.Final["Constructor"]
     boxed: typing.Final[bool]
-    _flags: dict[int, Flags] | None
+    _flags: typing.Final[dict[int, Flags] | None]
     _buffers: typing.Final[list["bytes | Flags"]]
 
     def __init__(self, cons: "Constructor", boxed: bool = False):
@@ -517,11 +517,7 @@ class Value:
         if self.boxed and self.cons.number is None:
             raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{cons!r}`")
 
-        if cons.flags:
-            self._flags = dict((flag_name, Flags()) for flag_name in cons.flags)
-        else:
-            self._flags = None
-
+        self._flags = dict((flag_name, Flags()) for flag_name in cons.flags) if cons.flags else None
         self._buffers = []
 
     def set_flag(self, flag_number: int, flag_name: int) -> None:
