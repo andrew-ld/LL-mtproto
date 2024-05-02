@@ -18,23 +18,17 @@
 import functools
 import gzip
 import re
+import secrets
 import struct
 import sys
 import typing
 import abc
 import binascii
 
-from ll_mtproto.tl.byteutils import (
-    pack_binary_string,
-    unpack_binary_string,
-    pack_long_binary_string,
-    unpack_long_binary_string_stream,
-    GzipStreamReader,
-    pack_long_binary_string_padded, unpack_binary_string_stream
-)
+from ll_mtproto.tl.byteutils import GzipStreamReader, BinaryStreamReader
 from ll_mtproto.typed import SyncByteReader
 
-__all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue")
+__all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue", "pack_binary_string")
 
 
 @functools.lru_cache()
@@ -50,6 +44,64 @@ def _pack_flags(flags: set[int]) -> bytes:
         n |= 1 << int(flag)
 
     return n.to_bytes(4, "little", signed=False)
+
+
+def _unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:
+    str_len = ord(bytereader(1))
+
+    if str_len > 0xFE:
+        raise RuntimeError("Length equal to 255 in string")
+
+    elif str_len == 0xFE:
+        str_len = int.from_bytes(bytereader(3), "little", signed=False)
+        padding_len = (-str_len) % 4
+
+    else:
+        padding_len = (3 - str_len) % 4
+
+    return str_len, padding_len
+
+
+def _unpack_binary_string_stream(bytereader: SyncByteReader) -> SyncByteReader:
+    return BinaryStreamReader(bytereader, *_unpack_binary_string_header(bytereader))
+
+
+def _unpack_long_binary_string_stream(bytereader: SyncByteReader) -> SyncByteReader:
+    return BinaryStreamReader(bytereader, int.from_bytes(bytereader(4), "little", signed=False), 0)
+
+
+def _unpack_binary_string(bytereader: SyncByteReader) -> bytes:
+    str_len, padding_len = _unpack_binary_string_header(bytereader)
+    string = bytereader(str_len)
+    bytereader(padding_len)
+    return string
+
+
+def _pack_long_binary_string(data: bytes) -> bytes:
+    return len(data).to_bytes(4, "little", signed=False) + data
+
+
+def _pack_long_binary_string_padded(data: bytes) -> bytes:
+    padding_len = -len(data) & 15
+    padding_len += 16 * (secrets.randbits(64) % 16)
+    padding = secrets.token_bytes(padding_len)
+    header = (len(data) + len(padding)).to_bytes(4, "little", signed=False)
+    return header + data + padding
+
+
+def pack_binary_string(data: bytes) -> bytes:
+    length = len(data)
+
+    if length < 254:
+        padding = b"\x00" * ((3 - length) % 4)
+        return length.to_bytes(1, "little", signed=False) + data + padding
+
+    elif length <= 0xFFFFFF:
+        padding = b"\x00" * ((-length) % 4)
+        return b"\xfe" + length.to_bytes(3, "little", signed=False) + data + padding
+
+    else:
+        raise OverflowError("String too long")
 
 
 @functools.lru_cache()
@@ -345,10 +397,10 @@ class Schema:
                 return typing.cast(float, struct.unpack(b"<d", reader(8))[0])
 
             case "string":
-                return unpack_binary_string(reader).decode()
+                return _unpack_binary_string(reader).decode()
 
             case "bytes":
-                return unpack_binary_string(reader)
+                return _unpack_binary_string(reader)
 
             case "gzip":
                 raise RuntimeError(f"must not directly deserialize gzip {reader!r} {parameter!r}")
@@ -357,7 +409,7 @@ class Schema:
                 return reader(-1)
 
             case "object" | "padded_object":
-                return self.read_by_boxed_data(unpack_long_binary_string_stream(reader))
+                return self.read_by_boxed_data(_unpack_long_binary_string_stream(reader))
 
             case "bytesobject":
                 return reader(int.from_bytes(reader(4), "little", signed=False))
@@ -403,7 +455,7 @@ class Schema:
                     cons = self.cons_numbers.get(cons_number, None)
 
                     if cons is not None and cons.name == "gzip_packed":
-                        return self.deserialize(GzipStreamReader(unpack_binary_string_stream(reader)), parameter)
+                        return self.deserialize(GzipStreamReader(_unpack_binary_string_stream(reader)), parameter)
 
                     raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))} for vector")
 
@@ -423,7 +475,7 @@ class Schema:
                 raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
 
             if cons.name == "gzip_packed":
-                return self.deserialize(GzipStreamReader(unpack_binary_string_stream(reader)), parameter)
+                return self.deserialize(GzipStreamReader(_unpack_binary_string_stream(reader)), parameter)
 
             if parameter.type is not None and cons not in self.types[parameter.type] and cons.ptype:
                 raise ValueError(f"type mismatch, constructor `{cons.name}` not in type `{parameter.type}`")
@@ -482,7 +534,7 @@ class Schema:
             raise TypeError(f"Unknown constructor for constructor number {cons_number!r}")
 
         if cons.name == "gzip_packed":
-            return self.read_by_boxed_data(GzipStreamReader(unpack_binary_string_stream(reader)))
+            return self.read_by_boxed_data(GzipStreamReader(_unpack_binary_string_stream(reader)))
 
         return cons.deserialize_bare_data(reader)
 
@@ -795,13 +847,13 @@ class Constructor:
             elif isinstance(argument, Value):
                 match parameter.type:
                     case "object":
-                        data.append_serialized_tl(pack_long_binary_string(argument.get_flat_bytes()))
+                        data.append_serialized_tl(_pack_long_binary_string(argument.get_flat_bytes()))
 
                     case "rawobject":
                         data.append_serialized_tl(argument.get_flat_bytes())
 
                     case "padded_object":
-                        data.append_serialized_tl(pack_long_binary_string_padded(argument.get_flat_bytes()))
+                        data.append_serialized_tl(_pack_long_binary_string_padded(argument.get_flat_bytes()))
 
                     case "gzip":
                         data.append_serialized_tl(pack_binary_string(gzip.compress(argument.get_flat_bytes())))

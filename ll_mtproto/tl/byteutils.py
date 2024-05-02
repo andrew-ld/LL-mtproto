@@ -15,11 +15,9 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import base64
 import functools
 import hashlib
 import io
-import secrets
 import typing
 import zlib
 
@@ -27,41 +25,23 @@ from ll_mtproto.typed import ByteReader, InThread, ByteConsumer, SyncByteReader
 
 __all__ = (
     "xor",
-    "base64encode",
-    "base64decode",
     "sha1",
     "sha256",
     "to_bytes",
-    "pack_binary_string",
-    "unpack_binary_string_header",
     "ByteReaderApply",
-    "unpack_binary_string_stream",
-    "unpack_long_binary_string_stream",
-    "unpack_binary_string",
-    "pack_long_binary_string",
-    "long_hex",
     "short_hex",
-    "short_hex_int",
     "reader_is_empty",
     "reader_discard",
     "GzipStreamReader",
     "to_reader",
     "to_composed_reader",
     "SyncByteReaderApply",
-    "pack_long_binary_string_padded"
+    "BinaryStreamReader"
 )
 
 
 def xor(a: bytes, b: bytes) -> bytes:
     return bytes(ca ^ cb for ca, cb in zip(a, b))
-
-
-def base64encode(b: bytes) -> str:
-    return base64.b64encode(b).decode("ascii")
-
-
-def base64decode(s: str | bytes) -> bytes:
-    return base64.b64decode(s)
 
 
 @functools.lru_cache()
@@ -77,22 +57,6 @@ def sha256(b: bytes) -> bytes:
 @functools.lru_cache()
 def to_bytes(x: int, byte_order: typing.Literal["big", "little"] = "big", signed: bool = False) -> bytes:
     return x.to_bytes(((x.bit_length() - 1) // 8) + 1, byte_order, signed=signed)
-
-
-@functools.lru_cache()
-def pack_binary_string(data: bytes) -> bytes:
-    length = len(data)
-
-    if length < 254:
-        padding = b"\x00" * ((3 - length) % 4)
-        return length.to_bytes(1, "little", signed=False) + data + padding
-
-    elif length <= 0xFFFFFF:
-        padding = b"\x00" * ((-length) % 4)
-        return b"\xfe" + length.to_bytes(3, "little", signed=False) + data + padding
-
-    else:
-        raise OverflowError("String too long")
 
 
 class GzipStreamReader:
@@ -154,22 +118,6 @@ def reader_is_empty(reader: SyncByteReader) -> bool:
 
 def reader_discard(reader: SyncByteReader) -> None:
     typing.cast(_SyncByteReaderByteUtilsImpl, reader).close()
-
-
-def unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:
-    str_len = ord(bytereader(1))
-
-    if str_len > 0xFE:
-        raise RuntimeError("Length equal to 255 in string")
-
-    elif str_len == 0xFE:
-        str_len = int.from_bytes(bytereader(3), "little", signed=False)
-        padding_len = (-str_len) % 4
-
-    else:
-        padding_len = (3 - str_len) % 4
-
-    return str_len, padding_len
 
 
 class ByteReaderApply:
@@ -235,71 +183,6 @@ class BinaryStreamReader:
             return self._parent(nbytes)
 
 
-def unpack_binary_string_stream(bytereader: SyncByteReader) -> SyncByteReader:
-    return BinaryStreamReader(bytereader, *unpack_binary_string_header(bytereader))
-
-
-def unpack_long_binary_string_stream(bytereader: SyncByteReader) -> SyncByteReader:
-    return BinaryStreamReader(bytereader, int.from_bytes(bytereader(4), "little", signed=False), 0)
-
-
-def unpack_binary_string(bytereader: SyncByteReader) -> bytes:
-    str_len, padding_len = unpack_binary_string_header(bytereader)
-    string = bytereader(str_len)
-    bytereader(padding_len)
-    return string
-
-
-def pack_long_binary_string(data: bytes) -> bytes:
-    return len(data).to_bytes(4, "little", signed=False) + data
-
-
-def pack_long_binary_string_padded(data: bytes) -> bytes:
-    padding_len = -len(data) & 15
-    padding_len += 16 * (secrets.randbits(64) % 16)
-    padding = secrets.token_bytes(padding_len)
-    header = (len(data) + len(padding)).to_bytes(4, "little", signed=False)
-    return header + data + padding
-
-
-@functools.lru_cache()
-def long_hex(data: bytes, word_size: int = 4, chunk_size: int = 4) -> str:
-    length = len(data)
-
-    if length == 0:
-        return "Empty data"
-
-    address_octets = 1 + (length.bit_length() - 1) // 4
-
-    _format = "%0{:d}X   {}   %s".format(
-        address_octets,
-        "  ".join(" ".join("%s" for _ in range(word_size)) for _ in range(chunk_size)),
-    )
-
-    output = []
-
-    for chunk in range(0, len(data), word_size * chunk_size):
-        ascii_chunk = bytes(
-            c if 31 < c < 127 else 46
-            for c in data[chunk: chunk + word_size * chunk_size]
-        )
-
-        byte_chunk = (
-            "%02X" % data[i] if i < length else "  "
-            for i in range(chunk, chunk + word_size * chunk_size)
-        )
-
-        output.append(_format % (chunk, *byte_chunk, ascii_chunk.decode("ascii")))
-
-    return "\n".join(output)
-
-
 @functools.lru_cache()
 def short_hex(data: bytes) -> str:
-    return ":".join("%02X" % b for b in data)
-
-
-@functools.lru_cache()
-def short_hex_int(x: int, byte_order: typing.Literal["big", "little"] = "big", signed: bool = False) -> str:
-    data = to_bytes(x, byte_order=byte_order, signed=signed)
     return ":".join("%02X" % b for b in data)
