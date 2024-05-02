@@ -713,7 +713,7 @@ class Constructor:
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
     specialized_parameters_for_deserialization: typing.Final[tuple[Parameter | AbstractSpecializedDeserialization, ...]]
-    flags_check_table: typing.Final[dict[int, frozenset[str]]]
+    flags_check_table: typing.Final[tuple[tuple[int, frozenset[str]], ...]]
 
     def __init__(
             self,
@@ -747,14 +747,14 @@ class Constructor:
         return buffer.startswith(self.number)
 
     @staticmethod
-    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> dict[int, frozenset[str]]:
+    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> tuple[tuple[int, frozenset[str]], ...]:
         table: dict[int, set[str]] = dict()
 
         for parameter in parameters:
             if parameter.flag_number is not None:
                 table.setdefault(parameter.flag_number, set()).add(parameter.name)
 
-        return dict((k, frozenset(v)) for k, v in table.items())
+        return tuple((k, frozenset(v)) for k, v in table.items())
 
     @staticmethod
     def _generate_specialized_parameters_for_deserialization(parameters: tuple[Parameter, ...]) -> tuple[Parameter | AbstractSpecializedDeserialization, ...]:
@@ -890,7 +890,7 @@ class Constructor:
                 data.append_serialized_tl(argument)
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
-        for flag_number, parameters in self.flags_check_table.items():
+        for flag_number, parameters in self.flags_check_table:
             present = {p for p in parameters if body.get(p, None) is not None}
 
             if len(present) == 0 or len(present) == len(parameters):
