@@ -355,7 +355,7 @@ class Schema:
             ptype=ptype,
             name=sys.intern(cons_parsed["name"]),
             number=cons_number,
-            parameters=parameters,
+            parameters=tuple(parameters),
             flags=set(p.flag_name for p in parameters if p.is_flag and p.flag_name is not None) or None,
             is_function=is_function,
             ptype_parameter=ptype_parameter
@@ -650,11 +650,11 @@ class ContinuousBareValuesBatchDeserialization(AbstractSpecializedDeserializatio
     __slots__ = ("_struct", "_keys")
 
     _struct: typing.Final[struct.Struct]
-    _keys: typing.Final[list[str]]
+    _keys: typing.Final[tuple[str, ...]]
 
     def __init__(self, parameters: list[Parameter]):
         self._struct = struct.Struct("<" + "".join(map(self._generate_struct_fmt, parameters)))
-        self._keys = [p.name for p in parameters]
+        self._keys = tuple(p.name for p in parameters)
 
     @staticmethod
     def _generate_struct_fmt(parameter: Parameter) -> str:
@@ -709,10 +709,10 @@ class Constructor:
     name: typing.Final[str]
     number: typing.Final[bytes | None]
     flags: typing.Final[frozenset[int] | None]
-    parameters: typing.Final[list[Parameter]]
+    parameters: typing.Final[tuple[Parameter, ...]]
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
-    specialized_parameters_for_deserialization: typing.Final[list[Parameter | AbstractSpecializedDeserialization]]
+    specialized_parameters_for_deserialization: typing.Final[tuple[Parameter | AbstractSpecializedDeserialization, ...]]
     flags_check_table: typing.Final[dict[int, frozenset[str]]]
 
     def __init__(
@@ -721,7 +721,7 @@ class Constructor:
             ptype: str | None,
             name: str,
             number: bytes | None,
-            parameters: list[Parameter],
+            parameters: tuple[Parameter, ...],
             flags: set[int] | None,
             is_function: bool,
             ptype_parameter: Parameter | None
@@ -747,7 +747,7 @@ class Constructor:
         return buffer.startswith(self.number)
 
     @staticmethod
-    def _generate_flags_check_table(parameters: list[Parameter]) -> dict[int, frozenset[str]]:
+    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> dict[int, frozenset[str]]:
         table: dict[int, set[str]] = dict()
 
         for parameter in parameters:
@@ -757,7 +757,7 @@ class Constructor:
         return dict((k, frozenset(v)) for k, v in table.items())
 
     @staticmethod
-    def _generate_specialized_parameters_for_deserialization(parameters: list[Parameter]) -> list[Parameter | AbstractSpecializedDeserialization]:
+    def _generate_specialized_parameters_for_deserialization(parameters: tuple[Parameter, ...]) -> tuple[Parameter | AbstractSpecializedDeserialization, ...]:
         sequential_optimizable_params: list[Parameter] = []
         output: list[Parameter | AbstractSpecializedDeserialization] = []
 
@@ -780,7 +780,7 @@ class Constructor:
 
         flush_sequential_optimizable_params()
 
-        return output
+        return tuple(output)
 
     def __repr__(self) -> str:
         return f"{self.name} {''.join(repr(p) for p in self.parameters)}= {self.ptype};"
