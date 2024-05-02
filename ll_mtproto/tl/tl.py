@@ -105,7 +105,7 @@ def pack_binary_string(data: bytes) -> bytes:
 
 
 @functools.lru_cache()
-def _unpack_flags(n: int) -> set[int]:
+def _unpack_flags(n: int) -> frozenset[int]:
     i = 0
     flags = set()
 
@@ -116,7 +116,7 @@ def _unpack_flags(n: int) -> set[int]:
         i += 1
         n >>= 1
 
-    return flags
+    return frozenset(flags)
 
 
 _primitives = frozenset(
@@ -941,7 +941,7 @@ class Constructor:
         fields: TlBodyData = {"_cons": self.name}
 
         if self.flags is not None:
-            flags: dict[int, set[int]] = {}
+            flags: dict[int, frozenset[int]] = {}
 
             for parameter in self.specialized_parameters_for_deserialization:
                 if isinstance(parameter, AbstractSpecializedDeserialization):
