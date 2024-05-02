@@ -647,14 +647,16 @@ class AbstractSpecializedDeserialization(metaclass=abc.ABCMeta):
 
 
 class ContinuousBareValuesBatchDeserialization(AbstractSpecializedDeserialization):
-    __slots__ = ("_struct", "_keys")
+    __slots__ = ("_struct", "_keys", "_size")
 
     _struct: typing.Final[struct.Struct]
     _keys: typing.Final[tuple[str, ...]]
+    _size: typing.Final[int]
 
     def __init__(self, parameters: list[Parameter]):
         self._struct = struct.Struct("<" + "".join(map(self._generate_struct_fmt, parameters)))
         self._keys = tuple(p.name for p in parameters)
+        self._size = self._struct.size
 
     @staticmethod
     def _generate_struct_fmt(parameter: Parameter) -> str:
@@ -687,7 +689,7 @@ class ContinuousBareValuesBatchDeserialization(AbstractSpecializedDeserializatio
                 raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
 
     def deserialize_bare_data(self, reader: SyncByteReader) -> typing.Iterable[tuple[str, "TlBodyDataValue"]]:
-        return zip(self._keys, self._struct.unpack(reader(self._struct.size)))
+        return zip(self._keys, self._struct.unpack(reader(self._size)))
 
 
 class Constructor:

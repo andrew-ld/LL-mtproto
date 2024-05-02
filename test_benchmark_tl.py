@@ -4,7 +4,7 @@ import timeit
 import typing
 
 from ll_mtproto import TelegramDatacenter
-from ll_mtproto.tl.byteutils import to_reader
+from ll_mtproto.tl.byteutils import to_reader, reader_discard
 from ll_mtproto.tl.structure import Structure
 
 
@@ -22,7 +22,9 @@ serialized = tlschema.serialize(True, tlobjcons, tlobjdict).get_flat_bytes()
 
 
 def test():
-    tlschema.read_by_boxed_data(to_reader(serialized))
+    reader = to_reader(serialized)
+    tlschema.read_by_boxed_data(reader)
+    reader_discard(reader)
 
 
 print(timeit.timeit(test, number=100_000))
