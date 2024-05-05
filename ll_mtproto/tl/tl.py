@@ -600,7 +600,7 @@ class Value:
 
 
 class Parameter:
-    __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name", "is_primitive")
+    __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name", "is_primitive", "required")
 
     name: typing.Final[str]
     type: typing.Final[str | None]
@@ -611,6 +611,7 @@ class Parameter:
     is_flag: typing.Final[bool]
     element_parameter: typing.Final["Parameter | None"]
     is_primitive: typing.Final[bool]
+    required: typing.Final[bool]
 
     def __init__(
             self,
@@ -632,6 +633,7 @@ class Parameter:
         self.is_flag = is_flag
         self.flag_name = flag_name
         self.is_primitive = ptype in _primitives
+        self.required = flag_name is None
 
     def __repr__(self) -> str:
         if self.flag_number is not None:
@@ -913,16 +915,12 @@ class Constructor:
 
                 data.append_serializable_flag(flag_name)
 
-            elif parameter.name not in body:
-                if parameter.flag_number is None:
-                    raise TypeError(f"required `{parameter}` not found in `{self.name}`")
-
             else:
-                argument = body[parameter.name]
+                argument = body.get(parameter.name)
 
                 if argument is None:
-                    if parameter.flag_number is None:
-                        raise TypeError(f"required `{parameter}` is None in `{self.name}`")
+                    if parameter.required:
+                        raise TypeError(f"required `{parameter}` is missing in `{self.name}`")
                 else:
                     self._serialize_argument(data, parameter, argument)
 
