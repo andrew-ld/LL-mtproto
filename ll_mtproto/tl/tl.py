@@ -715,7 +715,7 @@ class Constructor:
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
     specialized_parameters_for_deserialization: typing.Final[tuple[Parameter | AbstractSpecializedDeserialization, ...]]
-    flags_check_table: typing.Final[tuple[tuple[int, frozenset[str]], ...]]
+    flags_check_table: typing.Final[tuple[tuple[int, frozenset[str], int], ...]]
 
     def __init__(
             self,
@@ -749,14 +749,14 @@ class Constructor:
         return buffer.startswith(self.number)
 
     @staticmethod
-    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> tuple[tuple[int, frozenset[str]], ...]:
+    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> tuple[tuple[int, frozenset[str], int], ...]:
         table: dict[int, set[str]] = dict()
 
         for parameter in parameters:
             if parameter.flag_number is not None:
                 table.setdefault(parameter.flag_number, set()).add(parameter.name)
 
-        return tuple((k, frozenset(v)) for k, v in table.items())
+        return tuple((k, frozenset(v), len(v)) for k, v in table.items())
 
     @staticmethod
     def _generate_specialized_parameters_for_deserialization(parameters: tuple[Parameter, ...]) -> tuple[Parameter | AbstractSpecializedDeserialization, ...]:
@@ -892,13 +892,15 @@ class Constructor:
                 data.append_serialized_tl(argument)
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
-        for flag_number, parameters in self.flags_check_table:
-            present = {p for p in parameters if body.get(p, None) is not None}
+        for flag_number, parameters, parameters_len in self.flags_check_table:
+            present_len = sum(1 for p in parameters if p in body)
 
-            if len(present) == 0 or len(present) == len(parameters):
+            if present_len == 0 or present_len == parameters_len:
                 continue
 
-            raise TypeError(f"Missing parameters `{(parameters - present)!r}` in `{self.name}` for flag number `{flag_number}`")
+            missing = parameters - {p for p in parameters if body.get(p) is not None}
+
+            raise TypeError(f"Missing parameters `{missing!r}` in `{self.name}` for flag number `{flag_number}`")
 
         data = Value(self, boxed=boxed)
 
