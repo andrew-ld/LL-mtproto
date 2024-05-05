@@ -920,13 +920,11 @@ class Constructor:
             else:
                 argument = body[parameter.name]
 
-                if parameter.flag_number is None and argument is None:
-                    raise TypeError(f"required `{parameter}` is None in `{self.name}`")
-
-                if argument is None and parameter.flag_name is not None:
-                    continue
-
-                self._serialize_argument(data, parameter, argument)
+                if argument is None:
+                    if parameter.flag_number is None:
+                        raise TypeError(f"required `{parameter}` is None in `{self.name}`")
+                else:
+                    self._serialize_argument(data, parameter, argument)
 
         return data
 
