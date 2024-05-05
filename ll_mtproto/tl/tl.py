@@ -893,7 +893,7 @@ class Constructor:
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
         for flag_number, parameters, parameters_len in self.flags_check_table:
-            present_len = sum(1 for p in parameters if p in body)
+            present_len = sum(body.get(p) is not None for p in parameters)
 
             if present_len == 0 or present_len == parameters_len:
                 continue
