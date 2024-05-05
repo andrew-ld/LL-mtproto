@@ -21,10 +21,15 @@ tlschema = TelegramDatacenter.VESTA.schema
 serialized = tlschema.serialize(True, tlobjcons, tlobjdict).get_flat_bytes()
 
 
-def test():
+def test_read():
     reader = to_reader(serialized)
     tlschema.read_by_boxed_data(reader)
     reader_discard(reader)
 
 
-print(timeit.timeit(test, number=100_000))
+def test_write():
+    tlschema.serialize(True, tlobjcons, tlobjdict).get_flat_bytes()
+
+
+print(timeit.timeit(test_read, number=100_000))
+print(timeit.timeit(test_write, number=100_000))
