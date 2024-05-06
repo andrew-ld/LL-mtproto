@@ -633,7 +633,7 @@ class Parameter:
         self.is_flag = is_flag
         self.flag_name = flag_name
         self.is_primitive = ptype in _primitives
-        self.required = flag_name is None
+        self.required = flag_number is None
 
     def __repr__(self) -> str:
         if self.flag_number is not None:
@@ -955,7 +955,10 @@ class Constructor:
 
                         flags[flag_name] = _unpack_flags(int.from_bytes(reader(4), "little", signed=False))
 
-                    elif parameter.flag_number is not None:
+                    elif parameter.required:
+                        fields[parameter.name] = self.schema.deserialize(reader, parameter)
+
+                    else:
                         flag_name = parameter.flag_name
 
                         if flag_name is None:
@@ -965,9 +968,6 @@ class Constructor:
                             fields[parameter.name] = self.schema.deserialize(reader, parameter)
                         else:
                             fields[parameter.name] = None
-
-                    else:
-                        fields[parameter.name] = self.schema.deserialize(reader, parameter)
         else:
             for parameter in self.specialized_parameters_for_deserialization:
                 if isinstance(parameter, AbstractSpecializedDeserialization):
