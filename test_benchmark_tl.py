@@ -17,7 +17,7 @@ with open(tlobjpath, "rb") as cf:
 
 tlobjdict = tlobj.get_dict()
 tlobjcons = tlobj.constructor_name
-tlschema = TelegramDatacenter.VESTA.schema
+tlschema = TelegramDatacenter.SCHEMA
 serialized = tlschema.serialize(True, tlobjcons, tlobjdict).get_flat_bytes()
 
 
