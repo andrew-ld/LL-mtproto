@@ -106,15 +106,73 @@ def pack_binary_string(data: bytes) -> bytes:
 
 @functools.lru_cache()
 def _unpack_flags(n: int) -> frozenset[int]:
-    i = 0
     flags = set()
 
-    while n > 0:
-        if n % 2 == 1:
-            flags.add(i)
+    # >>> for i in range(0, 31):
+    # ...  print(f"if n & {1 << i}:\n  flags.add({i})")
 
-        i += 1
-        n >>= 1
+    if n & 1:
+        flags.add(0)
+    if n & 2:
+        flags.add(1)
+    if n & 4:
+        flags.add(2)
+    if n & 8:
+        flags.add(3)
+    if n & 16:
+        flags.add(4)
+    if n & 32:
+        flags.add(5)
+    if n & 64:
+        flags.add(6)
+    if n & 128:
+        flags.add(7)
+    if n & 256:
+        flags.add(8)
+    if n & 512:
+        flags.add(9)
+    if n & 1024:
+        flags.add(10)
+    if n & 2048:
+        flags.add(11)
+    if n & 4096:
+        flags.add(12)
+    if n & 8192:
+        flags.add(13)
+    if n & 16384:
+        flags.add(14)
+    if n & 32768:
+        flags.add(15)
+    if n & 65536:
+        flags.add(16)
+    if n & 131072:
+        flags.add(17)
+    if n & 262144:
+        flags.add(18)
+    if n & 524288:
+        flags.add(19)
+    if n & 1048576:
+        flags.add(20)
+    if n & 2097152:
+        flags.add(21)
+    if n & 4194304:
+        flags.add(22)
+    if n & 8388608:
+        flags.add(23)
+    if n & 16777216:
+        flags.add(24)
+    if n & 33554432:
+        flags.add(25)
+    if n & 67108864:
+        flags.add(26)
+    if n & 134217728:
+        flags.add(27)
+    if n & 268435456:
+        flags.add(28)
+    if n & 536870912:
+        flags.add(29)
+    if n & 1073741824:
+        flags.add(30)
 
     return frozenset(flags)
 
