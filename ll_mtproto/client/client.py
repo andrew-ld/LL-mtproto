@@ -363,19 +363,19 @@ class Client:
             request_body = self._wrap_request_in_layer_init(request_body)
 
         try:
-            boxed_message, boxed_message_id = await self._in_thread(lambda: self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
+            payload, message_id = await self._in_thread(lambda: self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
         except Exception as serialization_exception:
             message.response.set_exception(serialization_exception)
             message.finalize()
             return
 
         if message.expect_answer:
-            self._pending_requests[boxed_message_id] = message
-            message.cleaner = self._loop.call_later(120, self._cancel_pending_request, boxed_message_id)
+            self._pending_requests[message_id] = message
+            message.cleaner = self._loop.call_later(120, self._cancel_pending_request, message_id)
 
-        logging.debug("writing message %d (%s)", boxed_message_id, message.request["_cons"])
+        logging.debug("writing message %d (%s)", message_id, message.request["_cons"])
 
-        await self._mtproto.write_encrypted(boxed_message, self._used_session_key)
+        await self._mtproto.write_encrypted(payload, self._used_session_key)
 
     async def _mtproto_write_loop(self) -> None:
         while True:
