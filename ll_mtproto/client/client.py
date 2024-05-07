@@ -363,7 +363,7 @@ class Client:
             request_body = self._wrap_request_in_layer_init(request_body)
 
         try:
-            boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body)
+            boxed_message, boxed_message_id = await self._in_thread(lambda: self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
         except Exception as serialization_exception:
             message.response.set_exception(serialization_exception)
             message.finalize()
