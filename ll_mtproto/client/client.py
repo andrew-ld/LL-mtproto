@@ -70,7 +70,7 @@ class _ClientInThreadImpl(InThread):
     def __init__(self, blocking_executor: concurrent.futures.Executor):
         self._blocking_executor = blocking_executor
 
-    def __call__(self, target: typing.Callable[[], InThread.InThreadRetType]) -> asyncio.Future[InThread.InThreadRetType]:
+    def __call__[T](self, target: typing.Callable[[], T]) -> asyncio.Future[T]:
         return asyncio.get_running_loop().run_in_executor(self._blocking_executor, target)
 
 
