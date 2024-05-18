@@ -22,15 +22,7 @@ async def get_updates(client: Client):
 async def test(api_id: int, api_hash: str, bot_token: str):
     logging.getLogger().setLevel(level=logging.DEBUG)
 
-    connection_info = ConnectionInfo(
-        api_id=api_id,
-        device_model="enterprise desktop computer 2",
-        system_version="linux 5.777",
-        app_version="1.1",
-        lang_code="de",
-        system_lang_code="de",
-        lang_pack=""
-    )
+    connection_info = ConnectionInfo.generate_from_os_info(api_id)
 
     auth_key = AuthKey()
 

@@ -67,6 +67,7 @@ class ConnectionInfo:
         self.lang_pack = lang_pack
         self.params = params
 
+    @functools.cache
     def to_request_body(self) -> dict[str, TlBodyDataValue]:
         return {
             "api_id": self.api_id,

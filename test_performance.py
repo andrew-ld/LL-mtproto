@@ -47,15 +47,7 @@ class TransportCodecPerformanceTrackFactory(TransportCodecFactory):
 
 
 async def test():
-    connection_info = ConnectionInfo(
-        api_id=6,
-        device_model="test",
-        system_version="test",
-        app_version="1.0",
-        lang_code="de",
-        system_lang_code="de",
-        lang_pack=""
-    )
+    connection_info = ConnectionInfo.generate_from_os_info(6)
 
     auth_key = AuthKey()
     auth_key.set_content_change_callback(lambda: None)
