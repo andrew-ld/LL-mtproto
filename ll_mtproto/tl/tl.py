@@ -558,16 +558,16 @@ class Schema:
 class Flags:
     __slots__ = ("_flags",)
 
-    _flags: typing.Final[set[int]]
+    _flags: int
 
     def __init__(self) -> None:
-        self._flags = set()
+        self._flags = 0
 
     def add_flag(self, flag: int) -> None:
-        self._flags.add(1 << flag)
+        self._flags |= 1 << flag
 
     def get_flat_bytes(self) -> bytes:
-        return sum(self._flags).to_bytes(4, "little", signed=False)
+        return self._flags.to_bytes(4, "little", signed=False)
 
 
 class Value:
