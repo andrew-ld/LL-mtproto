@@ -203,8 +203,13 @@ class Client:
         await self._write_queue.put(request)
 
     def _wrap_request_in_layer_init(self, message: TlBodyData) -> TlBodyData:
+        layer = self._datacenter.schema.layer
+
+        if layer is None:
+            raise TypeError(f"schema layer number is None: `{self._datacenter.schema!s}`")
+
         message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.to_request_body())
-        message = dict(_cons="invokeWithLayer", _wrapped=message, layer=self._datacenter.schema.layer)
+        message = dict(_cons="invokeWithLayer", _wrapped=message, layer=layer)
 
         if self._no_updates:
             message = dict(_cons="invokeWithoutUpdates", _wrapped=message)

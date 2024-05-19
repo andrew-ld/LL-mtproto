@@ -221,13 +221,13 @@ class Schema:
     constructors: typing.Final[dict[str, "Constructor"]]
     types: typing.Final[dict[str, set["Constructor"]]]
     cons_numbers: typing.Final[dict[bytes, "Constructor"]]
-    layer: int
+    layer: int | None
 
     def __init__(self) -> None:
         self.constructors = dict()
         self.types = dict()
         self.cons_numbers = dict()
-        self.layer = -1
+        self.layer = None
 
     def __repr__(self) -> str:
         return "\n".join(repr(cons) for cons in self.constructors.values())
