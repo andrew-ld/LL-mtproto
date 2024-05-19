@@ -37,15 +37,6 @@ def _compile_cons_number(definition: bytes) -> bytes:
     return n.to_bytes(4, "little", signed=False)
 
 
-def _pack_flags(flags: set[int]) -> bytes:
-    n = 0
-
-    for flag in flags:
-        n |= 1 << int(flag)
-
-    return n.to_bytes(4, "little", signed=False)
-
-
 def _unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:
     str_len = ord(bytereader(1))
 
@@ -573,10 +564,10 @@ class Flags:
         self._flags = set()
 
     def add_flag(self, flag: int) -> None:
-        self._flags.add(flag)
+        self._flags.add(1 << flag)
 
     def get_flat_bytes(self) -> bytes:
-        return _pack_flags(self._flags)
+        return sum(self._flags).to_bytes(4, "little", signed=False)
 
 
 class Value:
