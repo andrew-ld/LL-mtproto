@@ -35,9 +35,8 @@ from ll_mtproto.network.dh.mtproto_key_creator_dispatcher import initialize_key_
 from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
-from ll_mtproto.tl.byteutils import reader_discard, to_reader
 from ll_mtproto.tl.structure import Structure, StructureBody
-from ll_mtproto.tl.tl import TlBodyData, Constructor
+from ll_mtproto.tl.tl import TlBodyData, Constructor, NativeByteReader
 from ll_mtproto.typed import InThread
 
 __all__ = ("Client",)
@@ -682,7 +681,7 @@ class Client:
         else:
             response_parameter = None
 
-        body_result_reader = to_reader(body.result)
+        body_result_reader = NativeByteReader(body.result)
 
         try:
             if response_constructor is not None:
@@ -694,7 +693,6 @@ class Client:
             else:
                 result = Structure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(body_result_reader)))
         finally:
-            reader_discard(body_result_reader)
             del body_result_reader
 
         if self._use_perfect_forward_secrecy and \

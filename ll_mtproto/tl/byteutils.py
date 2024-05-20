@@ -17,7 +17,6 @@
 
 import functools
 import hashlib
-import io
 import typing
 import zlib
 
@@ -30,11 +29,7 @@ __all__ = (
     "to_bytes",
     "ByteReaderApply",
     "short_hex",
-    "reader_is_empty",
-    "reader_discard",
     "GzipStreamReader",
-    "to_reader",
-    "to_composed_reader",
     "SyncByteReaderApply",
     "BinaryStreamReader"
 )
@@ -84,40 +79,6 @@ class GzipStreamReader:
         result = self._buffer[:nbytes]
         del self._buffer[:nbytes]
         return bytes(result)
-
-
-class _SyncByteReaderByteUtilsImpl:
-    __slots__ = ("_io", "__call__")
-
-    _io: io.BytesIO
-    __call__: SyncByteReader
-
-    def __init__(self, buffer: bytes):
-        bytes_io = self._io = io.BytesIO(buffer)
-        self.__call__ = bytes_io.read
-        bytes_io.seek(0)
-
-    def is_empty(self) -> bool:
-        return self._io.tell() == self._io.getbuffer().nbytes
-
-    def close(self) -> None:
-        self._io.close()
-
-
-def to_composed_reader(*buffers: bytes) -> SyncByteReader:
-    return to_reader(b"".join(buffers))
-
-
-def to_reader(buffer: bytes) -> SyncByteReader:
-    return typing.cast(SyncByteReader, _SyncByteReaderByteUtilsImpl(buffer))
-
-
-def reader_is_empty(reader: SyncByteReader) -> bool:
-    return typing.cast(_SyncByteReaderByteUtilsImpl, reader).is_empty()
-
-
-def reader_discard(reader: SyncByteReader) -> None:
-    typing.cast(_SyncByteReaderByteUtilsImpl, reader).close()
 
 
 class ByteReaderApply:

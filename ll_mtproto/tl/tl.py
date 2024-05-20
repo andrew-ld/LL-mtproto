@@ -28,7 +28,34 @@ import binascii
 from ll_mtproto.tl.byteutils import GzipStreamReader, BinaryStreamReader
 from ll_mtproto.typed import SyncByteReader
 
-__all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue", "pack_binary_string")
+__all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue", "pack_binary_string", "NativeByteReader")
+
+
+class NativeByteReader:
+    __slots__ = ("buffer", "offset")
+
+    buffer: bytes
+    offset: int
+
+    def __init__(self, buffer: bytes):
+        self.buffer = buffer
+        self.offset = 0
+
+    def is_empty(self) -> bool:
+        return self.offset >= len(self.buffer)
+
+    def __bool__(self) -> bool:
+        return not self.is_empty()
+
+    def __call__(self, n: int) -> bytes:
+        current_offset = self.offset
+
+        if n == -1:
+            n = len(self.buffer) - current_offset
+
+        self.offset = result_end = current_offset + n
+
+        return self.buffer[current_offset:result_end]
 
 
 @functools.lru_cache()

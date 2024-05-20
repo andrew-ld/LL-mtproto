@@ -28,9 +28,9 @@ from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundExcep
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
-from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, to_reader, reader_discard, sha1, to_composed_reader
+from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, sha1
 from ll_mtproto.tl.structure import Structure
-from ll_mtproto.tl.tl import Constructor, TlBodyDataValue, Value, TlBodyData
+from ll_mtproto.tl.tl import Constructor, TlBodyDataValue, Value, TlBodyData, NativeByteReader
 from ll_mtproto.typed import InThread
 
 __all__ = ("MTProto",)
@@ -139,12 +139,11 @@ class MTProto:
             body_len = int.from_bytes(body_len_envelope, signed=False, byteorder="little")
             body_envelope = await self._link.readn(body_len)
 
-            full_message_reader = to_composed_reader(server_auth_key_id, message_id, body_len_envelope, body_envelope)
+            full_message_reader = NativeByteReader(b"".join((server_auth_key_id, message_id, body_len_envelope, body_envelope)))
 
             try:
                 message = Structure.from_dict(await self._in_thread(lambda: self._unencrypted_message_constructor.deserialize_bare_data(full_message_reader)))
             finally:
-                reader_discard(full_message_reader)
                 del full_message_reader
 
             self._link.discard_packet()
@@ -214,12 +213,11 @@ class MTProto:
             await self._in_thread(lambda: plain_sha256.update(auth_key_part))
             msg_aes_stream_with_hash = ByteReaderApply(msg_aes_stream, plain_sha256.update, self._in_thread)
 
-            message_inner_data_reader = to_reader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
+            message_inner_data_reader = NativeByteReader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
 
             try:
                 message = Structure.from_dict(self._message_inner_data_from_server_constructor.deserialize_bare_data(message_inner_data_reader))
             finally:
-                reader_discard(message_inner_data_reader)
                 del message_inner_data_reader
 
             message_body_len = int.from_bytes(await msg_aes_stream_with_hash(4), signed=False, byteorder="little")
@@ -245,12 +243,11 @@ class MTProto:
             if ((message.message.msg_id >> 32) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
                 raise RuntimeError("Time is not synchronised with telegram time!")
 
-            message_body_reader = to_reader(message_body_envelope)
+            message_body_reader = NativeByteReader(message_body_envelope)
 
             try:
                 message_body = Structure.from_dict(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(message_body_reader)))
             finally:
-                reader_discard(message_body_reader)
                 del message_body_reader
 
             return message.message, message_body

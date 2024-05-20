@@ -23,8 +23,8 @@ import typing
 
 from ll_mtproto.crypto.aes_ige import AesIge
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
-from ll_mtproto.tl.byteutils import to_reader, reader_is_empty, to_bytes, sha1, xor, sha256
-from ll_mtproto.tl.tl import pack_binary_string
+from ll_mtproto.tl.byteutils import to_bytes, sha1, xor, sha256
+from ll_mtproto.tl.tl import pack_binary_string, NativeByteReader
 from ll_mtproto.typed import SyncByteReader
 
 __all__ = ("PublicRSA",)
@@ -50,7 +50,7 @@ class PublicRSA:
             raise SyntaxError("Error parsing public key data")
 
         asn1 = base64.standard_b64decode(match.groupdict()["key"])
-        n, e = self._read_asn1(to_reader(asn1))
+        n, e = self._read_asn1(NativeByteReader(asn1))
 
         if not isinstance(n, bytes):
             raise SyntaxError(f"Error parsing public key data, the N field is not a buffer `{n!r}`")
@@ -77,7 +77,7 @@ class PublicRSA:
         if field_type == 0x30:
             sequence = []
 
-            while not reader_is_empty(reader):
+            while reader:
                 sequence.append(PublicRSA._read_asn1(reader))
 
             return sequence
