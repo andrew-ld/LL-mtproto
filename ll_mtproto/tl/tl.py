@@ -842,7 +842,7 @@ class Constructor:
         self.flags = None if flags is None else frozenset(flags)
         self.is_function = is_function
         self.ptype_parameter = ptype_parameter
-        self.deserialization_optimized_parameters = self._optimize_parameters(parameters)
+        self.deserialization_optimized_parameters = self._optimize_parameters_for_deserialization(parameters)
         self.flags_check_table = self._generate_flags_check_table(parameters)
 
     def boxed_buffer_match(self, buffer: bytes | bytearray) -> bool:
@@ -864,17 +864,17 @@ class Constructor:
 
         return tuple((k, frozenset(v), len(v)) for k, v in table.items())
 
-    @staticmethod
-    def _optimize_parameters(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
+    @classmethod
+    def _optimize_parameters_for_deserialization(cls, parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
         res = parameters
 
-        res = Constructor._sequential_fixed_size_primitives_optimization(res)
-        res = Constructor._fixed_size_primitives_fastpath_optimization(res)
+        res = cls._sequential_fixed_size_primitives_optimization_for_deserialization(res)
+        res = cls._fixed_size_primitives_fastpath_optimization_for_deserialization(res)
 
         return res
 
     @staticmethod
-    def _fixed_size_primitives_fastpath_optimization(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
+    def _fixed_size_primitives_fastpath_optimization_for_deserialization(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
         output: list[Parameter | AbstractSpecializedDeserialization] = []
 
         for parameter in parameters:
@@ -886,7 +886,7 @@ class Constructor:
         return tuple(output)
 
     @staticmethod
-    def _sequential_fixed_size_primitives_optimization(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
+    def _sequential_fixed_size_primitives_optimization_for_deserialization(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
         sequential_optimizable_params: list[Parameter] = []
         output: list[Parameter | AbstractSpecializedDeserialization] = []
 
