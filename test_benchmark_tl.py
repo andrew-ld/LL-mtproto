@@ -4,9 +4,8 @@ import timeit
 import typing
 
 from ll_mtproto import TelegramDatacenter
-from ll_mtproto.tl.byteutils import to_reader, reader_discard
 from ll_mtproto.tl.structure import Structure
-
+from ll_mtproto.tl.tl import NativeByteReader
 
 tlobjpath = sys.argv[-1]
 
@@ -22,9 +21,7 @@ serialized = tlschema.serialize(True, tlobjcons, tlobjdict).get_flat_bytes()
 
 
 def test_read():
-    reader = to_reader(serialized)
-    tlschema.read_by_boxed_data(reader)
-    reader_discard(reader)
+    tlschema.read_by_boxed_data(NativeByteReader(serialized))
 
 
 def test_write():

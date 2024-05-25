@@ -17,6 +17,7 @@
 
 import functools
 import gzip
+import operator
 import re
 import secrets
 import struct
@@ -687,11 +688,68 @@ class Parameter:
 
 class AbstractSpecializedDeserialization(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def deserialize_bare_data(self, reader: SyncByteReader) -> typing.Iterable[tuple[str, "TlBodyDataValue"]]:
+    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData") -> None:
         raise NotImplementedError()
 
 
-class ContinuousBareValuesBatchDeserialization(AbstractSpecializedDeserialization):
+class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserialization):
+    __slots__ = ("_key", "_size", "_method")
+
+    _key: str
+    _size: int
+    _method: typing.Callable[[bytes], "TlBodyDataValue"]
+
+    def __init__(self, parameter: "Parameter"):
+        self._key = parameter.name
+        self._method, self._size = self._generate_method(parameter)
+
+    @staticmethod
+    def _unpack_int(buf: bytes) -> int:
+        return int.from_bytes(buf, "little", signed=True)
+
+    @staticmethod
+    def _unpack_uint(buf: bytes) -> int:
+        return int.from_bytes(buf, "little", signed=False)
+
+    @staticmethod
+    def _unpack_double(buf: bytes) -> float:
+        return typing.cast(float, struct.unpack(b"<d", buf)[0])
+
+    @classmethod
+    def _generate_method(cls, parameter: Parameter) -> tuple[typing.Callable[[bytes], "TlBodyDataValue"], int]:
+        match parameter.type:
+            case "int":
+                return cls._unpack_int, 4
+
+            case "uint":
+                return cls._unpack_uint, 4
+
+            case "long":
+                return cls._unpack_int, 8
+
+            case "ulong":
+                return cls._unpack_uint, 8
+
+            case "double":
+                return cls._unpack_double, 8
+
+            case "int128":
+                return operator.itemgetter(0), 16
+
+            case "sha1":
+                return operator.itemgetter(0), 20
+
+            case "int256":
+                return operator.itemgetter(0), 32
+
+            case _:
+                raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
+
+    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData") -> None:
+        output[self._key] = self._method(reader(self._size))
+
+
+class ContinuousFixedSizeBareValuesBatchDeserialization(AbstractSpecializedDeserialization):
     __slots__ = ("_struct", "_keys", "_size")
 
     _struct: typing.Final[struct.Struct]
@@ -733,8 +791,11 @@ class ContinuousBareValuesBatchDeserialization(AbstractSpecializedDeserializatio
             case _:
                 raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
 
-    def deserialize_bare_data(self, reader: SyncByteReader) -> typing.Iterable[tuple[str, "TlBodyDataValue"]]:
-        return zip(self._keys, self._struct.unpack(reader(self._size)))
+    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData") -> None:
+        output.update(zip(self._keys, self._struct.unpack(reader(self._size))))
+
+
+_OPTIMIZED_PARAMETERS = tuple[Parameter | AbstractSpecializedDeserialization, ...]
 
 
 class Constructor:
@@ -747,7 +808,7 @@ class Constructor:
         "flags",
         "is_function",
         "ptype_parameter",
-        "specialized_parameters_for_deserialization",
+        "deserialization_optimized_parameters",
         "flags_check_table"
     )
 
@@ -759,7 +820,7 @@ class Constructor:
     parameters: typing.Final[tuple[Parameter, ...]]
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
-    specialized_parameters_for_deserialization: typing.Final[tuple[Parameter | AbstractSpecializedDeserialization, ...]]
+    deserialization_optimized_parameters: typing.Final[_OPTIMIZED_PARAMETERS]
     flags_check_table: typing.Final[tuple[tuple[int, frozenset[str], int], ...]]
 
     def __init__(
@@ -781,7 +842,7 @@ class Constructor:
         self.flags = None if flags is None else frozenset(flags)
         self.is_function = is_function
         self.ptype_parameter = ptype_parameter
-        self.specialized_parameters_for_deserialization = self._generate_specialized_parameters_for_deserialization(parameters)
+        self.deserialization_optimized_parameters = self._optimize_parameters(parameters)
         self.flags_check_table = self._generate_flags_check_table(parameters)
 
     def boxed_buffer_match(self, buffer: bytes | bytearray) -> bool:
@@ -804,13 +865,34 @@ class Constructor:
         return tuple((k, frozenset(v), len(v)) for k, v in table.items())
 
     @staticmethod
-    def _generate_specialized_parameters_for_deserialization(parameters: tuple[Parameter, ...]) -> tuple[Parameter | AbstractSpecializedDeserialization, ...]:
+    def _optimize_parameters(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
+        res = parameters
+
+        res = Constructor._sequential_fixed_size_primitives_optimization(res)
+        res = Constructor._fixed_size_primitives_fastpath_optimization(res)
+
+        return res
+
+    @staticmethod
+    def _fixed_size_primitives_fastpath_optimization(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
+        output: list[Parameter | AbstractSpecializedDeserialization] = []
+
+        for parameter in parameters:
+            if isinstance(parameter, Parameter) and parameter.type in _fixed_size_primitives and parameter.flag_number is None:
+                output.append(FixedSizePrimitiveFastPathDeserialization(parameter))
+            else:
+                output.append(parameter)
+
+        return tuple(output)
+
+    @staticmethod
+    def _sequential_fixed_size_primitives_optimization(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
         sequential_optimizable_params: list[Parameter] = []
         output: list[Parameter | AbstractSpecializedDeserialization] = []
 
         def flush_sequential_optimizable_params() -> None:
             if len(sequential_optimizable_params) > 1:
-                output.append(ContinuousBareValuesBatchDeserialization(sequential_optimizable_params))
+                output.append(ContinuousFixedSizeBareValuesBatchDeserialization(sequential_optimizable_params))
 
             elif len(sequential_optimizable_params) == 1:
                 output.append(sequential_optimizable_params[0])
@@ -818,7 +900,7 @@ class Constructor:
             sequential_optimizable_params.clear()
 
         for parameter in parameters:
-            if parameter.type in _fixed_size_primitives and parameter.flag_number is None:
+            if isinstance(parameter, Parameter) and parameter.type in _fixed_size_primitives and parameter.flag_number is None:
                 sequential_optimizable_params.append(parameter)
 
             else:
@@ -986,9 +1068,9 @@ class Constructor:
         if self.flags is not None:
             flags: dict[int, tuple[bool, ...]] = {}
 
-            for parameter in self.specialized_parameters_for_deserialization:
+            for parameter in self.deserialization_optimized_parameters:
                 if isinstance(parameter, AbstractSpecializedDeserialization):
-                    fields.update(parameter.deserialize_bare_data(reader))
+                    parameter.deserialize_bare_data(reader, fields)
                 else:
                     if parameter.is_flag:
                         flag_name = parameter.flag_name
@@ -1017,9 +1099,9 @@ class Constructor:
                         else:
                             fields[parameter.name] = None
         else:
-            for parameter in self.specialized_parameters_for_deserialization:
+            for parameter in self.deserialization_optimized_parameters:
                 if isinstance(parameter, AbstractSpecializedDeserialization):
-                    fields.update(parameter.deserialize_bare_data(reader))
+                    parameter.deserialize_bare_data(reader, fields)
                 else:
                     fields[parameter.name] = self.schema.deserialize(reader, parameter)
 
