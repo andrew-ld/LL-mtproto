@@ -18,12 +18,11 @@
 import base64
 import hashlib
 import re
-import secrets
 import typing
 
 from ll_mtproto.crypto.aes_ige import AesIge
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
-from ll_mtproto.tl.byteutils import to_bytes, sha1, xor, sha256
+from ll_mtproto.tl.byteutils import to_bytes, xor, sha256
 from ll_mtproto.tl.tl import pack_binary_string, NativeByteReader
 from ll_mtproto.typed import SyncByteReader
 
