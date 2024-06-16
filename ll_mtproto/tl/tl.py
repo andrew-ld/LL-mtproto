@@ -18,6 +18,7 @@
 import functools
 import gzip
 import operator
+import random
 import re
 import secrets
 import struct
@@ -103,7 +104,7 @@ def _pack_long_binary_string(data: bytes) -> bytes:
 def _pack_long_binary_string_padded(data: bytes) -> bytes:
     padding_len = -len(data) & 15
     padding_len += 16 * (secrets.randbits(64) % 16)
-    padding = secrets.token_bytes(padding_len)
+    padding = random.randbytes(padding_len)
     header = (len(data) + len(padding)).to_bytes(4, "little", signed=False)
     return header + data + padding
 

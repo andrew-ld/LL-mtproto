@@ -15,21 +15,29 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import typing
+import secrets
 
 import cryptg  # type: ignore
 
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 
+__all__ = ("CryptoProviderCryptg",)
+
+
+_TYPED_decrypt_ige = typing.cast(typing.Callable[[bytes, bytes, bytes], bytes], cryptg.decrypt_ige)
+_TYPED_encrypt_ige = typing.cast(typing.Callable[[bytes, bytes, bytes], bytes], cryptg.encrypt_ige)
+_TYPED_factorize_pq_pair = typing.cast(typing.Callable[[int], tuple[int, int]], cryptg.factorize_pq_pair)
+
 
 class CryptoProviderCryptg(CryptoProviderBase):
     def factorize_pq(self, pq: int) -> tuple[int, int]:
-        # factorize_pq_pair is untyped, always return tuple[int, int]
-        return typing.cast(tuple[int, int], cryptg.factorize_pq_pair(pq))
+        return _TYPED_factorize_pq_pair(pq)
 
     def decrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes) -> bytes:
-        # decrypt_ige is untyped, always return bytes
-        return typing.cast(bytes, cryptg.decrypt_ige(data_in_out, key, iv))
+        return _TYPED_decrypt_ige(data_in_out, key, iv)
 
     def encrypt_aes_ige(self, data_in_out: bytes, key: bytes, iv: bytes) -> bytes:
-        # encrypt_ige is untyped, always return bytes
-        return typing.cast(bytes, cryptg.encrypt_ige(data_in_out, key, iv))
+        return _TYPED_encrypt_ige(data_in_out, key, iv)
+
+    def secure_random(self, nbytes: int) -> bytes:
+        return secrets.token_bytes(nbytes)

@@ -104,7 +104,7 @@ class MTProtoKeyCreator:
             temp_key: bool,
             result: asyncio.Future[DhGenKey]
     ) -> "MTProtoKeyCreator":
-        nonce = await in_thread(lambda: secrets.token_bytes(16))
+        nonce = await in_thread(lambda: crypto_provider.secure_random(16))
         await mtproto.write_unencrypted_message(_cons="req_pq_multi", nonce=nonce)
         return MTProtoKeyCreator(mtproto, in_thread, datacenter, crypto_provider, temp_key, nonce, result)
 
@@ -282,7 +282,7 @@ class MTProtoKeyCreator:
         pq = int.from_bytes(res_pq.pq, "big", signed=False)
 
         new_nonce, (p, q) = await asyncio.gather(
-            self._in_thread(lambda: secrets.token_bytes(32)),
+            self._in_thread(lambda: self._crypto_provider.secure_random(32)),
             self._in_thread(lambda: self._crypto_provider.factorize_pq(pq)),
         )
 
@@ -307,7 +307,7 @@ class MTProtoKeyCreator:
         )
 
         p_q_inner_data_rsa_pad = await self._in_thread(lambda: self._datacenter.public_rsa.rsa_pad(p_q_inner_data.get_flat_bytes(), self._crypto_provider))
-        p_q_inner_data_encrypted = await self._in_thread(lambda: self._datacenter.public_rsa.encrypt(p_q_inner_data_rsa_pad))
+        p_q_inner_data_encrypted = await self._in_thread(lambda: self._datacenter.public_rsa.encrypt(p_q_inner_data_rsa_pad, self._crypto_provider))
 
         await self._mtproto.write_unencrypted_message(
             _cons="req_DH_params",

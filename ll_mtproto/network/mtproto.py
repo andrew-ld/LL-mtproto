@@ -19,7 +19,6 @@ import asyncio
 import hashlib
 import hmac
 import logging
-import secrets
 
 from ll_mtproto.crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ll_mtproto.crypto.auth_key import Key, DhGenKey
@@ -172,7 +171,7 @@ class MTProto:
 
         message_inner_data_envelope = await self._in_thread(message_inner_data.get_flat_bytes)
 
-        padding = await self._in_thread(lambda: secrets.token_bytes((-(len(message_inner_data_envelope) + 12) % 16 + 12)))
+        padding = await self._in_thread(lambda: self._crypto_provider.secure_random((-(len(message_inner_data_envelope) + 12) % 16 + 12)))
         msg_key = (await self._in_thread(lambda: sha256(auth_key_key[88:88 + 32] + message_inner_data_envelope + padding)))[8:24]
         aes = await self._in_thread(lambda: self.prepare_key_v2(auth_key_key, msg_key, True, self._crypto_provider))
         encrypted_message = await self._in_thread(lambda: aes.encrypt(message_inner_data_envelope + padding))

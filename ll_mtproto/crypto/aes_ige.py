@@ -15,8 +15,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import secrets
-
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.tl.byteutils import short_hex, sha1
 from ll_mtproto.typed import InThread, PartialByteReader
@@ -49,7 +47,7 @@ class AesIge:
         return self._crypto_provider.decrypt_aes_ige(cipher, self._key, self._iv)
 
     def encrypt(self, plain: bytes) -> bytes:
-        padded_plain = plain + secrets.token_bytes((-len(plain)) % 16)
+        padded_plain = plain + self._crypto_provider.secure_random((-len(plain)) % 16)
         return self._crypto_provider.encrypt_aes_ige(padded_plain, self._key, self._iv)
 
     def encrypt_with_hash(self, plain: bytes) -> bytes:

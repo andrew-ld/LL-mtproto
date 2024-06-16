@@ -15,7 +15,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 import asyncio
-import secrets
 
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.crypto.auth_key import Key
@@ -56,7 +55,7 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
         perm_auth_key_key, perm_auth_key_id, _ = persistent_key.get_or_assert_empty()
         used_auth_key_key, used_auth_key_id, used_key_session = used_key.get_or_assert_empty()
 
-        bind_temp_auth_nonce = int.from_bytes(await in_thread(lambda: secrets.token_bytes(8)), "big", signed=True)
+        bind_temp_auth_nonce = int.from_bytes(await in_thread(lambda: crypto_provider.secure_random(8)), "big", signed=True)
 
         bind_temp_auth_inner = datacenter.schema.boxed_kwargs(
             _cons="bind_auth_key_inner",
@@ -69,8 +68,8 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
 
         bind_temp_auth_inner_data = datacenter.schema.bare_kwargs(
             _cons="message_inner_data",
-            salt=int.from_bytes(await in_thread(lambda: secrets.token_bytes(8)), "big", signed=True),
-            session_id=int.from_bytes(await in_thread(lambda: secrets.token_bytes(8)), "big", signed=False),
+            salt=int.from_bytes(await in_thread(lambda: crypto_provider.secure_random(8)), "big", signed=True),
+            session_id=int.from_bytes(await in_thread(lambda: crypto_provider.secure_random(8)), "big", signed=False),
             message=datacenter.schema.bare_kwargs(
                 _cons="message_from_client",
                 msg_id=req_msg_id,
