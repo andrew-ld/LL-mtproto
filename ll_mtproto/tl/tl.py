@@ -124,44 +124,52 @@ def pack_binary_string(data: bytes) -> bytes:
         raise OverflowError("String too long")
 
 
-@functools.lru_cache()
 def _unpack_flags(n: int) -> tuple[bool, ...]:
-    # >>> for i in range(0, 31):
-    # ...  print(f"(n & {1 << i}) != 0,")
-
-    return (
-        (n & 1) != 0,
-        (n & 2) != 0,
-        (n & 4) != 0,
-        (n & 8) != 0,
-        (n & 16) != 0,
-        (n & 32) != 0,
-        (n & 64) != 0,
-        (n & 128) != 0,
-        (n & 256) != 0,
-        (n & 512) != 0,
-        (n & 1024) != 0,
-        (n & 2048) != 0,
-        (n & 4096) != 0,
-        (n & 8192) != 0,
-        (n & 16384) != 0,
-        (n & 32768) != 0,
-        (n & 65536) != 0,
-        (n & 131072) != 0,
-        (n & 262144) != 0,
-        (n & 524288) != 0,
-        (n & 1048576) != 0,
-        (n & 2097152) != 0,
-        (n & 4194304) != 0,
-        (n & 8388608) != 0,
-        (n & 16777216) != 0,
-        (n & 33554432) != 0,
-        (n & 67108864) != 0,
-        (n & 134217728) != 0,
-        (n & 268435456) != 0,
-        (n & 536870912) != 0,
-        (n & 1073741824) != 0
-    )
+    if n & 0b1111111000000000000000000000000:
+        return (
+            (n & 1) != 0, (n & 2) != 0, (n & 4) != 0, (n & 8) != 0,
+            (n & 16) != 0, (n & 32) != 0, (n & 64) != 0, (n & 128) != 0,
+            (n & 256) != 0, (n & 512) != 0, (n & 1024) != 0, (n & 2048) != 0,
+            (n & 4096) != 0, (n & 8192) != 0, (n & 16384) != 0, (n & 32768) != 0,
+            (n & 65536) != 0, (n & 131072) != 0, (n & 262144) != 0, (n & 524288) != 0,
+            (n & 1048576) != 0, (n & 2097152) != 0, (n & 4194304) != 0, (n & 8388608) != 0,
+            (n & 16777216) != 0, (n & 33554432) != 0, (n & 67108864) != 0, (n & 134217728) != 0,
+            (n & 268435456) != 0, (n & 536870912) != 0, (n & 1073741824) != 0
+        )
+    elif n & 0b0000000111111110000000000000000:
+        return (
+            (n & 1) != 0, (n & 2) != 0, (n & 4) != 0, (n & 8) != 0,
+            (n & 16) != 0, (n & 32) != 0, (n & 64) != 0, (n & 128) != 0,
+            (n & 256) != 0, (n & 512) != 0, (n & 1024) != 0, (n & 2048) != 0,
+            (n & 4096) != 0, (n & 8192) != 0, (n & 16384) != 0, (n & 32768) != 0,
+            (n & 65536) != 0, (n & 131072) != 0, (n & 262144) != 0, (n & 524288) != 0,
+            (n & 1048576) != 0, (n & 2097152) != 0, (n & 4194304) != 0, (n & 8388608) != 0,
+            False, False, False, False, False, False, False
+        )
+    elif n & 0b0000000000000001111111100000000:
+        return (
+            (n & 1) != 0, (n & 2) != 0, (n & 4) != 0, (n & 8) != 0,
+            (n & 16) != 0, (n & 32) != 0, (n & 64) != 0, (n & 128) != 0,
+            (n & 256) != 0, (n & 512) != 0, (n & 1024) != 0, (n & 2048) != 0,
+            (n & 4096) != 0, (n & 8192) != 0, (n & 16384) != 0, (n & 32768) != 0,
+            False, False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False
+        )
+    elif n & 0b0000000000000000000000011111111:
+        return (
+            (n & 1) != 0, (n & 2) != 0, (n & 4) != 0, (n & 8) != 0,
+            (n & 16) != 0, (n & 32) != 0, (n & 64) != 0, (n & 128) != 0,
+            False, False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False
+        )
+    else:
+        return (
+            False, False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False, False,
+            False, False, False, False, False, False, False
+        )
 
 
 _primitives = frozenset(
