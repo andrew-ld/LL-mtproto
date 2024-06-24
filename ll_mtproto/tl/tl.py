@@ -264,6 +264,9 @@ class Schema:
         is_function = False
 
         for schema_line in schema.split("\n"):
+            if schema_line == "---types---":
+                is_function = False
+
             if schema_line == "---functions---":
                 is_function = True
 
