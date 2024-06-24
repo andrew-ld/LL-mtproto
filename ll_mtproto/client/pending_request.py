@@ -34,7 +34,8 @@ class PendingRequest:
         "retries",
         "next_seq_no",
         "allow_container",
-        "expect_answer"
+        "expect_answer",
+        "force_init_connection"
     )
 
     response: asyncio.Future[StructureBody]
@@ -44,6 +45,7 @@ class PendingRequest:
     next_seq_no: SeqNoGenerator
     allow_container: bool
     expect_answer: bool
+    force_init_connection: bool
 
     def __init__(
             self,
@@ -52,7 +54,8 @@ class PendingRequest:
             message: TlBodyData,
             seq_no_func: SeqNoGenerator,
             allow_container: bool,
-            expect_answer: bool
+            expect_answer: bool,
+            force_init_connection: bool = False
     ):
         self.response = response
         self.request = message
@@ -61,6 +64,7 @@ class PendingRequest:
         self.next_seq_no = seq_no_func
         self.allow_container = allow_container
         self.expect_answer = expect_answer
+        self.force_init_connection = force_init_connection
 
     def finalize(self) -> None:
         if not (response := self.response).done():

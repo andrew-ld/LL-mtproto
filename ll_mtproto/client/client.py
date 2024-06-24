@@ -181,13 +181,14 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call(self, payload: TlBodyData) -> StructureBody:
+    async def rpc_call(self, payload: TlBodyData, force_init_connection: bool = False) -> StructureBody:
         pending_request = PendingRequest(
             response=self._loop.create_future(),
             message=payload,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=True,
-            expect_answer=True
+            expect_answer=True,
+            force_init_connection=force_init_connection
         )
 
         pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
@@ -201,7 +202,7 @@ class Client:
         self._ensure_mtproto_loop()
         await self._write_queue.put(request)
 
-    def _wrap_request_in_layer_init(self, message: TlBodyData) -> TlBodyData:
+    def _wrap_into_init_connection(self, message: TlBodyData) -> TlBodyData:
         layer = self._datacenter.schema.layer
 
         if layer is None:
@@ -356,15 +357,17 @@ class Client:
         if cleaner := message.cleaner:
             cleaner.cancel()
 
-        if message.allow_container:
-            layer_init_boxing_required = self._layer_init_required
+        if message.force_init_connection:
+            init_connection_required = True
+        elif message.allow_container:
+            init_connection_required = self._layer_init_required
         else:
-            layer_init_boxing_required = False
+            init_connection_required = False
 
         request_body = message.request
 
-        if layer_init_boxing_required:
-            request_body = self._wrap_request_in_layer_init(request_body)
+        if init_connection_required:
+            request_body = self._wrap_into_init_connection(request_body)
 
         try:
             payload, message_id = await self._in_thread(lambda: self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
