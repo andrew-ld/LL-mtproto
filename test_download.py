@@ -1,6 +1,3 @@
-import typeguard
-typeguard.install_import_hook()
-
 import traceback
 import argparse
 import asyncio
@@ -18,7 +15,6 @@ async def get_updates(client: Client):
             print("received", update.update.get_dict())
 
 
-@typeguard.typechecked()
 async def test(api_id: int, api_hash: str, bot_token: str):
     logging.getLogger().setLevel(level=logging.DEBUG)
 
