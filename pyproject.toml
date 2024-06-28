@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 name = "ll_mtproto"
 version = "0.0.1"
 authors = [
-    {name = "Andrew-LD"}
+    {name = "andrew-ld"}
 ]
 readme = "README.md"
 license = { file = "LICENSE" }
