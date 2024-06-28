@@ -1,6 +1,9 @@
 # LL-MTPROTO  
 > LL-mtproto is an abstraction-free mtproto client.
 
+# INSTALLATION
+pip3 install git+https://github.com/andrew-ld/LL-mtproto
+
 # ABOUT
 ll-mtproto was developed as an answer to the mtproto clients currently existing on the opensource market, they are too complicated due to excessive abstraction layers, unfortunately these abstractions are difficult to maintain and have a strong impact on performance.
 
