@@ -30,7 +30,7 @@ __all__ = (
     "ByteReaderApply",
     "short_hex",
     "GzipStreamReader",
-    "SyncByteReaderApply",
+    "SyncByteReaderProxy",
     "BinaryStreamReader"
 )
 
@@ -54,7 +54,7 @@ def to_bytes(x: int, byte_order: typing.Literal["big", "little"] = "big", signed
     return x.to_bytes(((x.bit_length() - 1) // 8) + 1, byte_order, signed=signed)
 
 
-class GzipStreamReader:
+class GzipStreamReader(SyncByteReader):
     __slots__ = ("_parent", "_buffer", "_decompressor")
 
     _parent: SyncByteReader
@@ -66,6 +66,9 @@ class GzipStreamReader:
         self._parent = parent
         self._buffer = bytearray()
         self._decompressor = zlib.decompressobj(16 + zlib.MAX_WBITS)
+
+    def __bool__(self) -> bool:
+        return bool(self._buffer) or bool(self._parent)
 
     def __call__(self, nbytes: int) -> bytes:
         if nbytes == -1:
@@ -99,15 +102,18 @@ class ByteReaderApply:
         return result
 
 
-class SyncByteReaderApply:
+class SyncByteReaderProxy(SyncByteReader):
     __slots__ = ("_parent", "_apply_function")
 
     _parent: SyncByteReader
     _apply_function: ByteConsumer
 
-    def __init__(self, parent: SyncByteReader, apply_function: ByteConsumer):
+    def __init__(self, parent: SyncByteReader, proxy_function: ByteConsumer):
         self._parent = parent
-        self._apply_function = apply_function
+        self._apply_function = proxy_function
+
+    def __bool__(self) -> bool:
+        return bool(self._parent)
 
     def __call__(self, nbytes: int) -> bytes:
         result = self._parent(nbytes)
@@ -115,7 +121,7 @@ class SyncByteReaderApply:
         return result
 
 
-class BinaryStreamReader:
+class BinaryStreamReader(SyncByteReader):
     __slots__ = ("_parent", "_remaining", "_padding")
 
     _parent: SyncByteReader
@@ -126,6 +132,9 @@ class BinaryStreamReader:
         self._parent = parent
         self._remaining = remaining
         self._padding = padding
+
+    def __bool__(self) -> bool:
+        return self._remaining != 0
 
     def __call__(self, nbytes: int) -> bytes:
         if nbytes == -1:

@@ -30,14 +30,24 @@ __all__ = (
 
 
 class InThread(metaclass=abc.ABCMeta):
+    InThreadRetType = typing.TypeVar("InThreadRetType")
+
     @abc.abstractmethod
-    def __call__[T](self, target: typing.Callable[[], T]) -> asyncio.Future[T]:
+    def __call__(self, target: typing.Callable[[], InThreadRetType]) -> asyncio.Future[InThreadRetType]:
+        raise NotImplementedError()
+
+
+class SyncByteReader(metaclass=abc.ABCMeta):
+    @abc.abstractmethod
+    def __call__(self, nbytes: int) -> bytes:
+        raise NotImplementedError()
+
+    @abc.abstractmethod
+    def __bool__(self) -> bool:
         raise NotImplementedError()
 
 
 ByteReader = typing.Callable[[int], typing.Awaitable[bytes]]
-
-SyncByteReader = typing.Callable[[int], bytes]
 
 PartialByteReader = typing.Callable[[], typing.Awaitable[bytes]]
 
