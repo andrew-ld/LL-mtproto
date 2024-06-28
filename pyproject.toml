@@ -1,0 +1,29 @@
+[build-system]
+requires = [
+    "setuptools >= 61.0",
+    "mypy[mypyc]==1.10.1"
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ll_mtproto"
+version = "0.0.1"
+authors = [
+    {name = "Andrew-LD"}
+]
+readme = "README.md"
+license = { file = "LICENSE" }
+dependencies = [
+    "cryptg==0.4.0"
+]
+requires-python = ">=3.12.4"
+
+[tool.setuptools]
+include-package-data = true
+
+[tool.mypy]
+python_version = "3.12"
+files = [ "ll_mtproto/tl/tl.py" ]
+warn_return_any = true
+warn_unused_configs = true
+strict = true
