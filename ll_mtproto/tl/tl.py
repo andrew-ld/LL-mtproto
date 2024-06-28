@@ -33,7 +33,7 @@ from ll_mtproto.typed import SyncByteReader
 __all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue", "pack_binary_string", "NativeByteReader")
 
 
-class NativeByteReader:
+class NativeByteReader(SyncByteReader):
     __slots__ = ("buffer", "offset")
 
     buffer: bytes
@@ -43,11 +43,8 @@ class NativeByteReader:
         self.buffer = buffer
         self.offset = 0
 
-    def is_empty(self) -> bool:
-        return self.offset >= len(self.buffer)
-
     def __bool__(self) -> bool:
-        return not self.is_empty()
+        return self.offset < len(self.buffer)
 
     def __call__(self, n: int) -> bytes:
         current_offset = self.offset

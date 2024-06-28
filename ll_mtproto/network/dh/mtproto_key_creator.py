@@ -26,7 +26,7 @@ from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.math import primes
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.mtproto import MTProto
-from ll_mtproto.tl.byteutils import to_bytes, sha1, xor, SyncByteReaderApply
+from ll_mtproto.tl.byteutils import to_bytes, sha1, xor, SyncByteReaderProxy
 from ll_mtproto.tl.structure import Structure
 from ll_mtproto.tl.tl import NativeByteReader
 from ll_mtproto.typed import InThread
@@ -184,7 +184,7 @@ class MTProtoKeyCreator:
 
         answer_reader = NativeByteReader(answer)
         answer_reader_sha1 = hashlib.sha1()
-        answer_reader_with_hash = SyncByteReaderApply(answer_reader, answer_reader_sha1.update)
+        answer_reader_with_hash = SyncByteReaderProxy(answer_reader, answer_reader_sha1.update)
 
         params2 = Structure.from_dict(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(answer_reader_with_hash)))
         answer_hash_computed = await self._in_thread(answer_reader_sha1.digest)
