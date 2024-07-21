@@ -87,7 +87,7 @@ class Client:
         "_no_updates",
         "_pending_future_salt",
         "_layer_init_info",
-        "_layer_init_required",
+        "_init_connection_required",
         "_auth_key_lock",
         "_use_perfect_forward_secrecy",
         "_write_queue",
@@ -112,7 +112,7 @@ class Client:
     _no_updates: bool
     _pending_future_salt: asyncio.TimerHandle | asyncio.Task[None] | None
     _layer_init_info: ConnectionInfo
-    _layer_init_required: bool
+    _init_connection_required: bool
     _auth_key_lock: asyncio.Lock
     _use_perfect_forward_secrecy: bool
     _blocking_executor: concurrent.futures.Executor
@@ -158,7 +158,7 @@ class Client:
 
         self._msgids_to_ack = list()
         self._pending_requests = dict()
-        self._layer_init_required = True
+        self._init_connection_required = True
 
         self._pending_pong = None
         self._pending_ping = None
@@ -360,7 +360,7 @@ class Client:
         if message.force_init_connection:
             init_connection_required = True
         elif message.allow_container:
-            init_connection_required = self._layer_init_required
+            init_connection_required = self._init_connection_required
         else:
             init_connection_required = False
 
@@ -665,6 +665,15 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
+    def _finalize_response_throw_rpc_error(self, error_message: str, error_code: int, pending_request: PendingRequest):
+        if (error_description_resolver := self._error_description_resolver) is not None:
+            error_description = error_description_resolver.resolve(error_code, error_message)
+        else:
+            error_description = None
+
+        pending_request.response.set_exception(RpcError(error_code, error_message, error_description))
+        pending_request.finalize()
+
     async def _process_rpc_result(self, body: Structure) -> None:
         self._used_session_key.session.stable_seqno = True
         self._used_session_key.session.seqno_increment = 1
@@ -709,34 +718,40 @@ class Client:
 
             return self.disconnect()
 
-        if result == "rpc_error" and result.error_message == "CONNECTION_NOT_INITED" and pending_request.retries < 5:
-            self._layer_init_required = True
-            await self._rpc_call(pending_request)
+        if result == "rpc_error":
+            error_message = typing.cast(str, result.error_message)
+            error_code = typing.cast(int, result.error_code)
 
-        elif result == "rpc_error" and result.error_code >= 500 and pending_request.retries < 5:
-            logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
-            await self._rpc_call(pending_request)
+            if error_message == "AUTH_KEY_PERM_EMPTY":
+                if self._use_perfect_forward_secrecy:
+                    self._used_session_key.clear_key()
+                    self._used_session_key.flush_changes()
+                    self.disconnect()
 
-        elif result == "rpc_error":
-            error_description_resolver = self._error_description_resolver
-            error_description: str | None = None
+                else:
+                    self._finalize_response_throw_rpc_error(error_message, error_code, pending_request)
 
-            if error_description_resolver is not None:
-                error_description = error_description_resolver.resolve(result.error_code, result.error_message)
+            elif pending_request.retries >= 5:
+                self._finalize_response_throw_rpc_error(error_message, error_code, pending_request)
 
-            pending_request.response.set_exception(RpcError(result.error_code, result.error_message, error_description))
-            pending_request.finalize()
+            elif error_message == "CONNECTION_NOT_INITED":
+                self._init_connection_required = True
+                await self._rpc_call(pending_request)
 
+            elif error_code >= 500:
+                logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
+                await self._rpc_call(pending_request)
+
+            else:
+                self._finalize_response_throw_rpc_error(error_message, error_code, pending_request)
         else:
-            pending_request.response.set_result(result)
-
             if pending_request.allow_container:
-                self._layer_init_required = False
-
+                self._init_connection_required = False
+            pending_request.response.set_result(result)
             pending_request.finalize()
 
     def disconnect(self) -> None:
-        self._layer_init_required = True
+        self._init_connection_required = True
 
         if not self._no_updates:
             self._updates_queue.put_nowait(None)
