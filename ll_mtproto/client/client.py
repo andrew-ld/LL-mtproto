@@ -727,7 +727,7 @@ class Client:
                 self._init_connection_required = True
                 await self._rpc_call(pending_request)
 
-            elif error_code >= 500:
+            elif 500 <= error_code < 600:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
                 await self._rpc_call(pending_request)
 
