@@ -707,17 +707,6 @@ class Client:
         finally:
             del body_result_reader
 
-        if self._use_perfect_forward_secrecy and \
-                result == "rpc_error" and \
-                result.error_message == "AUTH_KEY_PERM_EMPTY":
-            logging.error("auth key %r: not bound to permanent", self._used_session_key.auth_key_id)
-
-            if not self._used_session_key.is_fresh_key():
-                self._used_session_key.clear_key()
-                self._used_session_key.flush_changes()
-
-            return self.disconnect()
-
         if result == "rpc_error":
             error_message = typing.cast(str, result.error_message)
             error_code = typing.cast(int, result.error_code)
