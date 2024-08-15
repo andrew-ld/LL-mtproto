@@ -665,7 +665,7 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    def _finalize_response_throw_rpc_error(self, error_message: str, error_code: int, pending_request: PendingRequest):
+    def _finalize_response_throw_rpc_error(self, error_message: str, error_code: int, pending_request: PendingRequest) -> None:
         if (error_description_resolver := self._error_description_resolver) is not None:
             error_description = error_description_resolver.resolve(error_code, error_message)
         else:
