@@ -818,7 +818,8 @@ class Constructor:
         "is_function",
         "ptype_parameter",
         "deserialization_optimized_parameters",
-        "flags_check_table"
+        "flags_check_table",
+        "deserialization_default_dict"
     )
 
     schema: typing.Final[Schema]
@@ -831,6 +832,7 @@ class Constructor:
     ptype_parameter: typing.Final[Parameter | None]
     deserialization_optimized_parameters: typing.Final[_OPTIMIZED_PARAMETERS]
     flags_check_table: typing.Final[tuple[tuple[int, frozenset[str], int], ...]]
+    deserialization_default_dict: typing.Final["TlBodyData"]
 
     def __init__(
             self,
@@ -853,6 +855,7 @@ class Constructor:
         self.ptype_parameter = ptype_parameter
         self.deserialization_optimized_parameters = self._optimize_parameters_for_deserialization(parameters)
         self.flags_check_table = self._generate_flags_check_table(parameters)
+        self.deserialization_default_dict = self._generate_deserialization_default_dict(parameters, name)
 
     def boxed_buffer_match(self, buffer: bytes | bytearray) -> bool:
         if self.number is None:
@@ -862,6 +865,13 @@ class Constructor:
             raise RuntimeError(f"EOF, buffer size {len(buffer)} < constructor number {len(self.number)}")
 
         return buffer.startswith(self.number)
+
+    @staticmethod
+    def _generate_deserialization_default_dict(parameters: tuple[Parameter, ...], name: str) -> "TlBodyData":
+        elements: list[tuple[str, TlBodyDataValue]] = []
+        elements.extend((p.name, None) for p in parameters if not p.is_flag)
+        elements.append(("_cons", name))
+        return dict(elements)
 
     @staticmethod
     def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> tuple[tuple[int, frozenset[str], int], ...]:
@@ -1072,7 +1082,7 @@ class Constructor:
         return self.deserialize_bare_data(reader)
 
     def deserialize_bare_data(self, reader: SyncByteReader) -> "TlBodyData":
-        fields: TlBodyData = {"_cons": self.name}
+        fields = self.deserialization_default_dict.copy()
 
         if self.flags is not None:
             flags: dict[int, tuple[bool, ...]] = {}
@@ -1105,8 +1115,6 @@ class Constructor:
 
                         if flags[flag_name][flag_number]:
                             fields[parameter.name] = self.schema.deserialize(reader, parameter)
-                        else:
-                            fields[parameter.name] = None
         else:
             for parameter in self.deserialization_optimized_parameters:
                 if isinstance(parameter, AbstractSpecializedDeserialization):
