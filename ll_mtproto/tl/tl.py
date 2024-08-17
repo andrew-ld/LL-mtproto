@@ -953,64 +953,65 @@ class Constructor:
             data.set_flag(parameter.flag_number, parameter.flag_name)
 
         if parameter.is_primitive:
-            if isinstance(argument, int):
-                match parameter.type:
-                    case "int":
-                        data.append_serialized_tl(argument.to_bytes(4, "little", signed=True))
+            match argument:
+                case int():
+                    match parameter.type:
+                        case "int":
+                            data.append_serialized_tl(argument.to_bytes(4, "little", signed=True))
 
-                    case "uint":
-                        data.append_serialized_tl(argument.to_bytes(4, "little", signed=False))
+                        case "uint":
+                            data.append_serialized_tl(argument.to_bytes(4, "little", signed=False))
 
-                    case "long":
-                        data.append_serialized_tl(argument.to_bytes(8, "little", signed=True))
+                        case "long":
+                            data.append_serialized_tl(argument.to_bytes(8, "little", signed=True))
 
-                    case "ulong":
-                        data.append_serialized_tl(argument.to_bytes(8, "little", signed=False))
+                        case "ulong":
+                            data.append_serialized_tl(argument.to_bytes(8, "little", signed=False))
 
-                    case "double":
-                        data.append_serialized_tl(struct.pack(b"<d", float(argument)))
+                        case "double":
+                            data.append_serialized_tl(struct.pack(b"<d", float(argument)))
 
-                    case _:
-                        raise TypeError(f"Cannot serialize python integer `{argument!r}` as `{parameter!r}`")
+                        case _:
+                            raise TypeError(f"Cannot serialize python integer `{argument!r}` as `{parameter!r}`")
 
-            elif isinstance(argument, float):
-                match parameter.type:
-                    case "double":
-                        data.append_serialized_tl(struct.pack(b"<d", argument))
+                case float():
+                    match parameter.type:
+                        case "double":
+                            data.append_serialized_tl(struct.pack(b"<d", argument))
 
-                    case _:
-                        raise TypeError(f"Cannot serialize python float `{argument!r}` as `{parameter!r}`")
+                        case _:
+                            raise TypeError(f"Cannot serialize python float `{argument!r}` as `{parameter!r}`")
 
-            elif isinstance(argument, bytes):
-                match parameter.type:
-                    case "int128" | "sha1" | "int256" | "rawobject" | "encrypted":
-                        data.append_serialized_tl(argument)
+                case bytes():
+                    match parameter.type:
+                        case "int128" | "sha1" | "int256" | "rawobject" | "encrypted":
+                            data.append_serialized_tl(argument)
 
-                    case "string" | "bytes":
-                        data.append_serialized_tl(pack_binary_string(argument))
+                        case "string" | "bytes":
+                            data.append_serialized_tl(pack_binary_string(argument))
 
-                    case _:
-                        raise TypeError(f"Cannot serialize python bytes `{argument!r}` as `{parameter!r}`")
+                        case _:
+                            raise TypeError(f"Cannot serialize python bytes `{argument!r}` as `{parameter!r}`")
 
-            elif isinstance(argument, Value):
-                match parameter.type:
-                    case "object":
-                        data.append_serialized_tl(_pack_long_binary_string(argument.get_flat_bytes()))
+                case Value():
+                    match parameter.type:
+                        case "object":
+                            data.append_serialized_tl(_pack_long_binary_string(argument.get_flat_bytes()))
 
-                    case "rawobject":
-                        data.append_serialized_tl(argument.get_flat_bytes())
+                        case "rawobject":
+                            data.append_serialized_tl(argument.get_flat_bytes())
 
-                    case "padded_object":
-                        data.append_serialized_tl(_pack_long_binary_string_padded(argument.get_flat_bytes()))
+                        case "padded_object":
+                            data.append_serialized_tl(_pack_long_binary_string_padded(argument.get_flat_bytes()))
 
-                    case "gzip":
-                        data.append_serialized_tl(pack_binary_string(gzip.compress(argument.get_flat_bytes())))
+                        case "gzip":
+                            data.append_serialized_tl(pack_binary_string(gzip.compress(argument.get_flat_bytes())))
 
-                    case _:
-                        raise TypeError(f"Cannot serialize Value `{argument!r}` as `{parameter!r}`")
+                        case _:
+                            raise TypeError(f"Cannot serialize Value `{argument!r}` as `{parameter!r}`")
 
-            else:
-                raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
+                case _:
+                    raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
         else:
             if parameter.is_vector:
                 if parameter.is_boxed:
