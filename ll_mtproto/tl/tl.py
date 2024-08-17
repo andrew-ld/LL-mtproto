@@ -224,7 +224,7 @@ _schemaRE = re.compile(
 
 _parameterRE = re.compile(
     r"^(?P<name>\w+):"
-    r"(flags(?P<flag_name>\d+)?.(?P<flag_number>\d+)\?)?"
+    r"(flags(?P<flag_index>\d+)?.(?P<flag_number>\d+)\?)?"
     r"(?P<type>"
     r"(?P<vector>((?P<bare_vector>vector)|(?P<boxed_vector>Vector))<)?"
     r"(?P<element_type>((?P<namespace>[a-zA-Z\d._]*)\.)?"
@@ -233,7 +233,7 @@ _parameterRE = re.compile(
 )
 
 _flagRE = re.compile(
-    r"flags(?P<flag_name>\d+)?:#"
+    r"flags(?P<flag_index>\d+)?:#"
 )
 
 _layerRE = re.compile(
@@ -315,10 +315,10 @@ class Schema:
                 if flag_parsed is None:
                     raise SyntaxError(f"Error in flag: `{parameter_token}`")
 
-                flag_name = int(flag_parsed["flag_name"]) if "flag_name" in flag_parsed else 0
+                flag_index = int(flag_parsed["flag_index"]) if "flag_index" in flag_parsed else 0
             else:
                 flag_parsed = None
-                flag_name = None
+                flag_index = None
 
             if parameter_parsed is None and flag_parsed is None:
                 raise SyntaxError(f"Error in parameter `{parameter_token}`")
@@ -345,8 +345,8 @@ class Schema:
                     flag_number=int(parameter_parsed["flag_number"])
                     if "flag_number" in parameter_parsed
                     else None,
-                    flag_name=int(parameter_parsed["flag_name"])
-                    if "flag_name" in parameter_parsed
+                    flag_index=int(parameter_parsed["flag_index"])
+                    if "flag_index" in parameter_parsed
                     else 0,
                     is_vector=is_vector,
                     is_boxed="boxed_vector" in parameter_parsed
@@ -361,7 +361,7 @@ class Schema:
                     is_vector=False,
                     pname=parameter_token,
                     ptype="flags",
-                    flag_name=flag_name
+                    flag_index=flag_index
                 )
 
             parameters.append(parameter)
@@ -414,7 +414,7 @@ class Schema:
             name=sys.intern(cons_parsed["name"]),
             number=cons_number,
             parameters=tuple(parameters),
-            flags=set(p.flag_name for p in parameters if p.is_flag and p.flag_name is not None) or None,
+            flags=set(p.flag_index for p in parameters if p.is_flag and p.flag_index is not None) or None,
             is_function=is_function,
             ptype_parameter=ptype_parameter
         )
@@ -635,20 +635,20 @@ class Value:
         if boxed and cons_number is None:
             raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{cons!r}`")
 
-        self.flags = dict((flag_name, Flags()) for flag_name in cons.flags) if cons.flags else None
+        self.flags = dict((flag_index, Flags()) for flag_index in cons.flags) if cons.flags else None
         self.buffers = [typing.cast(bytes, cons_number)] if boxed else []
 
-    def set_flag(self, flag_number: int, flag_name: int) -> None:
+    def set_flag(self, flag_number: int, flag_index: int) -> None:
         if (flags := self.flags) is None:
             raise TypeError(f"Tried to set flag for a flagless Value `{self.cons!r}`")
         else:
-            flags[flag_name].add_flag(flag_number)
+            flags[flag_index].add_flag(flag_number)
 
-    def append_serializable_flag(self, flag_name: int) -> None:
+    def append_serializable_flag(self, flag_index: int) -> None:
         if (flags := self.flags) is None:
             raise TypeError(f"Tried to append flag to data for a flagless Value `{self.cons!r}`")
         else:
-            self.buffers.append(flags[flag_name])
+            self.buffers.append(flags[flag_index])
 
     def append_serialized_tl(self, data: typing.Union["Value", bytes]) -> None:
         if isinstance(data, bytes):
@@ -672,7 +672,7 @@ class Parameter:
         "is_boxed",
         "element_parameter",
         "is_flag",
-        "flag_name",
+        "flag_index",
         "is_primitive",
         "required",
     )
@@ -680,7 +680,7 @@ class Parameter:
     name: typing.Final[str]
     type: typing.Final[str | None]
     flag_number: typing.Final[int | None]
-    flag_name: typing.Final[int | None]
+    flag_index: typing.Final[int | None]
     is_vector: typing.Final[bool]
     is_boxed: typing.Final[bool]
     is_flag: typing.Final[bool]
@@ -696,7 +696,7 @@ class Parameter:
             flag_number: int | None = None,
             is_vector: bool = False,
             is_flag: bool = False,
-            flag_name: int | None = None,
+            flag_index: int | None = None,
             element_parameter: "Parameter | None" = None,
     ):
         self.name = pname
@@ -706,7 +706,7 @@ class Parameter:
         self.is_boxed = is_boxed
         self.element_parameter = element_parameter
         self.is_flag = is_flag
-        self.flag_name = flag_name
+        self.flag_index = flag_index
         self.is_primitive = ptype in _primitives
         self.required = flag_number is None
 
@@ -962,8 +962,8 @@ class Constructor:
         if isinstance(argument, dict):
             argument = self.schema.serialize(parameter.is_boxed, typing.cast(str, argument["_cons"]), argument)
 
-        if argument is not None and parameter.flag_number is not None and parameter.flag_name is not None:
-            data.set_flag(parameter.flag_number, parameter.flag_name)
+        if argument is not None and parameter.flag_number is not None and parameter.flag_index is not None:
+            data.set_flag(parameter.flag_number, parameter.flag_index)
 
         if parameter.is_primitive:
             match argument:
@@ -1080,12 +1080,12 @@ class Constructor:
 
         for parameter in self.parameters:
             if parameter.is_flag:
-                flag_name = parameter.flag_name
+                flag_index = parameter.flag_index
 
-                if flag_name is None:
-                    raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
+                if flag_index is None:
+                    raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
 
-                data.append_serializable_flag(flag_name)
+                data.append_serializable_flag(flag_index)
 
             else:
                 argument = body.get(parameter.name)
@@ -1120,28 +1120,28 @@ class Constructor:
                     parameter.deserialize_bare_data(reader, fields)
                 else:
                     if parameter.is_flag:
-                        flag_name = parameter.flag_name
+                        flag_index = parameter.flag_index
 
-                        if flag_name is None:
-                            raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
+                        if flag_index is None:
+                            raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
 
-                        flags[flag_name] = _unpack_flags(int.from_bytes(reader(4), "little", signed=False))
+                        flags[flag_index] = _unpack_flags(int.from_bytes(reader(4), "little", signed=False))
 
                     elif parameter.required:
                         fields[parameter.name] = self.schema.deserialize(reader, parameter)
 
                     else:
-                        flag_name = parameter.flag_name
+                        flag_index = parameter.flag_index
 
-                        if flag_name is None:
-                            raise TypeError(f"Unknown flag name for parameter `{parameter!r}`")
+                        if flag_index is None:
+                            raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
 
                         flag_number = parameter.flag_number
 
                         if flag_number is None:
                             raise TypeError(f"Unknown flag number for parameter `{parameter!r}`")
 
-                        if flags[flag_name][flag_number]:
+                        if flags[flag_index][flag_number]:
                             fields[parameter.name] = self.schema.deserialize(reader, parameter)
         else:
             for parameter in self.deserialization_optimized_parameters:
