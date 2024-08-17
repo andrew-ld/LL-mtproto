@@ -188,6 +188,7 @@ _primitives = frozenset(
         "flags",
         "encrypted",
         "gzip",
+        "true"
     )
 )
 
@@ -425,6 +426,9 @@ class Schema:
 
     def deserialize_primitive(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
         match parameter.type:
+            case "true":
+                return True
+
             case "int":
                 return int.from_bytes(reader(4), "little", signed=True)
 
@@ -497,9 +501,6 @@ class Schema:
                 raise TypeError("wrong constructor", _debug_type_error_msg())
 
     def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
-        if parameter.is_flag_true:
-            return True
-
         if parameter.is_primitive:
             return self.deserialize_primitive(reader, parameter)
 
@@ -667,7 +668,6 @@ class Parameter:
         "flag_name",
         "is_primitive",
         "required",
-        "is_flag_true",
     )
 
     name: typing.Final[str]
@@ -680,7 +680,6 @@ class Parameter:
     element_parameter: typing.Final["Parameter | None"]
     is_primitive: typing.Final[bool]
     required: typing.Final[bool]
-    is_flag_true: bool
 
     def __init__(
             self,
@@ -702,7 +701,6 @@ class Parameter:
         self.is_flag = is_flag
         self.flag_name = flag_name
         self.is_primitive = ptype in _primitives
-        self.is_flag_true = ptype == "true"
         self.required = flag_number is None
 
     def __repr__(self) -> str:
@@ -957,9 +955,6 @@ class Constructor:
         if argument is False:
             argument = {"_cons": "boolFalse"}
 
-        if argument is True and parameter.type == "true":
-            argument = {"_cons": "true"}
-
         if argument is True and parameter.type == "Bool":
             argument = {"_cons": "boolTrue"}
 
@@ -971,6 +966,14 @@ class Constructor:
 
         if parameter.is_primitive:
             match argument:
+                case bool():
+                    match parameter.type:
+                        case "true":
+                            pass
+
+                        case _:
+                            raise TypeError(f"Cannot serialize python boolean `{argument!r}` as `{parameter!r}`")
+
                 case int():
                     match parameter.type:
                         case "int":
