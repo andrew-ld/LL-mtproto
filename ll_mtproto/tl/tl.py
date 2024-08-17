@@ -497,6 +497,9 @@ class Schema:
                 raise TypeError("wrong constructor", _debug_type_error_msg())
 
     def deserialize(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
+        if parameter.is_flag_true:
+            return True
+
         if parameter.is_primitive:
             return self.deserialize_primitive(reader, parameter)
 
@@ -653,7 +656,19 @@ class Value:
 
 
 class Parameter:
-    __slots__ = ("name", "type", "flag_number", "is_vector", "is_boxed", "element_parameter", "is_flag", "flag_name", "is_primitive", "required")
+    __slots__ = (
+        "name",
+        "type",
+        "flag_number",
+        "is_vector",
+        "is_boxed",
+        "element_parameter",
+        "is_flag",
+        "flag_name",
+        "is_primitive",
+        "required",
+        "is_flag_true",
+    )
 
     name: typing.Final[str]
     type: typing.Final[str | None]
@@ -665,6 +680,7 @@ class Parameter:
     element_parameter: typing.Final["Parameter | None"]
     is_primitive: typing.Final[bool]
     required: typing.Final[bool]
+    is_flag_true: bool
 
     def __init__(
             self,
@@ -686,6 +702,7 @@ class Parameter:
         self.is_flag = is_flag
         self.flag_name = flag_name
         self.is_primitive = ptype in _primitives
+        self.is_flag_true = ptype == "true"
         self.required = flag_number is None
 
     def __repr__(self) -> str:
