@@ -15,7 +15,8 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import functools
+import abc
+import binascii
 import gzip
 import operator
 import random
@@ -24,8 +25,6 @@ import secrets
 import struct
 import sys
 import typing
-import abc
-import binascii
 
 from ll_mtproto.tl.byteutils import GzipStreamReader, BinaryStreamReader
 from ll_mtproto.typed import SyncByteReader
@@ -57,10 +56,14 @@ class NativeByteReader(SyncByteReader):
         return self.buffer[current_offset:result_end]
 
 
-@functools.lru_cache()
 def _compile_cons_number(definition: bytes) -> bytes:
     n = binascii.crc32(definition)
     return n.to_bytes(4, "little", signed=False)
+
+
+_boolTrueConsNumber = _compile_cons_number(b"boolTrue = Bool")
+_boolFalseConsNumber = _compile_cons_number(b"boolFalse = Bool")
+_vectorConsNumber = _compile_cons_number(b"vector t:Type # [ t ] = Vector t")
 
 
 def _unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:
@@ -188,7 +191,8 @@ _primitives = frozenset(
         "flags",
         "encrypted",
         "gzip",
-        "true"
+        "true",
+        "Bool"
     )
 )
 
@@ -429,6 +433,9 @@ class Schema:
             case "true":
                 return True
 
+            case "Bool":
+                return reader(4) == _boolTrueConsNumber
+
             case "int":
                 return int.from_bytes(reader(4), "little", signed=True)
 
@@ -508,7 +515,7 @@ class Schema:
             cons_number = reader(4)
 
             if parameter.is_vector:
-                if cons_number != _compile_cons_number(b"vector t:Type # [ t ] = Vector t"):
+                if cons_number != _vectorConsNumber:
                     cons = self.cons_numbers.get(cons_number, None)
 
                     if cons is not None and cons.name == "gzip_packed":
@@ -952,12 +959,6 @@ class Constructor:
         if isinstance(argument, str):
             argument = argument.encode("utf-8")
 
-        if argument is False:
-            argument = {"_cons": "boolFalse"}
-
-        if argument is True and parameter.type == "Bool":
-            argument = {"_cons": "boolTrue"}
-
         if isinstance(argument, dict):
             argument = self.schema.serialize(parameter.is_boxed, typing.cast(str, argument["_cons"]), argument)
 
@@ -970,6 +971,12 @@ class Constructor:
                     match parameter.type:
                         case "true":
                             pass
+
+                        case "Bool":
+                            if argument:
+                                data.append_serialized_tl(_boolTrueConsNumber)
+                            else:
+                                data.append_serialized_tl(_boolFalseConsNumber)
 
                         case _:
                             raise TypeError(f"Cannot serialize python boolean `{argument!r}` as `{parameter!r}`")
@@ -1035,7 +1042,7 @@ class Constructor:
         else:
             if parameter.is_vector:
                 if parameter.is_boxed:
-                    data.append_serialized_tl(_compile_cons_number(b"vector t:Type # [ t ] = Vector t"))
+                    data.append_serialized_tl(_vectorConsNumber)
 
                 if not isinstance(argument, list):
                     raise TypeError(f"Expected a list for parameter `{parameter!r}` but found `{argument!r}`")
