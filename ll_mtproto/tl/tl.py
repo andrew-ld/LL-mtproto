@@ -663,11 +663,27 @@ class Value:
         return b"".join(map(lambda k: k.get_flat_bytes() if isinstance(k, Flags) else k, self.buffers))
 
 
+class ParameterFlag:
+    __slots__ = (
+        "flag_index",
+        "flag_number"
+    )
+
+    flag_index: typing.Final[int]
+    flag_number: typing.Final[int]
+
+    def __init__(self, flag_index: int, flag_number: int):
+        self.flag_index = flag_index
+        self.flag_number = flag_number
+
+    def __repr__(self) -> str:
+        return f"flags{self.flag_index}.{self.flag_number}"
+
+
 class Parameter:
     __slots__ = (
         "name",
         "type",
-        "flag_number",
         "is_vector",
         "is_boxed",
         "element_parameter",
@@ -675,11 +691,11 @@ class Parameter:
         "flag_index",
         "is_primitive",
         "required",
+        "parameter_flag"
     )
 
     name: typing.Final[str]
     type: typing.Final[str | None]
-    flag_number: typing.Final[int | None]
     flag_index: typing.Final[int | None]
     is_vector: typing.Final[bool]
     is_boxed: typing.Final[bool]
@@ -687,6 +703,7 @@ class Parameter:
     element_parameter: typing.Final["Parameter | None"]
     is_primitive: typing.Final[bool]
     required: typing.Final[bool]
+    parameter_flag: typing.Final[ParameterFlag | None]
 
     def __init__(
             self,
@@ -701,18 +718,18 @@ class Parameter:
     ):
         self.name = pname
         self.type = ptype
-        self.flag_number = flag_number
         self.is_vector = is_vector
         self.is_boxed = is_boxed
         self.element_parameter = element_parameter
         self.is_flag = is_flag
-        self.flag_index = flag_index
+        self.flag_index = flag_index if is_flag else None
         self.is_primitive = ptype in _primitives
         self.required = flag_number is None
+        self.parameter_flag = None if flag_number is None or flag_index is None else ParameterFlag(flag_index, flag_number)
 
     def __repr__(self) -> str:
-        if self.flag_number is not None:
-            return f"{self.name}:flags.{self.flag_number:d}?{self.type}"
+        if self.parameter_flag is not None:
+            return f"{self.name}:flags.{self.parameter_flag!r}?{self.type}"
         else:
             return f"{self.name}:{self.type}"
 
@@ -900,8 +917,8 @@ class Constructor:
         table: dict[int, set[str]] = dict()
 
         for parameter in parameters:
-            if parameter.flag_number is not None:
-                table.setdefault(parameter.flag_number, set()).add(parameter.name)
+            if parameter.parameter_flag is not None:
+                table.setdefault(parameter.parameter_flag.flag_number, set()).add(parameter.name)
 
         return tuple((k, frozenset(v), len(v)) for k, v in table.items())
 
@@ -919,7 +936,7 @@ class Constructor:
         output: list[Parameter | AbstractSpecializedDeserialization] = []
 
         for parameter in parameters:
-            if isinstance(parameter, Parameter) and parameter.type in _fixed_size_primitives and parameter.flag_number is None:
+            if isinstance(parameter, Parameter) and parameter.type in _fixed_size_primitives and parameter.parameter_flag is None:
                 output.append(FixedSizePrimitiveFastPathDeserialization(parameter))
             else:
                 output.append(parameter)
@@ -941,7 +958,7 @@ class Constructor:
             sequential_optimizable_params.clear()
 
         for parameter in parameters:
-            if isinstance(parameter, Parameter) and parameter.type in _fixed_size_primitives and parameter.flag_number is None:
+            if isinstance(parameter, Parameter) and parameter.type in _fixed_size_primitives and parameter.parameter_flag is None:
                 sequential_optimizable_params.append(parameter)
 
             else:
@@ -962,8 +979,8 @@ class Constructor:
         if isinstance(argument, dict):
             argument = self.schema.serialize(parameter.is_boxed, typing.cast(str, argument["_cons"]), argument)
 
-        if argument is not None and parameter.flag_number is not None and parameter.flag_index is not None:
-            data.set_flag(parameter.flag_number, parameter.flag_index)
+        if argument is not None and (parameter_flag := parameter.parameter_flag) is not None:
+            data.set_flag(parameter_flag.flag_number, parameter_flag.flag_index)
 
         if parameter.is_primitive:
             match argument:
@@ -1131,17 +1148,12 @@ class Constructor:
                         fields[parameter.name] = self.schema.deserialize(reader, parameter)
 
                     else:
-                        flag_index = parameter.flag_index
+                        parameter_flag = parameter.parameter_flag
 
-                        if flag_index is None:
-                            raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
+                        if parameter_flag is None:
+                            raise TypeError(f"Unknown flag for parameter `{parameter!r}`")
 
-                        flag_number = parameter.flag_number
-
-                        if flag_number is None:
-                            raise TypeError(f"Unknown flag number for parameter `{parameter!r}`")
-
-                        if flags[flag_index][flag_number]:
+                        if flags[parameter_flag.flag_index][parameter_flag.flag_number]:
                             fields[parameter.name] = self.schema.deserialize(reader, parameter)
         else:
             for parameter in self.deserialization_optimized_parameters:
