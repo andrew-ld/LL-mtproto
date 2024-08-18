@@ -987,7 +987,8 @@ class Constructor:
                 case bool():
                     match parameter.type:
                         case "true":
-                            pass
+                            if not argument:
+                                raise TypeError(f"Cannot serialize python False as `{parameter!r}`")
 
                         case "Bool":
                             if argument:
