@@ -740,6 +740,18 @@ class AbstractSpecializedDeserialization(metaclass=abc.ABCMeta):
         raise NotImplementedError()
 
 
+class TruePrimitiveFastPathDeserialization(AbstractSpecializedDeserialization):
+    __slots__ = ("_key",)
+
+    _key: str
+
+    def __init__(self, parameter: "Parameter"):
+        self._key = parameter.name
+
+    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData") -> None:
+        output[self._key] = True
+
+
 class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserialization):
     __slots__ = ("_key", "_size", "_method")
 
@@ -924,12 +936,22 @@ class Constructor:
 
     @classmethod
     def _optimize_parameters_for_deserialization(cls, parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
-        res = parameters
-
-        res = cls._sequential_fixed_size_primitives_optimization_for_deserialization(res)
+        res = cls._sequential_fixed_size_primitives_optimization_for_deserialization(parameters)
         res = cls._fixed_size_primitives_fastpath_optimization_for_deserialization(res)
-
+        res = cls._true_primitive_fastpath_optimization_for_deserialization(res)
         return res
+
+    @classmethod
+    def _true_primitive_fastpath_optimization_for_deserialization(cls, parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
+        output: list[Parameter | AbstractSpecializedDeserialization] = []
+
+        for parameter in parameters:
+            if isinstance(parameter, Parameter) and parameter.type == "true" and parameter.parameter_flag is not None:
+                output.append(TruePrimitiveFastPathDeserialization(parameter))
+            else:
+                output.append(parameter)
+
+        return tuple(output)
 
     @staticmethod
     def _fixed_size_primitives_fastpath_optimization_for_deserialization(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
@@ -1172,7 +1194,6 @@ TlBodyDataValue = typing.Union[
     int,
     float,
     typing.Iterable['TlBodyDataValue'],
-    typing.Dict[str, 'TlBodyDataValue'],
     'TlBodyData',
     None,
     Value
