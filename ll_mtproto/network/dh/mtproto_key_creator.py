@@ -18,7 +18,6 @@
 import asyncio
 import hashlib
 import hmac
-import secrets
 
 from ll_mtproto.crypto.aes_ige import AesIge
 from ll_mtproto.crypto.auth_key import Key, DhGenKey
@@ -53,14 +52,18 @@ class _KeyExchangeStateWaitingDhParams:
 
 
 class _KeyExchangeStateWaitingDhGenOk:
-    __slots__ = ("key", "temp_key_expires_in")
+    __slots__ = ("key", "temp_key_expires_in", "server_nonce", "new_nonce")
 
     key: DhGenKey
     temp_key_expires_in: int
+    server_nonce: bytes
+    new_nonce: bytes
 
-    def __init__(self, *, key: DhGenKey, temp_key_expires_in: int):
+    def __init__(self, *, key: DhGenKey, temp_key_expires_in: int, server_nonce: bytes, new_nonce: bytes):
         self.key = key
         self.temp_key_expires_in = temp_key_expires_in
+        self.server_nonce = server_nonce
+        self.new_nonce = new_nonce
 
 
 class _KeyExchangeStateCompleted:
@@ -154,6 +157,15 @@ class MTProtoKeyCreator:
         if not hmac.compare_digest(params3.nonce, self._nonce):
             raise RuntimeError("Diffie–Hellman exchange failed: nonce mismatch: `%r`", params3)
 
+        if not hmac.compare_digest(params3.server_nonce, state.server_nonce):
+            raise RuntimeError("Diffie–Hellman exchange failed: server nonce mismatch: `%r`", params3)
+
+        auth_key_sha = await self._in_thread(lambda: sha1(state.key.auth_key))
+        new_nonce_hash1 = (await self._in_thread(lambda: sha1(state.new_nonce + b"\1" + auth_key_sha[0:8])))[4:20]
+
+        if not hmac.compare_digest(params3.new_nonce_hash1, new_nonce_hash1):
+            raise RuntimeError("Diffie–Hellman exchange failed: new nonce hash1 mismatch: `%r`", params3)
+
         self._exchange_state = _KeyExchangeStateCompleted(key=state.key)
 
     async def _process_dh_params(self, params: Structure, state: _KeyExchangeStateWaitingDhParams) -> None:
@@ -179,7 +191,7 @@ class MTProtoKeyCreator:
 
         (answer_hash, answer), b = await asyncio.gather(
             self._in_thread(lambda: tmp_aes.decrypt_with_hash(params.encrypted_answer)),
-            self._in_thread(lambda: secrets.randbits(2048)),
+            self._in_thread(lambda: int.from_bytes(self._crypto_provider.secure_random(256), signed=False)),
         )
 
         answer_reader = NativeByteReader(answer)
@@ -266,7 +278,12 @@ class MTProtoKeyCreator:
             encrypted_data=await self._in_thread(lambda: tmp_aes.encrypt_with_hash(client_dh_inner_data)),
         )
 
-        self._exchange_state = _KeyExchangeStateWaitingDhGenOk(key=new_auth_key, temp_key_expires_in=state.temp_key_expires_in)
+        self._exchange_state = _KeyExchangeStateWaitingDhGenOk(
+            key=new_auth_key,
+            temp_key_expires_in=state.temp_key_expires_in,
+            server_nonce=state.server_nonce,
+            new_nonce=state.new_nonce
+        )
 
     async def _process_res_pq(self, res_pq: Structure) -> None:
         if res_pq != "resPQ":
