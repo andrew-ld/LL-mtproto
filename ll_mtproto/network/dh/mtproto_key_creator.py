@@ -160,8 +160,7 @@ class MTProtoKeyCreator:
         if not hmac.compare_digest(params3.server_nonce, state.server_nonce):
             raise RuntimeError("Diffie–Hellman exchange failed: server nonce mismatch: `%r`", params3)
 
-        auth_key_sha = await self._in_thread(lambda: sha1(state.key.auth_key))
-        new_nonce_hash1 = (await self._in_thread(lambda: sha1(state.new_nonce + b"\1" + auth_key_sha[0:8])))[4:20]
+        new_nonce_hash1 = (await self._in_thread(lambda: sha1(state.new_nonce + b"\1" + sha1(state.key.auth_key)[0:8])))[4:20]
 
         if not hmac.compare_digest(params3.new_nonce_hash1, new_nonce_hash1):
             raise RuntimeError("Diffie–Hellman exchange failed: new nonce hash1 mismatch: `%r`", params3)
