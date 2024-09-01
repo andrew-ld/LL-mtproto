@@ -1115,12 +1115,12 @@ class Constructor:
 
     def deserialize_boxed_data(self, reader: SyncByteReader) -> "TlBodyData":
         if self.number is None:
-            raise TypeError(f"constructor `{self!r}` is bare")
+            raise TypeError(f"Constructor `{self!r}` is bare")
 
         cons_number = reader(4)
 
         if cons_number != self.number:
-            raise TypeError(f"impossible deserialization, constructor number `{cons_number!r}` mismatch {self!r}")
+            raise TypeError(f"Constructor number `{cons_number!r}` mismatch {self!r}")
 
         return self.deserialize_bare_data(reader)
 
