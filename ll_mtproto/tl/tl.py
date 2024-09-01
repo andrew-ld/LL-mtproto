@@ -124,54 +124,6 @@ def pack_binary_string(data: bytes) -> bytes:
         raise OverflowError("String too long")
 
 
-def _unpack_flags(n: int) -> tuple[bool, ...]:
-    if n & 0b1111111000000000000000000000000:
-        return (
-            (n & 1) != 0, (n & 2) != 0, (n & 4) != 0, (n & 8) != 0,
-            (n & 16) != 0, (n & 32) != 0, (n & 64) != 0, (n & 128) != 0,
-            (n & 256) != 0, (n & 512) != 0, (n & 1024) != 0, (n & 2048) != 0,
-            (n & 4096) != 0, (n & 8192) != 0, (n & 16384) != 0, (n & 32768) != 0,
-            (n & 65536) != 0, (n & 131072) != 0, (n & 262144) != 0, (n & 524288) != 0,
-            (n & 1048576) != 0, (n & 2097152) != 0, (n & 4194304) != 0, (n & 8388608) != 0,
-            (n & 16777216) != 0, (n & 33554432) != 0, (n & 67108864) != 0, (n & 134217728) != 0,
-            (n & 268435456) != 0, (n & 536870912) != 0, (n & 1073741824) != 0
-        )
-    elif n & 0b0000000111111110000000000000000:
-        return (
-            (n & 1) != 0, (n & 2) != 0, (n & 4) != 0, (n & 8) != 0,
-            (n & 16) != 0, (n & 32) != 0, (n & 64) != 0, (n & 128) != 0,
-            (n & 256) != 0, (n & 512) != 0, (n & 1024) != 0, (n & 2048) != 0,
-            (n & 4096) != 0, (n & 8192) != 0, (n & 16384) != 0, (n & 32768) != 0,
-            (n & 65536) != 0, (n & 131072) != 0, (n & 262144) != 0, (n & 524288) != 0,
-            (n & 1048576) != 0, (n & 2097152) != 0, (n & 4194304) != 0, (n & 8388608) != 0,
-            False, False, False, False, False, False, False
-        )
-    elif n & 0b0000000000000001111111100000000:
-        return (
-            (n & 1) != 0, (n & 2) != 0, (n & 4) != 0, (n & 8) != 0,
-            (n & 16) != 0, (n & 32) != 0, (n & 64) != 0, (n & 128) != 0,
-            (n & 256) != 0, (n & 512) != 0, (n & 1024) != 0, (n & 2048) != 0,
-            (n & 4096) != 0, (n & 8192) != 0, (n & 16384) != 0, (n & 32768) != 0,
-            False, False, False, False, False, False, False, False,
-            False, False, False, False, False, False, False
-        )
-    elif n & 0b0000000000000000000000011111111:
-        return (
-            (n & 1) != 0, (n & 2) != 0, (n & 4) != 0, (n & 8) != 0,
-            (n & 16) != 0, (n & 32) != 0, (n & 64) != 0, (n & 128) != 0,
-            False, False, False, False, False, False, False, False,
-            False, False, False, False, False, False, False, False,
-            False, False, False, False, False, False, False
-        )
-    else:
-        return (
-            False, False, False, False, False, False, False, False,
-            False, False, False, False, False, False, False, False,
-            False, False, False, False, False, False, False, False,
-            False, False, False, False, False, False, False
-        )
-
-
 _primitives = frozenset(
     (
         "int",
@@ -666,15 +618,18 @@ class Value:
 class ParameterFlag:
     __slots__ = (
         "flag_index",
-        "flag_number"
+        "flag_number",
+        "flag_bit"
     )
 
     flag_index: typing.Final[int]
     flag_number: typing.Final[int]
+    flag_bit: typing.Final[int]
 
     def __init__(self, flag_index: int, flag_number: int):
         self.flag_index = flag_index
         self.flag_number = flag_number
+        self.flag_bit = 1 << flag_number
 
     def __repr__(self) -> str:
         return f"flags{self.flag_index}.{self.flag_number}"
@@ -1128,7 +1083,7 @@ class Constructor:
         fields = self.deserialization_default_dict.copy()
 
         if self.flags is not None:
-            flags: dict[int, tuple[bool, ...]] = {}
+            flags: dict[int, int] = {}
 
             for parameter in self.deserialization_optimized_parameters:
                 if isinstance(parameter, AbstractSpecializedDeserialization):
@@ -1140,7 +1095,7 @@ class Constructor:
                         if flag_index is None:
                             raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
 
-                        flags[flag_index] = _unpack_flags(int.from_bytes(reader(4), "little", signed=False))
+                        flags[flag_index] = int.from_bytes(reader(4), "little", signed=False)
 
                     elif parameter.required:
                         fields[parameter.name] = self.schema.deserialize(reader, parameter)
@@ -1151,7 +1106,7 @@ class Constructor:
                         if parameter_flag is None:
                             raise TypeError(f"Unknown flag for parameter `{parameter!r}`")
 
-                        if flags[parameter_flag.flag_index][parameter_flag.flag_number]:
+                        if flags[parameter_flag.flag_index] & parameter_flag.flag_bit:
                             fields[parameter.name] = self.schema.deserialize(reader, parameter)
         else:
             for parameter in self.deserialization_optimized_parameters:
