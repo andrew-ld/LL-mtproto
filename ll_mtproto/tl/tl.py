@@ -619,17 +619,17 @@ class ParameterFlag:
     __slots__ = (
         "flag_index",
         "flag_number",
-        "flag_bit"
+        "extended_flag_mask"
     )
 
     flag_index: typing.Final[int]
     flag_number: typing.Final[int]
-    flag_bit: typing.Final[int]
+    extended_flag_mask: typing.Final[int]
 
     def __init__(self, flag_index: int, flag_number: int):
         self.flag_index = flag_index
         self.flag_number = flag_number
-        self.flag_bit = 1 << flag_number
+        self.extended_flag_mask = (1 << flag_number) << (flag_index * 31)
 
     def __repr__(self) -> str:
         return f"flags{self.flag_index}.{self.flag_number}"
@@ -646,7 +646,8 @@ class Parameter:
         "flag_index",
         "is_primitive",
         "required",
-        "parameter_flag"
+        "parameter_flag",
+        "extended_flag_index"
     )
 
     name: typing.Final[str]
@@ -659,6 +660,7 @@ class Parameter:
     is_primitive: typing.Final[bool]
     required: typing.Final[bool]
     parameter_flag: typing.Final[ParameterFlag | None]
+    extended_flag_index: typing.Final[int | None]
 
     def __init__(
             self,
@@ -678,6 +680,7 @@ class Parameter:
         self.element_parameter = element_parameter
         self.is_flag = is_flag
         self.flag_index = flag_index if is_flag else None
+        self.extended_flag_index = (max(0, flag_index - 1) * 31) if flag_index is not None else None
         self.is_primitive = ptype in _primitives
         self.required = flag_number is None
         self.parameter_flag = None if flag_number is None or flag_index is None else ParameterFlag(flag_index, flag_number)
@@ -1081,39 +1084,31 @@ class Constructor:
 
     def deserialize_bare_data(self, reader: SyncByteReader) -> "TlBodyData":
         fields = self.deserialization_default_dict.copy()
+        extended_flags: int = 0
 
-        if self.flags is not None:
-            flags: dict[int, int] = {}
+        for parameter in self.deserialization_optimized_parameters:
+            if isinstance(parameter, AbstractSpecializedDeserialization):
+                parameter.deserialize_bare_data(reader, fields)
+            else:
+                if parameter.is_flag:
+                    extended_flag_index = parameter.extended_flag_index
 
-            for parameter in self.deserialization_optimized_parameters:
-                if isinstance(parameter, AbstractSpecializedDeserialization):
-                    parameter.deserialize_bare_data(reader, fields)
-                else:
-                    if parameter.is_flag:
-                        flag_index = parameter.flag_index
+                    if extended_flag_index is None:
+                        raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
 
-                        if flag_index is None:
-                            raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
+                    extended_flags |= (int.from_bytes(reader(4), "little", signed=False) << extended_flag_index)
 
-                        flags[flag_index] = int.from_bytes(reader(4), "little", signed=False)
-
-                    elif parameter.required:
-                        fields[parameter.name] = self.schema.deserialize(reader, parameter)
-
-                    else:
-                        parameter_flag = parameter.parameter_flag
-
-                        if parameter_flag is None:
-                            raise TypeError(f"Unknown flag for parameter `{parameter!r}`")
-
-                        if flags[parameter_flag.flag_index] & parameter_flag.flag_bit:
-                            fields[parameter.name] = self.schema.deserialize(reader, parameter)
-        else:
-            for parameter in self.deserialization_optimized_parameters:
-                if isinstance(parameter, AbstractSpecializedDeserialization):
-                    parameter.deserialize_bare_data(reader, fields)
-                else:
+                elif parameter.required:
                     fields[parameter.name] = self.schema.deserialize(reader, parameter)
+
+                else:
+                    parameter_flag = parameter.parameter_flag
+
+                    if parameter_flag is None:
+                        raise TypeError(f"Unknown flag for parameter `{parameter!r}`")
+
+                    if extended_flags & parameter_flag.extended_flag_mask:
+                        fields[parameter.name] = self.schema.deserialize(reader, parameter)
 
         return fields
 
