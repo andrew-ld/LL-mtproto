@@ -629,7 +629,7 @@ class ParameterFlag:
     def __init__(self, flag_index: int, flag_number: int):
         self.flag_index = flag_index
         self.flag_number = flag_number
-        self.extended_flag_mask = (1 << flag_number) << (flag_index * 31)
+        self.extended_flag_mask = (1 << flag_number) << (max(0, flag_index - 1) * 31)
 
     def __repr__(self) -> str:
         return f"flags{self.flag_index}.{self.flag_number}"
