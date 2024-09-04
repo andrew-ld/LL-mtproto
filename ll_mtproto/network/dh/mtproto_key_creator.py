@@ -257,7 +257,7 @@ class MTProtoKeyCreator:
 
         new_auth_key = DhGenKey()
         new_auth_key.auth_key = auth_key_bytes
-        new_auth_key.auth_key_id = Key.generate_auth_key_id(new_auth_key.auth_key)
+        new_auth_key.auth_key_id = Key.generate_auth_key_id(auth_key_bytes)
         new_auth_key.server_salt = server_salt
 
         if self._temp_key:
