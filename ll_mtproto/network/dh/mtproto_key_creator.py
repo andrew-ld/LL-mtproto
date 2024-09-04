@@ -255,7 +255,7 @@ class MTProtoKeyCreator:
         auth_key_bytes = to_bytes(auth_key)
 
         if len(auth_key_bytes) < 196:
-            raise RuntimeError("Diffie–Hellman exchange failed: auth key is too short, this should never happen")
+            raise RuntimeError("Diffie–Hellman exchange failed: auth key is too small, this should never happen")
 
         auth_key_bytes = (b"\0" * (256 - len(auth_key_bytes))) + auth_key_bytes
 
