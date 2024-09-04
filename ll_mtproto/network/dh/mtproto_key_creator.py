@@ -253,6 +253,10 @@ class MTProtoKeyCreator:
         server_salt = int.from_bytes(xor(state.new_nonce[:8], state.server_nonce[:8]), "little", signed=True)
 
         auth_key_bytes = to_bytes(auth_key)
+
+        if len(auth_key_bytes) < 196:
+            raise RuntimeError("Diffie–Hellman exchange failed: auth key is too short, this should never happen")
+
         auth_key_bytes = (b"\0" * (256 - len(auth_key_bytes))) + auth_key_bytes
 
         new_auth_key = DhGenKey()
