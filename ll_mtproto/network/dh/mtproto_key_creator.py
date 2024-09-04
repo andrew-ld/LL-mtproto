@@ -252,8 +252,11 @@ class MTProtoKeyCreator:
 
         server_salt = int.from_bytes(xor(state.new_nonce[:8], state.server_nonce[:8]), "little", signed=True)
 
+        auth_key_bytes = to_bytes(auth_key)
+        auth_key_bytes = (b"\0" * (256 - len(auth_key_bytes))) + auth_key_bytes
+
         new_auth_key = DhGenKey()
-        new_auth_key.auth_key = to_bytes(auth_key)
+        new_auth_key.auth_key = auth_key_bytes
         new_auth_key.auth_key_id = Key.generate_auth_key_id(new_auth_key.auth_key)
         new_auth_key.server_salt = server_salt
 
