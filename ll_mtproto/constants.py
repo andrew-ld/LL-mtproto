@@ -25,14 +25,10 @@ __all__ = ("TelegramDatacenter",)
 
 
 def _get_schema(resources_path: str) -> Schema:
-    auth_schema = open(os.path.join(resources_path, "auth.tl")).read()
-    service_schema = open(os.path.join(resources_path, "service.tl")).read()
-    application_schema = open(os.path.join(resources_path, "application.tl")).read()
-
     result = Schema()
-    result.extend_from_raw_schema(auth_schema)
-    result.extend_from_raw_schema(application_schema)
-    result.extend_from_raw_schema(service_schema)
+    result.extend_from_raw_schema(open(os.path.join(resources_path, "auth.tl")).read())
+    result.extend_from_raw_schema(open(os.path.join(resources_path, "application.tl")).read())
+    result.extend_from_raw_schema(open(os.path.join(resources_path, "service.tl")).read())
 
     return result
 
