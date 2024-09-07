@@ -55,10 +55,10 @@ def is_safe_dh_prime(g: int, n: int) -> bool:
     if n.bit_length() != 2048:
         return False
 
-    if not miller_rabin(n, 15):
+    if not miller_rabin(n, 30):
         return False
 
-    if not miller_rabin((n - 1) // 2, 15):
+    if not miller_rabin((n - 1) // 2, 30):
         return False
 
     match g:
