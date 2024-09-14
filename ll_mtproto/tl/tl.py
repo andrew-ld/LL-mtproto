@@ -64,6 +64,7 @@ def _compile_cons_number(definition: bytes) -> bytes:
 _boolTrueConsNumber = _compile_cons_number(b"boolTrue = Bool")
 _boolFalseConsNumber = _compile_cons_number(b"boolFalse = Bool")
 _vectorConsNumber = _compile_cons_number(b"vector t:Type # [ t ] = Vector t")
+
 _decode_float_internal = typing.cast(typing.Callable[[bytes], tuple[float]], struct.Struct(b"<d").unpack)
 
 
