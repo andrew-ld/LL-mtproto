@@ -757,8 +757,13 @@ class ContinuousOptionalFixedSizeBareValuesBatchDeserialization(AbstractSpeciali
         for combination in flags_combinations:
             combination_parameters: list["Parameter"] = [p for p in parameters if p.parameter_flag and p.parameter_flag.flag_number in combination]
             combination_keys: list[str] = [p.name for p in combination_parameters]
+
+            if len(combination_keys) != len(combination_parameters):
+                raise RuntimeError(f"Combinations keys len `{combination_keys!r}` is different than parameters len `{combination_parameters!r}`")
+
             combination_bitmask: int = sum((1 << i) for i in combination)
             combination_struct = struct.Struct("<" + "".join(map(_struct_fmt_for_fixed_size_primitive, combination_parameters)))
+
             result[combination_bitmask] = (combination_keys, combination_struct.unpack, combination_struct.size)
 
         return result
