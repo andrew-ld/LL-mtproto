@@ -64,6 +64,11 @@ def _compile_cons_number(definition: bytes) -> bytes:
 _boolTrueConsNumber = _compile_cons_number(b"boolTrue = Bool")
 _boolFalseConsNumber = _compile_cons_number(b"boolFalse = Bool")
 _vectorConsNumber = _compile_cons_number(b"vector t:Type # [ t ] = Vector t")
+_decode_float_internal = typing.cast(typing.Callable[[bytes], tuple[float]], struct.Struct(b"<d").unpack)
+
+
+def _decode_float(reader: SyncByteReader) -> float:
+    return _decode_float_internal(reader(8))[0]
 
 
 def _unpack_binary_string_header(bytereader: SyncByteReader) -> tuple[int, int]:
@@ -410,7 +415,7 @@ class Schema:
                 return reader(32)
 
             case "double":
-                return typing.cast(float, struct.unpack(b"<d", reader(8))[0])
+                return _decode_float(reader)
 
             case "string":
                 return _unpack_binary_string(reader).decode()
@@ -588,7 +593,7 @@ class Value:
             raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{cons!r}`")
 
         self.flags = dict((flag_index, Flags()) for flag_index in cons.flags) if cons.flags else None
-        self.buffers = [typing.cast(bytes, cons_number)] if boxed else []
+        self.buffers = [cons_number] if boxed and cons_number else []
 
     def set_flag(self, flag_number: int, flag_index: int) -> None:
         if (flags := self.flags) is None:
@@ -719,7 +724,7 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
 
     @staticmethod
     def _unpack_double(buf: bytes) -> float:
-        return typing.cast(float, struct.unpack(b"<d", buf)[0])
+        return _decode_float_internal(buf)[0]
 
     @classmethod
     def _generate_method(cls, parameter: Parameter) -> tuple[typing.Callable[[bytes], "TlBodyDataValue"], int]:
@@ -758,14 +763,15 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
 class ContinuousFixedSizeBareValuesBatchDeserialization(AbstractSpecializedDeserialization):
     __slots__ = ("_struct", "_keys", "_size")
 
-    _struct: typing.Final[struct.Struct]
+    _unpack_fn: typing.Final[typing.Callable[[bytes], typing.Iterable["TlBodyDataValue"]]]
     _keys: typing.Final[tuple[str, ...]]
     _size: typing.Final[int]
 
     def __init__(self, parameters: list[Parameter]):
-        self._struct = struct.Struct("<" + "".join(map(self._generate_struct_fmt, parameters)))
+        struct_fmt = struct.Struct("<" + "".join(map(self._generate_struct_fmt, parameters)))
+        self._size = struct_fmt.size
+        self._unpack_fn = struct_fmt.unpack
         self._keys = tuple(p.name for p in parameters)
-        self._size = self._struct.size
 
     @staticmethod
     def _generate_struct_fmt(parameter: Parameter) -> str:
@@ -798,7 +804,7 @@ class ContinuousFixedSizeBareValuesBatchDeserialization(AbstractSpecializedDeser
                 raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
 
     def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData") -> None:
-        output.update(zip(self._keys, self._struct.unpack(reader(self._size))))
+        output.update(zip(self._keys, self._unpack_fn(reader(self._size))))
 
 
 _OPTIMIZED_PARAMETERS = tuple[Parameter | AbstractSpecializedDeserialization, ...]
