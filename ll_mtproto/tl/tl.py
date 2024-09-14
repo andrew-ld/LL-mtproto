@@ -18,6 +18,7 @@
 import abc
 import binascii
 import gzip
+import itertools
 import operator
 import random
 import re
@@ -195,6 +196,36 @@ _layerRE = re.compile(
 _ptypeRE = re.compile(
     r"^(?P<is_vector>Vector<(?P<vector_element_type>[a-zA-Z\d._]*)>$)?(?P<element_type>[a-zA-Z\d._]*$)?"
 )
+
+
+def _struct_fmt_for_fixed_size_primitive(parameter: "Parameter") -> str:
+    match parameter.type:
+        case "int":
+            return "i"
+
+        case "uint":
+            return "I"
+
+        case "long":
+            return "q"
+
+        case "ulong":
+            return "Q"
+
+        case "double":
+            return "d"
+
+        case "int128":
+            return "16s"
+
+        case "sha1":
+            return "20s"
+
+        case "int256":
+            return "32s"
+
+        case _:
+            raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
 
 
 class Schema:
@@ -694,8 +725,50 @@ class Parameter:
 
 class AbstractSpecializedDeserialization(metaclass=abc.ABCMeta):
     @abc.abstractmethod
-    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData") -> None:
+    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData", extended_flags: int) -> None:
         raise NotImplementedError()
+
+
+class ContinuousOptionalFixedSizeBareValuesBatchDeserialization(AbstractSpecializedDeserialization):
+    __slots__ = ("_deserializers", "_mask")
+
+    _deserializers: typing.Final[dict[int, tuple[list[str], typing.Callable[[bytes], typing.Iterable["TlBodyDataValue"]], int]]]
+    _mask: int
+
+    def __init__(self, parameters: list["Parameter"]):
+        self._deserializers = self._generate_permutations(parameters)
+        self._mask = self._generate_mask(parameters)
+
+    @staticmethod
+    def _generate_mask(parameters: list["Parameter"]) -> int:
+        return sum((1 << i) for i in {p.parameter_flag.flag_number for p in parameters if p.parameter_flag})
+
+    @staticmethod
+    def _generate_permutations(parameters: list["Parameter"]) -> dict[int, tuple[list[str], typing.Callable[[bytes], typing.Iterable["TlBodyDataValue"]], int]]:
+        flags: set[int] = {p.parameter_flag.flag_number for p in parameters if p.parameter_flag}
+        flags_combinations: list[list[int]] = list()
+
+        for subset_size in range(1, len(flags) + 1):
+            for subset in itertools.combinations(flags, subset_size):
+                flags_combinations.append(sorted(list(subset)))
+
+        result: dict[int, tuple[list[str], typing.Callable[[bytes], typing.Iterable["TlBodyDataValue"]], int]] = dict()
+
+        for combination in flags_combinations:
+            combination_parameters: list["Parameter"] = [p for p in parameters if p.parameter_flag and p.parameter_flag.flag_number in combination]
+            combination_keys: list[str] = [p.name for p in combination_parameters]
+            combination_bitmask: int = sum((1 << i) for i in combination)
+            combination_struct = struct.Struct("<" + "".join(map(_struct_fmt_for_fixed_size_primitive, combination_parameters)))
+            result[combination_bitmask] = (combination_keys, combination_struct.unpack, combination_struct.size)
+
+        return result
+
+    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData", extended_flags: int) -> None:
+        supported_flags = extended_flags & self._mask
+
+        if supported_flags != 0:
+            keys, unpack_fn, struct_size = self._deserializers[supported_flags]
+            output.update(zip(keys, unpack_fn(reader(struct_size))))
 
 
 class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserialization):
@@ -751,54 +824,25 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
             case _:
                 raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
 
-    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData") -> None:
+    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData", extended_flags: int) -> None:
         output[self._key] = self._method(reader(self._size))
 
 
 class ContinuousFixedSizeBareValuesBatchDeserialization(AbstractSpecializedDeserialization):
     __slots__ = ("_struct", "_keys", "_size")
 
-    _struct: typing.Final[struct.Struct]
+    _unpack_fn: typing.Final[typing.Callable[[bytes], typing.Iterable["TlBodyDataValue"]]]
     _keys: typing.Final[tuple[str, ...]]
     _size: typing.Final[int]
 
     def __init__(self, parameters: list[Parameter]):
-        self._struct = struct.Struct("<" + "".join(map(self._generate_struct_fmt, parameters)))
+        struct_fmt = struct.Struct("<" + "".join(map(_struct_fmt_for_fixed_size_primitive, parameters)))
+        self._size = struct_fmt.size
+        self._unpack_fn = struct_fmt.unpack
         self._keys = tuple(p.name for p in parameters)
-        self._size = self._struct.size
 
-    @staticmethod
-    def _generate_struct_fmt(parameter: Parameter) -> str:
-        match parameter.type:
-            case "int":
-                return "i"
-
-            case "uint":
-                return "I"
-
-            case "long":
-                return "q"
-
-            case "ulong":
-                return "Q"
-
-            case "double":
-                return "d"
-
-            case "int128":
-                return "16s"
-
-            case "sha1":
-                return "20s"
-
-            case "int256":
-                return "32s"
-
-            case _:
-                raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
-
-    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData") -> None:
-        output.update(zip(self._keys, self._struct.unpack(reader(self._size))))
+    def deserialize_bare_data(self, reader: SyncByteReader, output: "TlBodyData", extended_flags: int) -> None:
+        output.update(zip(self._keys, self._unpack_fn(reader(self._size))))
 
 
 _OPTIMIZED_PARAMETERS = tuple[Parameter | AbstractSpecializedDeserialization, ...]
@@ -884,7 +928,73 @@ class Constructor:
     def _optimize_parameters_for_deserialization(cls, parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
         res = cls._sequential_fixed_size_primitives_optimization_for_deserialization(parameters)
         res = cls._fixed_size_primitives_fastpath_optimization_for_deserialization(res)
+        res = cls._sequential_fixed_size_optional_primitives_optimization_for_deserialization(res)
         return res
+
+    @classmethod
+    def _sequential_fixed_size_optional_primitives_optimization_for_deserialization(cls, parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
+        for p in parameters:
+            if isinstance(p, Parameter) and not p.required and p.parameter_flag and p.parameter_flag.flag_index != 0:
+                return parameters
+
+        has_optimizable_parameters = False
+
+        def is_optimizable(test: Parameter | AbstractSpecializedDeserialization) -> bool:
+            if not isinstance(test, Parameter):
+                return False
+
+            if test.required:
+                return False
+
+            if test.type not in _fixed_size_primitives:
+                return False
+
+            return True
+
+        for p in parameters:
+            has_optimizable_parameters = is_optimizable(p)
+
+            if has_optimizable_parameters:
+                break
+
+        if not has_optimizable_parameters:
+            return parameters
+
+        seq_optimizable: list[tuple[bool, list[Parameter | AbstractSpecializedDeserialization]]] = []
+        current: list[Parameter | AbstractSpecializedDeserialization] = []
+        is_optimizing_mode: bool = is_optimizable(parameters[0])
+
+        def flush() -> None:
+            if current:
+                seq_optimizable.append((is_optimizing_mode, current.copy()))
+                current.clear()
+
+        for p in parameters:
+            p_is_optimizable = is_optimizable(p)
+
+            if p_is_optimizable == is_optimizing_mode:
+                current.append(p)
+            else:
+                flush()
+                current.append(p)
+                is_optimizing_mode = p_is_optimizable
+
+        flush()
+
+        list_res: list[Parameter | AbstractSpecializedDeserialization] = []
+
+        for (optimizable, prs) in seq_optimizable:
+            if not optimizable:
+                list_res.extend(prs)
+                continue
+
+            if len(prs) < 2:
+                list_res.extend(prs)
+                continue
+
+            list_res.append(ContinuousOptionalFixedSizeBareValuesBatchDeserialization(typing.cast(list[Parameter], prs)))
+
+        return tuple(list_res)
 
     @staticmethod
     def _fixed_size_primitives_fastpath_optimization_for_deserialization(parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
@@ -1088,7 +1198,7 @@ class Constructor:
 
         for parameter in self.deserialization_optimized_parameters:
             if isinstance(parameter, AbstractSpecializedDeserialization):
-                parameter.deserialize_bare_data(reader, fields)
+                parameter.deserialize_bare_data(reader, fields, extended_flags)
             else:
                 if parameter.is_flag:
                     extended_flag_index = parameter.extended_flag_index
