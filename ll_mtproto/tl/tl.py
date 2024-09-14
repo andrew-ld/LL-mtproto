@@ -762,7 +762,7 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
 
 
 class ContinuousFixedSizeBareValuesBatchDeserialization(AbstractSpecializedDeserialization):
-    __slots__ = ("_struct", "_keys", "_size")
+    __slots__ = ("_unpack_fn", "_keys", "_size")
 
     _unpack_fn: typing.Final[typing.Callable[[bytes], typing.Iterable["TlBodyDataValue"]]]
     _keys: typing.Final[tuple[str, ...]]
