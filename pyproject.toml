@@ -1,7 +1,7 @@
 [build-system]
 requires = [
-    "setuptools >= 61.0",
-    "mypy[mypyc]==1.10.1"
+    "setuptools >= 75.3.0",
+    "mypy[mypyc,faster-cache]==1.13.0"
 ]
 build-backend = "setuptools.build_meta"
 
@@ -13,7 +13,7 @@ authors = [
 ]
 readme = "README.md"
 license = { file = "LICENSE" }
-requires-python = ">=3.12.4"
+requires-python = ">=3.13.0"
 dynamic = ["dependencies"]
 
 [tool.setuptools.dynamic]
@@ -23,7 +23,7 @@ dependencies = {file = ["requirements.txt"]}
 include-package-data = true
 
 [tool.mypy]
-python_version = "3.12"
+python_version = "3.13"
 files = [ "ll_mtproto/tl/tl.py" ]
 warn_return_any = true
 warn_unused_configs = true
