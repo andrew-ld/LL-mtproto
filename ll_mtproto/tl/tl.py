@@ -476,7 +476,7 @@ class Schema:
                 if cons_number != _vectorConsNumber:
                     cons = self.cons_numbers.get(cons_number, None)
 
-                    if cons is not None and cons.name == "gzip_packed":
+                    if cons is not None and cons.is_gzip_container:
                         return self.deserialize(GzipStreamReader(_unpack_binary_string_stream(reader)), parameter)
 
                     raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))} for vector")
@@ -496,7 +496,7 @@ class Schema:
             if not cons:
                 raise ValueError(f"Unknown constructor {hex(int.from_bytes(cons_number, 'little'))}")
 
-            if cons.name == "gzip_packed":
+            if cons.is_gzip_container:
                 return self.deserialize(GzipStreamReader(_unpack_binary_string_stream(reader)), parameter)
 
             if parameter.type is not None and cons not in self.types[parameter.type] and cons.ptype:
@@ -555,7 +555,7 @@ class Schema:
         if cons is None:
             raise TypeError(f"Unknown constructor for constructor number {cons_number!r}")
 
-        if cons.name == "gzip_packed":
+        if cons.is_gzip_container:
             return self.read_by_boxed_data(GzipStreamReader(_unpack_binary_string_stream(reader)))
 
         return cons.deserialize_bare_data(reader)
@@ -823,7 +823,8 @@ class Constructor:
         "ptype_parameter",
         "deserialization_optimized_parameters",
         "flags_check_table",
-        "deserialization_default_dict"
+        "deserialization_default_dict",
+        "is_gzip_container"
     )
 
     schema: typing.Final[Schema]
@@ -835,8 +836,9 @@ class Constructor:
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
     deserialization_optimized_parameters: typing.Final[_OPTIMIZED_PARAMETERS]
-    flags_check_table: typing.Final[tuple[tuple[int, frozenset[str], int], ...]]
+    flags_check_table: typing.Final[tuple[tuple[int, int, frozenset[str], int], ...]]
     deserialization_default_dict: typing.Final["TlBodyData"]
+    is_gzip_container: typing.Final[bool]
 
     def __init__(
             self,
@@ -860,6 +862,7 @@ class Constructor:
         self.deserialization_optimized_parameters = self._optimize_parameters_for_deserialization(parameters)
         self.flags_check_table = self._generate_flags_check_table(parameters)
         self.deserialization_default_dict = self._generate_deserialization_default_dict(parameters, name)
+        self.is_gzip_container = name == "gzip_packed"
 
     def boxed_buffer_match(self, buffer: bytes | bytearray) -> bool:
         if self.number is None:
@@ -878,14 +881,17 @@ class Constructor:
         return dict(elements)
 
     @staticmethod
-    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> tuple[tuple[int, frozenset[str], int], ...]:
-        table: dict[int, set[str]] = dict()
+    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> tuple[tuple[int, int, frozenset[str], int], ...]:
+        table: dict[tuple[int, int], set[str]] = dict()
 
         for parameter in parameters:
-            if parameter.parameter_flag is not None:
-                table.setdefault(parameter.parameter_flag.flag_number, set()).add(parameter.name)
+            if parameter.parameter_flag is None:
+                continue
 
-        return tuple((k, frozenset(v), len(v)) for k, v in table.items())
+            table_key = (parameter.parameter_flag.flag_number, parameter.parameter_flag.flag_index)
+            table.setdefault(table_key, set()).add(parameter.name)
+
+        return tuple((flag_number, flags_index, frozenset(v), len(v)) for (flag_number, flags_index), v in table.items())
 
     @classmethod
     def _optimize_parameters_for_deserialization(cls, parameters: _OPTIMIZED_PARAMETERS) -> _OPTIMIZED_PARAMETERS:
@@ -1046,7 +1052,7 @@ class Constructor:
                 data.append_serialized_tl(argument)
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
-        for flag_number, parameters, parameters_len in self.flags_check_table:
+        for flag_number, flags_index, parameters, parameters_len in self.flags_check_table:
             present_len = sum(body.get(p) is not None for p in parameters)
 
             if present_len == 0 or present_len == parameters_len:
@@ -1054,7 +1060,7 @@ class Constructor:
 
             missing = parameters - {p for p in parameters if body.get(p) is not None}
 
-            raise TypeError(f"Missing parameters `{missing!r}` in `{self.name}` for flag number `{flag_number}`")
+            raise TypeError(f"Missing parameters `{missing!r}` in `{self.name}` for flag number `{flag_number}` in flags index `{flags_index}`")
 
         data = Value(self, boxed=boxed)
 
