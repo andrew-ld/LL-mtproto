@@ -690,8 +690,13 @@ class Client:
 
         if request_type := pending_request.request.get("_cons", None):
             request_constructor = self._datacenter.schema.constructors[typing.cast(str, request_type)]
-            while request_constructor.is_gzip_container:
+
+            if request_constructor.is_gzip_container:
                 request_constructor = self._datacenter.schema.constructors[typing.cast(str, pending_request.request["data"]["_cons"])]
+
+            if request_constructor.is_gzip_container:
+                raise TypeError("Recursive gzip container!")
+
             response_parameter = request_constructor.ptype_parameter
         else:
             response_parameter = None
