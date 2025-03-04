@@ -689,7 +689,10 @@ class Client:
             response_constructor = None
 
         if request_type := pending_request.request.get("_cons", None):
-            response_parameter = self._datacenter.schema.constructors[typing.cast(str, request_type)].ptype_parameter
+            request_constructor = self._datacenter.schema.constructors[typing.cast(str, request_type)]
+            while request_constructor.is_gzip_container:
+                request_constructor = self._datacenter.schema.constructors[typing.cast(str, pending_request.request["data"]["_cons"])]
+            response_parameter = request_constructor.ptype_parameter
         else:
             response_parameter = None
 
