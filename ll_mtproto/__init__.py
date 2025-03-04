@@ -25,6 +25,7 @@ from ll_mtproto.crypto.auth_key import AuthKey
 from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCryptg
 from ll_mtproto.network.transport.transport_address_resolver_cached import CachedTransportAddressResolver
 from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediateFactory
+from ll_mtproto.network.transport.transport_codec_abridged import TransportCodecAbridgedFactory
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 __all__ = (
@@ -37,6 +38,7 @@ __all__ = (
     "CryptoProviderCryptg",
     "CachedTransportAddressResolver",
     "TransportCodecIntermediateFactory",
+    "TransportCodecAbridgedFactory",
     "TransportLinkTcpFactory",
     "PwrTelegramErrorDescriptionResolver"
 )
