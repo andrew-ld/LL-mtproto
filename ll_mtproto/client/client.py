@@ -733,6 +733,8 @@ class Client:
 
             elif error_message == "CONNECTION_NOT_INITED":
                 self._init_connection_required = True
+                if pending_request.allow_container:
+                    pending_request.force_init_connection = True
                 await self._rpc_call(pending_request)
 
             elif 500 <= error_code < 600:
