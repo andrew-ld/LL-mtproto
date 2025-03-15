@@ -98,7 +98,8 @@ class Client:
         "_crypto_provider",
         "_error_description_resolver",
         "_in_thread",
-        "_transport_link_factory"
+        "_transport_link_factory",
+        "_blocking_executor"
     )
 
     _mtproto: MTProto
@@ -146,6 +147,7 @@ class Client:
         self._crypto_provider = crypto_provider
         self._error_description_resolver = error_description_resolver
         self._transport_link_factory = transport_link_factory
+        self._blocking_executor = blocking_executor
 
         self._in_thread = _ClientInThreadImpl(blocking_executor)
 
