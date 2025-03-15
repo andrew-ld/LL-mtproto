@@ -199,7 +199,10 @@ class Client:
         else:
             use_pfs = force_pfs
 
-        auth_key = AuthKey(persistent_key=self._used_persistent_key)
+        auth_key = AuthKey()
+        auth_key.persistent_key.auth_key = self._used_persistent_key.auth_key
+        auth_key.persistent_key.auth_key_id = self._used_persistent_key.auth_key_id
+        auth_key.persistent_key.server_salt = self._used_persistent_key.server_salt
 
         if auth_key_callback is not None:
             auth_key.set_content_change_callback(auth_key_callback)
