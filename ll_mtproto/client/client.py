@@ -26,7 +26,7 @@ from ll_mtproto.client.error_description_resolver.base_error_description_resolve
 from ll_mtproto.client.pending_request import PendingRequest
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.client.update import Update
-from ll_mtproto.crypto.auth_key import AuthKey, Key
+from ll_mtproto.crypto.auth_key import AuthKey, Key, AuthKeyUpdatedCallback
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
 from ll_mtproto.network.datacenter_info import DatacenterInfo
@@ -86,7 +86,7 @@ class Client:
         "_updates_queue",
         "_no_updates",
         "_pending_future_salt",
-        "_layer_init_info",
+        "_connection_info",
         "_init_connection_required",
         "_auth_key_lock",
         "_use_perfect_forward_secrecy",
@@ -97,7 +97,8 @@ class Client:
         "_dispatcher",
         "_crypto_provider",
         "_error_description_resolver",
-        "_in_thread"
+        "_in_thread",
+        "_transport_link_factory"
     )
 
     _mtproto: MTProto
@@ -111,7 +112,7 @@ class Client:
     _updates_queue: asyncio.Queue[Update | None]
     _no_updates: bool
     _pending_future_salt: asyncio.TimerHandle | asyncio.Task[None] | None
-    _layer_init_info: ConnectionInfo
+    _connection_info: ConnectionInfo
     _init_connection_required: bool
     _auth_key_lock: asyncio.Lock
     _use_perfect_forward_secrecy: bool
@@ -124,6 +125,7 @@ class Client:
     _crypto_provider: CryptoProviderBase
     _error_description_resolver: BaseErrorDescriptionResolver | None
     _in_thread: InThread
+    _transport_link_factory: TransportLinkFactory
 
     def __init__(
             self,
@@ -138,11 +140,12 @@ class Client:
             error_description_resolver: BaseErrorDescriptionResolver | None = None
     ):
         self._datacenter = datacenter
-        self._layer_init_info = connection_info
+        self._connection_info = connection_info
         self._no_updates = no_updates
         self._use_perfect_forward_secrecy = use_perfect_forward_secrecy
         self._crypto_provider = crypto_provider
         self._error_description_resolver = error_description_resolver
+        self._transport_link_factory = transport_link_factory
 
         self._in_thread = _ClientInThreadImpl(blocking_executor)
 
@@ -173,6 +176,45 @@ class Client:
 
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._used_persistent_key = auth_key.persistent_key
+
+    def to_media_datacenter(
+            self,
+            media_datacenter_info: DatacenterInfo,
+            auth_key_callback: AuthKeyUpdatedCallback | None = None,
+            force_pfs: bool | None = None
+    ) -> "Client":
+        if self._datacenter.is_media:
+            raise RuntimeError(f"The client is already using a media datacenter `{self._datacenter!r}`")
+
+        if not media_datacenter_info.is_media:
+            raise TypeError(f"The specified datacenter info is not for media `{media_datacenter_info!r}`")
+
+        if media_datacenter_info.datacenter_id != self._datacenter.datacenter_id:
+            raise TypeError(f"The specified datacenter info id mismatches the main datacenter id `{media_datacenter_info!r}`")
+
+        if force_pfs is None:
+            use_pfs = self._use_perfect_forward_secrecy
+        else:
+            use_pfs = force_pfs
+
+        auth_key = AuthKey(persistent_key=self._used_persistent_key)
+
+        if auth_key_callback is not None:
+            auth_key.set_content_change_callback(auth_key_callback)
+
+        client = Client(
+            datacenter=media_datacenter_info,
+            auth_key=auth_key,
+            connection_info=self._connection_info,
+            use_perfect_forward_secrecy=use_pfs,
+            blocking_executor=self._blocking_executor,
+            error_description_resolver=self._error_description_resolver,
+            crypto_provider=self._crypto_provider,
+            no_updates=self._no_updates,
+            transport_link_factory=self._transport_link_factory
+        )
+
+        return client
 
     async def get_update(self) -> Update | None:
         if self._no_updates:
@@ -208,7 +250,7 @@ class Client:
         if layer is None:
             raise TypeError(f"schema layer number is None: `{self._datacenter.schema!s}`")
 
-        message = dict(_cons="initConnection", _wrapped=message, **self._layer_init_info.to_request_body())
+        message = dict(_cons="initConnection", _wrapped=message, **self._connection_info.to_request_body())
         message = dict(_cons="invokeWithLayer", _wrapped=message, layer=layer)
 
         if self._no_updates:
@@ -692,7 +734,7 @@ class Client:
             request_constructor = self._datacenter.schema.constructors[typing.cast(str, request_type)]
 
             if request_constructor.is_gzip_container:
-                request_constructor = self._datacenter.schema.constructors[typing.cast(str, pending_request.request["data"]["_cons"])]
+                request_constructor = self._datacenter.schema.constructors[typing.cast(str, typing.cast(TlBodyData, pending_request.request["data"])["_cons"])]
 
                 if request_constructor.is_gzip_container:
                     raise TypeError("Recursive gzip container!")

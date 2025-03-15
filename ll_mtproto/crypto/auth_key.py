@@ -13,7 +13,6 @@
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
-import logging
 import secrets
 import time
 import typing
@@ -253,7 +252,7 @@ class AuthKey:
         self.temporary_key = temporary_key or Key(self._update_callback)
 
     def _stub_on_content_change(self) -> None:
-        logging.warning("auth key: `%r`, dont have content change callback", self)
+        pass
 
     def set_content_change_callback(self, callback: AuthKeyUpdatedCallback) -> None:
         self._update_callback.set_content_change_callback(callback)
