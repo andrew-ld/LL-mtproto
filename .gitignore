@@ -154,3 +154,4 @@ cython_debug/
 # ll-mtproto
 *.session
 *.session.config
+tests/
