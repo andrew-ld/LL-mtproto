@@ -185,12 +185,6 @@ class Client:
             auth_key_callback: AuthKeyUpdatedCallback | None = None,
             force_pfs: bool | None = None
     ) -> "Client":
-        if self._datacenter.is_media:
-            raise RuntimeError(f"The client is already using a media datacenter `{self._datacenter!r}`")
-
-        if not media_datacenter_info.is_media:
-            raise TypeError(f"The specified datacenter info is not for media `{media_datacenter_info!r}`")
-
         if media_datacenter_info.datacenter_id != self._datacenter.datacenter_id:
             raise TypeError(f"The specified datacenter info id mismatches the main datacenter id `{media_datacenter_info!r}`")
 
@@ -215,7 +209,7 @@ class Client:
             blocking_executor=self._blocking_executor,
             error_description_resolver=self._error_description_resolver,
             crypto_provider=self._crypto_provider,
-            no_updates=self._no_updates,
+            no_updates=True,
             transport_link_factory=self._transport_link_factory
         )
 
