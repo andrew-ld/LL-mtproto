@@ -28,3 +28,7 @@ files = [ "ll_mtproto/tl/tl.py" ]
 warn_return_any = true
 warn_unused_configs = true
 strict = true
+
+[[tool.mypy.overrides]]
+module = ["cryptg.*"]
+ignore_missing_imports = true
