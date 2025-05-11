@@ -36,7 +36,7 @@ from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl.structure import Structure, StructureBody
-from ll_mtproto.tl.tl import TlBodyData, Constructor, NativeByteReader
+from ll_mtproto.tl.tl import TlBodyData, Constructor, NativeByteReader, Value
 from ll_mtproto.typed import InThread
 
 __all__ = ("Client",)
@@ -222,14 +222,18 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call(self, payload: TlBodyData, force_init_connection: bool = False) -> StructureBody:
+    async def rpc_call(self, payload: TlBodyData, force_init_connection: bool = False, serialized_payload: Value | None = None) -> StructureBody:
+        if serialized_payload is None:
+            serialized_payload = await self._in_thread(lambda: self._datacenter.schema.boxed(payload))
+
         pending_request = PendingRequest(
             response=self._loop.create_future(),
             message=payload,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=True,
             expect_answer=True,
-            force_init_connection=force_init_connection
+            force_init_connection=force_init_connection,
+            serialized_payload=serialized_payload
         )
 
         pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
@@ -243,7 +247,7 @@ class Client:
         self._ensure_mtproto_loop()
         await self._write_queue.put(request)
 
-    def _wrap_into_init_connection(self, message: TlBodyData) -> TlBodyData:
+    def _wrap_into_init_connection(self, message: TlBodyData | Value) -> TlBodyData:
         layer = self._datacenter.schema.layer
 
         if layer is None:
@@ -277,7 +281,8 @@ class Client:
             message=destroy_session_message,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=False,
-            expect_answer=True
+            expect_answer=True,
+            serialized_payload=None
         )
 
         await self._rpc_call(destroy_session_request)
@@ -290,7 +295,8 @@ class Client:
             message=get_future_salts_message,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=False,
-            expect_answer=True
+            expect_answer=True,
+            serialized_payload=None
         )
 
         if pending_future_salt := self._pending_future_salt:
@@ -322,7 +328,8 @@ class Client:
             message=ping_message,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=False,
-            expect_answer=True
+            expect_answer=True,
+            serialized_payload=None
         )
 
         await self._rpc_call(ping_request)
@@ -405,17 +412,15 @@ class Client:
         else:
             init_connection_required = False
 
-        request_body = message.request
+        request_body = message.serialized_payload
+
+        if request_body is None:
+            request_body = message.serialized_payload = self._datacenter.schema.boxed(message.request)
 
         if init_connection_required:
             request_body = self._wrap_into_init_connection(request_body)
 
-        try:
-            payload, message_id = await self._in_thread(lambda: self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
-        except Exception as serialization_exception:
-            message.response.set_exception(serialization_exception)
-            message.finalize()
-            return
+        payload, message_id = await self._in_thread(lambda: self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
 
         if message.expect_answer:
             self._pending_requests[message_id] = message
@@ -649,7 +654,8 @@ class Client:
             message=message,
             seq_no_func=self._used_session_key.get_next_even_seqno,
             allow_container=False,
-            expect_answer=False
+            expect_answer=False,
+            serialized_payload=None
         )
 
         await self._rpc_call(request)

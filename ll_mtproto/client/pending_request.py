@@ -19,7 +19,7 @@ import asyncio
 import typing
 
 from ll_mtproto.tl.structure import StructureBody
-from ll_mtproto.tl.tl import TlBodyData
+from ll_mtproto.tl.tl import TlBodyData, Value
 
 __all__ = ("PendingRequest",)
 
@@ -35,7 +35,8 @@ class PendingRequest:
         "next_seq_no",
         "allow_container",
         "expect_answer",
-        "force_init_connection"
+        "force_init_connection",
+        "serialized_payload"
     )
 
     response: asyncio.Future[StructureBody]
@@ -46,6 +47,7 @@ class PendingRequest:
     allow_container: bool
     expect_answer: bool
     force_init_connection: bool
+    serialized_payload: Value | None
 
     def __init__(
             self,
@@ -55,7 +57,8 @@ class PendingRequest:
             seq_no_func: SeqNoGenerator,
             allow_container: bool,
             expect_answer: bool,
-            force_init_connection: bool = False
+            force_init_connection: bool = False,
+            serialized_payload: Value | None
     ):
         self.response = response
         self.request = message
@@ -65,6 +68,7 @@ class PendingRequest:
         self.allow_container = allow_container
         self.expect_answer = expect_answer
         self.force_init_connection = force_init_connection
+        self.serialized_payload = serialized_payload
 
     def finalize(self) -> None:
         if not (response := self.response).done():

@@ -251,14 +251,17 @@ class MTProto:
 
             return message.message, message_body
 
-    def prepare_message_for_write(self, seq_no: int, body: TlBodyData) -> tuple[Value, int]:
+    def prepare_message_for_write(self, seq_no: int, body: TlBodyData | Value) -> tuple[Value, int]:
+        if not isinstance(body, Value):
+            body = self._datacenter.schema.boxed(body)
+
         boxed_message_id = self.get_next_message_id()
 
         boxed_message = self._datacenter.schema.bare_kwargs(
             _cons="message_from_client",
             msg_id=boxed_message_id,
             seqno=seq_no,
-            body=self._datacenter.schema.boxed(body),
+            body=body,
         )
 
         return boxed_message, boxed_message_id
