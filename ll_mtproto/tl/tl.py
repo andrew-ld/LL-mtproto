@@ -29,7 +29,7 @@ import typing
 from ll_mtproto.tl.byteutils import GzipStreamReader, BinaryStreamReader
 from ll_mtproto.typed import SyncByteReader
 
-__all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue", "pack_binary_string", "NativeByteReader")
+__all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue", "pack_binary_string", "NativeByteReader", "Flags")
 
 
 class NativeByteReader(SyncByteReader):
@@ -566,14 +566,21 @@ class Flags:
 
     _flags: int
 
-    def __init__(self) -> None:
-        self._flags = 0
+    def __init__(self, initial_value: int = 0) -> None:
+        self._flags = initial_value
 
     def add_flag(self, flag: int) -> None:
         self._flags |= 1 << flag
 
+    def has_flag(self, flag: int) -> bool:
+        return (self._flags & (1 << flag)) != 0
+
     def get_flat_bytes(self) -> bytes:
         return self._flags.to_bytes(4, "little", signed=False)
+
+    @property
+    def flags(self) -> int:
+        return self._flags
 
 
 class Value:
