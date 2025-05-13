@@ -225,10 +225,11 @@ class Schema:
             if schema_line == "---types---":
                 is_function = False
 
-            if schema_line == "---functions---":
+            elif schema_line == "---functions---":
                 is_function = True
 
-            self._parse_line(schema_line, is_function)
+            else:
+                self._parse_line(schema_line, is_function)
 
     @staticmethod
     def _parse_token(regex: re.Pattern[str], s: str) -> None | dict[str, str]:
