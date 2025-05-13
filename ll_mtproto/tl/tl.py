@@ -220,9 +220,7 @@ class Schema:
     def __repr__(self) -> str:
         return "\n".join(repr(cons) for cons in self.constructors.values())
 
-    def extend_from_raw_schema(self, schema: str) -> None:
-        is_function = False
-
+    def extend_from_raw_schema(self, schema: str, is_function: bool = False) -> None:
         for schema_line in schema.split("\n"):
             if schema_line == "---types---":
                 is_function = False
