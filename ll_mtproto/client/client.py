@@ -412,6 +412,8 @@ class Client:
         else:
             init_connection_required = False
 
+        message.init_connection_wrapped = init_connection_required
+
         request_body = message.serialized_payload
 
         if request_body is None:
@@ -791,7 +793,7 @@ class Client:
             else:
                 self._finalize_response_throw_rpc_error(error_message, error_code, pending_request)
         else:
-            if pending_request.allow_container:
+            if pending_request.init_connection_wrapped:
                 self._init_connection_required = False
             pending_request.response.set_result(result)
             pending_request.finalize()
