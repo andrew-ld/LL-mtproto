@@ -313,7 +313,7 @@ class Client:
         await self._create_ping_request()
 
     def _pop_pending_request_exact(self, message_id: int) -> PendingRequest | None:
-        pending_request = self._pending_requests.pop(message_id)
+        pending_request = self._pending_requests.pop(message_id, None)
 
         if pending_request is None:
             return None
