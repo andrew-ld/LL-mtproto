@@ -20,7 +20,7 @@ from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.client.error_description_resolver.pwrtelegram_error_description_resolver import PwrTelegramErrorDescriptionResolver
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.client.update import Update
-from ll_mtproto.constants import TelegramDatacenter
+from ll_mtproto.constants import TelegramDatacenter, TelegramTestDatacenter
 from ll_mtproto.crypto.auth_key import AuthKey
 from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCryptg
 from ll_mtproto.network.transport.transport_address_resolver_cached import CachedTransportAddressResolver
@@ -31,6 +31,7 @@ from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFact
 __all__ = (
     "Client",
     "TelegramDatacenter",
+    "TelegramTestDatacenter",
     "AuthKey",
     "RpcError",
     "ConnectionInfo",

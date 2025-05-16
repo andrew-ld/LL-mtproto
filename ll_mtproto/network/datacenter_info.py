@@ -31,7 +31,8 @@ class DatacenterInfo:
         "schema",
         "datacenter_id",
         "is_media",
-        "_time_difference"
+        "_time_difference",
+        "is_test"
     )
 
     default_direct_address: str
@@ -40,10 +41,11 @@ class DatacenterInfo:
     schema: Schema
     datacenter_id: int
     is_media: bool
+    is_test: bool
 
     _time_difference: int
 
-    def __init__(self, address: str, port: int, public_rsa: PublicRSA, schema: Schema, datacenter_id: int, is_media: bool):
+    def __init__(self, address: str, port: int, public_rsa: PublicRSA, schema: Schema, datacenter_id: int, is_media: bool, is_test: bool):
         self.default_direct_address = address
         self.default_direct_port = port
         self.public_rsa = public_rsa
@@ -51,6 +53,7 @@ class DatacenterInfo:
         self.datacenter_id = datacenter_id
         self.is_media = is_media
         self._time_difference = 0
+        self.is_test = is_test
 
     def set_synchronized_time(self, synchronized_now: int) -> None:
         self._time_difference = synchronized_now - int(time.time())
@@ -59,7 +62,15 @@ class DatacenterInfo:
         return int(time.time()) + self._time_difference
 
     def __copy__(self) -> "DatacenterInfo":
-        return DatacenterInfo(self.default_direct_address, self.default_direct_port, self.public_rsa, self.schema, self.datacenter_id, self.is_media)
+        return DatacenterInfo(
+            self.default_direct_address,
+            self.default_direct_port,
+            self.public_rsa,
+            self.schema,
+            self.datacenter_id,
+            self.is_media,
+            self.is_test
+        )
 
     def __str__(self) -> str:
-        return f"{'media' if self.is_media else 'main'} datacenter {self.datacenter_id} with layer {self.schema.layer}"
+        return f"{'media' if self.is_media else 'main'} {'test' if self.is_test else 'prod'} datacenter {self.datacenter_id} with layer {self.schema.layer}"

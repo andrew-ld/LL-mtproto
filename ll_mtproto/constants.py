@@ -21,7 +21,7 @@ from ll_mtproto.crypto.public_rsa import PublicRSA
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.tl.tl import Schema
 
-__all__ = ("TelegramDatacenter",)
+__all__ = ("TelegramDatacenter", "TelegramTestDatacenter")
 
 
 def _get_schema(resources_path: str) -> Schema:
@@ -33,29 +33,46 @@ def _get_schema(resources_path: str) -> Schema:
     return result
 
 
-def _get_public_rsa(resources_path: str) -> PublicRSA:
-    telegram_rsa = open(os.path.join(resources_path, "telegram.rsa.pub")).read()
+def _get_public_rsa(public_rsa_file_path: str) -> PublicRSA:
+    telegram_rsa = open(public_rsa_file_path).read()
     return PublicRSA(telegram_rsa)
+
+
+_ll_mtproto_resources_path = os.path.join(os.path.dirname(__file__), "resources")
+_telegram_public_rsa = _get_public_rsa(os.path.join(_ll_mtproto_resources_path, "telegram.rsa.pub"))
+_telegram_test_public_rsa = _get_public_rsa(os.path.join(_ll_mtproto_resources_path, "telegram.test.rsa.pub"))
+_telegram_api_schema = _get_schema(_ll_mtproto_resources_path)
+
+
+class TelegramTestDatacenter:
+    __slots__ = ()
+
+    SCHEMA = _telegram_api_schema
+    PUBLIC_RSA = _telegram_test_public_rsa
+
+    PLUTO = DatacenterInfo("149.154.175.10", 443, _telegram_test_public_rsa, _telegram_api_schema, 1, False, True)
+    VENUS = DatacenterInfo("149.154.167.40", 443, _telegram_test_public_rsa, _telegram_api_schema, 2, False, True)
+    AURORA = DatacenterInfo("149.154.175.117", 443, _telegram_test_public_rsa, _telegram_api_schema, 3, False, True)
+
+    ALL_MAIN_DATACENTERS = frozenset((PLUTO, VENUS, AURORA))
+    ALL_MEDIA_DATACENTERS = frozenset()
+    ALL_DATACENTERS = ALL_MAIN_DATACENTERS
 
 
 class TelegramDatacenter:
     __slots__ = ()
 
-    _ll_mtproto_resources_path = os.path.join(os.path.dirname(__file__), "resources")
-    _telegram_public_rsa = _get_public_rsa(_ll_mtproto_resources_path)
-    _telegram_api_schema = _get_schema(_ll_mtproto_resources_path)
-
     SCHEMA = _telegram_api_schema
     PUBLIC_RSA = _telegram_public_rsa
 
-    PLUTO = DatacenterInfo("149.154.175.50", 443, _telegram_public_rsa, _telegram_api_schema, 1, False)
-    VENUS = DatacenterInfo("149.154.167.51", 443, _telegram_public_rsa, _telegram_api_schema, 2, False)
-    AURORA = DatacenterInfo("149.154.175.100", 443, _telegram_public_rsa, _telegram_api_schema, 3, False)
-    VESTA = DatacenterInfo("149.154.167.91", 443, _telegram_public_rsa, _telegram_api_schema, 4, False)
-    FLORA = DatacenterInfo("149.154.171.5", 443, _telegram_public_rsa, _telegram_api_schema, 5, False)
+    PLUTO = DatacenterInfo("149.154.175.50", 443, _telegram_public_rsa, _telegram_api_schema, 1, False, False)
+    VENUS = DatacenterInfo("149.154.167.51", 443, _telegram_public_rsa, _telegram_api_schema, 2, False, False)
+    AURORA = DatacenterInfo("149.154.175.100", 443, _telegram_public_rsa, _telegram_api_schema, 3, False, False)
+    VESTA = DatacenterInfo("149.154.167.91", 443, _telegram_public_rsa, _telegram_api_schema, 4, False, False)
+    FLORA = DatacenterInfo("149.154.171.5", 443, _telegram_public_rsa, _telegram_api_schema, 5, False, False)
 
-    VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _telegram_public_rsa, _telegram_api_schema, 2, True)
-    VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _telegram_public_rsa, _telegram_api_schema, 4, True)
+    VENUS_MEDIA = DatacenterInfo("149.154.167.151", 443, _telegram_public_rsa, _telegram_api_schema, 2, True, False)
+    VESTA_MEDIA = DatacenterInfo("149.154.164.250", 443, _telegram_public_rsa, _telegram_api_schema, 4, True, False)
 
     ALL_MAIN_DATACENTERS = frozenset((PLUTO, VENUS, AURORA, VESTA, FLORA))
     ALL_MEDIA_DATACENTERS = frozenset((VENUS_MEDIA, VESTA_MEDIA))

@@ -317,6 +317,14 @@ class MTProtoKeyCreator:
 
         temp_key_expires_in = self.TEMP_AUTH_KEY_EXPIRE_TIME + self._datacenter.get_synchronized_time()
 
+        dc_id = self._datacenter.datacenter_id
+
+        if self._datacenter.is_test:
+            dc_id += 10000
+
+        if self._datacenter.is_media:
+            dc_id = -dc_id
+
         p_q_inner_data = self._datacenter.schema.boxed_kwargs(
             _cons="p_q_inner_data_temp_dc" if self._temp_key else "p_q_inner_data_dc",
             pq=res_pq.pq,
@@ -326,7 +334,7 @@ class MTProtoKeyCreator:
             server_nonce=server_nonce,
             new_nonce=new_nonce,
             expires_in=temp_key_expires_in,
-            dc=-self._datacenter.datacenter_id if self._datacenter.is_media else self._datacenter.datacenter_id
+            dc=dc_id
         )
 
         p_q_inner_data_rsa_pad = await self._in_thread(lambda: self._datacenter.public_rsa.rsa_pad(p_q_inner_data.get_flat_bytes(), self._crypto_provider))

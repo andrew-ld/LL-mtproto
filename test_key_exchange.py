@@ -17,11 +17,8 @@ from ll_mtproto.network.transport.transport_codec_abridged import TransportCodec
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
-
 crypto_provider = CryptoProviderCryptg()
-
 resolver = CachedTransportAddressResolver()
-
 link = TransportLinkTcpFactory(TransportCodecAbridgedFactory(), resolver)
 
 
@@ -58,7 +55,7 @@ async def main():
     await asyncio.gather(*tasks)
 
 
-async def test_exchange(datacenter: DatacenterInfo, temp_key: bool) -> typing.NoReturn:
+async def test_exchange(datacenter: DatacenterInfo, temp_key: bool) -> None:
     mtproto = MTProto(
         datacenter,
         link,
