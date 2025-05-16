@@ -493,6 +493,9 @@ class Client:
     async def _process_outbound_container_message(self, message: PendingContainerRequest) -> None:
         payloads: list[Value] = []
 
+        if last_message_id := message.last_message_id:
+            self._pending_requests.pop(last_message_id, None)
+
         for request in message.requests:
             payload, _ = await self._prepare_outbound_message(request)
             payloads.append(payload)
@@ -504,6 +507,8 @@ class Client:
                 messages=payloads
             )
         )
+
+        message.last_message_id = message_id
 
         self._pending_requests[message_id] = message
 
