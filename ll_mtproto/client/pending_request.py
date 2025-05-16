@@ -40,6 +40,7 @@ class PendingRequest:
         "force_init_connection",
         "serialized_payload",
         "init_connection_wrapped",
+        "last_message_id"
     )
 
     response: asyncio.Future[StructureBody]
@@ -52,6 +53,7 @@ class PendingRequest:
     force_init_connection: bool
     serialized_payload: Value | None
     init_connection_wrapped: bool
+    last_message_id: int | None
 
     def __init__(
             self,
@@ -62,7 +64,8 @@ class PendingRequest:
             allow_container: bool,
             expect_answer: bool,
             force_init_connection: bool = False,
-            serialized_payload: Value | None = None
+            serialized_payload: Value | None = None,
+            previous_message_id: int | None = None
     ):
         self.response = response
         self.request = message
@@ -74,6 +77,7 @@ class PendingRequest:
         self.force_init_connection = force_init_connection
         self.serialized_payload = serialized_payload
         self.init_connection_wrapped = False
+        self.last_message_id = previous_message_id
 
     def finalize(self) -> None:
         if not (response := self.response).done():

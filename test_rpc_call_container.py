@@ -12,6 +12,7 @@ from ll_mtproto.network.transport.transport_codec_intermediate import TransportC
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 
+# noinspection PyProtectedMember
 async def main():
     logging.getLogger().setLevel(level=logging.DEBUG)
 
@@ -34,6 +35,16 @@ async def main():
         no_updates=True,
     )
 
+    print(await session.rpc_call_container([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
+
+    # I deliberately break the auth_key status to see if the client can restore it
+    session._used_session_key.session.seqno = 0
+    session._used_session_key.server_salt = 0
+    print(await session.rpc_call_container([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
+
+    # I deliberately break the auth_key status to see if the client can restore it
+    session._used_session_key.session.seqno = 6969
+    session._used_session_key.server_salt = -1
     print(await session.rpc_call_container([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
 
     session.disconnect()

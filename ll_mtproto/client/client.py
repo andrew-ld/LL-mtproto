@@ -107,7 +107,7 @@ class Client:
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
     _mtproto_loop_task: asyncio.Task[None] | None
-    _pending_requests: dict[int, PendingRequest]
+    _pending_requests: dict[int, PendingRequest | PendingContainerRequest]
     _pending_pong: asyncio.TimerHandle | None
     _datacenter: DatacenterInfo
     _pending_ping: asyncio.TimerHandle | asyncio.Task[None] | None
@@ -312,6 +312,17 @@ class Client:
         await self._create_future_salt_request()
         await self._create_ping_request()
 
+    def _pop_pending_request_exact(self, message_id: int) -> PendingRequest | None:
+        pending_request = self._pending_requests.pop(message_id)
+
+        if pending_request is None:
+            return None
+
+        if not isinstance(pending_request, PendingRequest):
+            raise RuntimeError(f"message id `{message_id} is not a PendingRequest: `{pending_request!r}`")
+
+        return pending_request
+
     async def _create_destroy_session_request(self, destroyed_session_id: int) -> None:
         destroy_session_message: TlBodyData = dict(_cons="destroy_session", session_id=destroyed_session_id)
 
@@ -441,6 +452,9 @@ class Client:
         if message.response.done():
             raise RuntimeError(f"Message `{message!r}` already completed")
 
+        if last_message_id := message.last_message_id:
+            self._pending_requests.pop(last_message_id, None)
+
         if cleaner := message.cleaner:
             cleaner.cancel()
 
@@ -463,6 +477,8 @@ class Client:
 
         payload, message_id = await self._in_thread(lambda: self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
 
+        message.last_message_id = message_id
+
         if message.expect_answer:
             self._pending_requests[message_id] = message
             message.cleaner = self._loop.call_later(120, self._cancel_pending_request, message_id)
@@ -481,7 +497,7 @@ class Client:
             payload, _ = await self._prepare_outbound_message(request)
             payloads.append(payload)
 
-        boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(
+        message_body, message_id = self._mtproto.prepare_message_for_write(
             seq_no=self._used_session_key.get_next_even_seqno(),
             body=dict(
                 _cons="msg_container",
@@ -489,7 +505,9 @@ class Client:
             )
         )
 
-        await self._mtproto.write_encrypted(boxed_message, self._used_session_key)
+        self._pending_requests[message_id] = message
+
+        await self._mtproto.write_encrypted(message_body, self._used_session_key)
 
     async def _mtproto_write_loop(self) -> None:
         while True:
@@ -603,15 +621,6 @@ class Client:
             case "future_salts":
                 self._process_future_salts(body)
 
-            case "msg_detailed_info":
-                self._process_msg_detailed_info(body)
-
-            case "msg_new_detailed_info":
-                self._process_msg_new_detailed_info(body)
-
-            case "msgs_state_info":
-                self._process_msgs_state_info(body)
-
             case "msgs_ack":
                 pass
 
@@ -634,21 +643,8 @@ class Client:
         if not self._no_updates:
             await self._updates_queue.put(Update([], [], body.update))
 
-    def _process_msgs_state_info(self, body: Structure) -> None:
-        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
-            pending_request.response.set_result(body)
-            pending_request.finalize()
-
-    def _process_msg_new_detailed_info(self, body: Structure) -> None:
-        if pending_request := self._pending_requests.pop(body.answer_msg_id, None):
-            pending_request.finalize()
-
-    def _process_msg_detailed_info(self, body: Structure) -> None:
-        self._process_msg_new_detailed_info(body)
-        self._msgids_to_ack.append(body.msg_id)
-
     def _process_future_salts(self, body: Structure) -> None:
-        if pending_request := self._pending_requests.pop(body.req_msg_id, None):
+        if pending_request := self._pop_pending_request_exact(body.req_msg_id):
             pending_request.response.set_result(body)
             pending_request.finalize()
 
@@ -694,7 +690,7 @@ class Client:
             pending_pong.cancel()
             self._pending_pong = None
 
-        if pending_request := self._pending_requests.pop(pong.msg_id, None):
+        if pending_request := self._pop_pending_request_exact(pong.msg_id):
             pending_request.response.set_result(pong)
             pending_request.finalize()
 
@@ -759,8 +755,20 @@ class Client:
 
     async def _process_bad_msg_notification_reject_message(self, body: Structure) -> None:
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            bad_request.response.set_exception(RpcError(body.error_code, "BAD_MSG_NOTIFICATION", None))
-            bad_request.finalize()
+            rpc_error = RpcError(body.error_code, "BAD_MSG_NOTIFICATION", None)
+
+            match bad_request:
+                case PendingContainerRequest():
+                    for request in bad_request.requests:
+                        request.response.set_exception(rpc_error)
+                        request.finalize()
+
+                case PendingRequest():
+                    bad_request.response.set_exception(rpc_error)
+                    bad_request.finalize()
+
+                case _:
+                    raise TypeError(fr"Unexpected object in pending messages `{bad_request!r}`")
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -796,7 +804,7 @@ class Client:
         self._used_session_key.session.stable_seqno = True
         self._used_session_key.session.seqno_increment = 1
 
-        pending_request = self._pending_requests.pop(body.req_msg_id, None)
+        pending_request = self._pop_pending_request_exact(body.req_msg_id)
 
         if pending_request is None:
             return logging.error("rpc_result %d not associated with a request", body.req_msg_id)
