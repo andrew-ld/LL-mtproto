@@ -408,14 +408,13 @@ class Client:
             if container_message_last_message_id := container_message.last_message_id:
                 self._pending_requests.pop(container_message_last_message_id, None)
 
-    def _finalize_request_and_cleanup(self, request: PendingRequest | PendingContainerRequest) -> None:
+    def _finalize_request_and_cleanup(self, request: PendingRequest) -> None:
         if last_message_id := request.last_message_id:
             self._pending_requests.pop(last_message_id, None)
 
         request.finalize()
 
-        if isinstance(request, PendingRequest):
-            self._cleanup_container_request_from_request(request)
+        self._cleanup_container_request_from_request(request)
 
     async def _start_auth_key_exchange_for_key(self, key: Key, is_temp_key: bool) -> None:
         dispatcher, result = await initialize_key_creator_dispatcher(
@@ -803,7 +802,7 @@ class Client:
                 case PendingContainerRequest():
                     for request in bad_request.requests:
                         request.response.set_exception(rpc_error)
-                        self._finalize_request_and_cleanup(bad_request)
+                        self._finalize_request_and_cleanup(request)
 
                 case PendingRequest():
                     bad_request.response.set_exception(rpc_error)
