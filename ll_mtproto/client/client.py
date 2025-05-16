@@ -229,7 +229,7 @@ class Client:
             force_init_connection: bool = False,
             serialized_payloads: list[Value] | None = None
     ) -> list[StructureBody | BaseException]:
-        if len(payloads) == 0:
+        if not payloads:
             return []
 
         if serialized_payloads is None:
@@ -251,7 +251,7 @@ class Client:
                 serialized_payload=serialized_payload
             )
 
-            pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
+            pending_request.cleaner = self._loop.call_later(120, lambda: self._finalize_request_and_cleanup(pending_request))
             pending_requests.append(pending_request)
 
         await self._start_mtproto_loop_if_needed()
@@ -275,7 +275,7 @@ class Client:
             serialized_payload=serialized_payload
         )
 
-        pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
+        pending_request.cleaner = self._loop.call_later(120, lambda: self._finalize_request_and_cleanup(pending_request))
 
         await self._start_mtproto_loop_if_needed()
         await self._rpc_call(pending_request)
@@ -385,8 +385,37 @@ class Client:
         await self._rpc_call(ping_request)
 
     def _cancel_pending_request(self, msg_id: int) -> None:
-        if pending_request := self._pending_requests.pop(msg_id, None):
-            pending_request.finalize()
+        if pending_request := self._pop_pending_request_exact(msg_id):
+            self._finalize_request_and_cleanup(pending_request)
+
+    def _cleanup_container_request_from_request(self, request: PendingRequest) -> None:
+        container_message_id = request.container_message_id
+
+        if container_message_id is None:
+            return
+
+        container_message = self._pending_requests.get(container_message_id, None)
+
+        if not isinstance(container_message, PendingContainerRequest):
+            raise TypeError(fr"Message id `{container_message_id!r}` is not PendingContainerRequest: `{container_message!r}`")
+
+        if container_message is None:
+            return
+
+        if all(r.response.done() for r in container_message.requests):
+            self._pending_requests.pop(container_message_id, None)
+
+            if container_message_last_message_id := container_message.last_message_id:
+                self._pending_requests.pop(container_message_last_message_id, None)
+
+    def _finalize_request_and_cleanup(self, request: PendingRequest | PendingContainerRequest) -> None:
+        if last_message_id := request.last_message_id:
+            self._pending_requests.pop(last_message_id, None)
+
+        request.finalize()
+
+        if isinstance(request, PendingRequest):
+            self._cleanup_container_request_from_request(request)
 
     async def _start_auth_key_exchange_for_key(self, key: Key, is_temp_key: bool) -> None:
         dispatcher, result = await initialize_key_creator_dispatcher(
@@ -491,16 +520,21 @@ class Client:
         await self._mtproto.write_encrypted(payload, self._used_session_key)
 
     async def _process_outbound_container_message(self, message: PendingContainerRequest) -> None:
-        payloads: list[Value] = []
-
         if last_message_id := message.last_message_id:
             self._pending_requests.pop(last_message_id, None)
 
-        for request in message.requests:
+        pending_requests = [request for request in message.requests if not request.response.done()]
+
+        if not pending_requests:
+            return
+
+        payloads: list[Value] = []
+
+        for request in pending_requests:
             payload, _ = await self._prepare_outbound_message(request)
             payloads.append(payload)
 
-        message_body, message_id = self._mtproto.prepare_message_for_write(
+        container_body, container_message_id = self._mtproto.prepare_message_for_write(
             seq_no=self._used_session_key.get_next_even_seqno(),
             body=dict(
                 _cons="msg_container",
@@ -508,11 +542,14 @@ class Client:
             )
         )
 
-        message.last_message_id = message_id
+        for request in pending_requests:
+            request.container_message_id = container_message_id
 
-        self._pending_requests[message_id] = message
+        message.last_message_id = container_message_id
 
-        await self._mtproto.write_encrypted(message_body, self._used_session_key)
+        self._pending_requests[container_message_id] = message
+
+        await self._mtproto.write_encrypted(container_body, self._used_session_key)
 
     async def _mtproto_write_loop(self) -> None:
         while True:
@@ -651,7 +688,7 @@ class Client:
     def _process_future_salts(self, body: Structure) -> None:
         if pending_request := self._pop_pending_request_exact(body.req_msg_id):
             pending_request.response.set_result(body)
-            pending_request.finalize()
+            self._finalize_request_and_cleanup(pending_request)
 
         if pending_future_salt := self._pending_future_salt:
             pending_future_salt.cancel()
@@ -697,7 +734,7 @@ class Client:
 
         if pending_request := self._pop_pending_request_exact(pong.msg_id):
             pending_request.response.set_result(pong)
-            pending_request.finalize()
+            self._finalize_request_and_cleanup(pending_request)
 
         if pending_ping := self._pending_ping:
             pending_ping.cancel()
@@ -766,11 +803,11 @@ class Client:
                 case PendingContainerRequest():
                     for request in bad_request.requests:
                         request.response.set_exception(rpc_error)
-                        request.finalize()
+                        self._finalize_request_and_cleanup(bad_request)
 
                 case PendingRequest():
                     bad_request.response.set_exception(rpc_error)
-                    bad_request.finalize()
+                    self._finalize_request_and_cleanup(bad_request)
 
                 case _:
                     raise TypeError(fr"Unexpected object in pending messages `{bad_request!r}`")
@@ -803,7 +840,7 @@ class Client:
             error_description = None
 
         pending_request.response.set_exception(RpcError(error_code, error_message, error_description))
-        pending_request.finalize()
+        self._finalize_request_and_cleanup(pending_request)
 
     async def _process_rpc_result(self, body: Structure) -> None:
         self._used_session_key.session.stable_seqno = True
@@ -878,7 +915,7 @@ class Client:
             if pending_request.init_connection_wrapped:
                 self._init_connection_required = False
             pending_request.response.set_result(result)
-            pending_request.finalize()
+            self._finalize_request_and_cleanup(pending_request)
 
     def disconnect(self) -> None:
         self._init_connection_required = True
