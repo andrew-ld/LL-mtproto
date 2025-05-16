@@ -23,6 +23,7 @@ import typing
 
 from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.client.error_description_resolver.base_error_description_resolver import BaseErrorDescriptionResolver
+from ll_mtproto.client.pending_container_request import PendingContainerRequest
 from ll_mtproto.client.pending_request import PendingRequest
 from ll_mtproto.client.rpc_error import RpcError
 from ll_mtproto.client.update import Update
@@ -118,7 +119,7 @@ class Client:
     _auth_key_lock: asyncio.Lock
     _use_perfect_forward_secrecy: bool
     _blocking_executor: concurrent.futures.Executor
-    _write_queue: asyncio.Queue[PendingRequest]
+    _write_queue: asyncio.Queue[PendingRequest | PendingContainerRequest]
     _used_session_key: Key
     _used_persistent_key: Key
     _rpc_error_constructor: Constructor
@@ -222,6 +223,44 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
+    async def rpc_call_container(
+            self,
+            payloads: list[TlBodyData],
+            force_init_connection: bool = False,
+            serialized_payloads: list[Value] | None = None
+    ) -> list[StructureBody | BaseException]:
+        if len(payloads) == 0:
+            return []
+
+        if serialized_payloads is None:
+            serialized_payloads = await self._in_thread(lambda: list(map(self._datacenter.schema.boxed, payloads)))
+
+        if len(serialized_payloads) != len(payloads):
+            raise TypeError("serialized payloads len and payloads len mismatches")
+
+        pending_requests: list[PendingRequest] = []
+
+        for payload, serialized_payload in zip(payloads, serialized_payloads):
+            pending_request = PendingRequest(
+                response=self._loop.create_future(),
+                message=payload,
+                seq_no_func=self._used_session_key.get_next_odd_seqno,
+                allow_container=True,
+                expect_answer=True,
+                force_init_connection=force_init_connection,
+                serialized_payload=serialized_payload
+            )
+
+            pending_request.cleaner = self._loop.call_later(120, lambda: pending_request.finalize())
+            pending_requests.append(pending_request)
+
+        await self._start_mtproto_loop_if_needed()
+        await self._rpc_call(PendingContainerRequest(pending_requests))
+
+        await asyncio.wait((request.response for request in pending_requests), return_when=asyncio.ALL_COMPLETED)
+
+        return [request.get_value() for request in pending_requests]
+
     async def rpc_call(self, payload: TlBodyData, force_init_connection: bool = False, serialized_payload: Value | None = None) -> StructureBody:
         if serialized_payload is None:
             serialized_payload = await self._in_thread(lambda: self._datacenter.schema.boxed(payload))
@@ -243,7 +282,7 @@ class Client:
 
         return await pending_request.response
 
-    async def _rpc_call(self, request: PendingRequest) -> None:
+    async def _rpc_call(self, request: PendingRequest | PendingContainerRequest) -> None:
         self._ensure_mtproto_loop()
         await self._write_queue.put(request)
 
@@ -396,11 +435,11 @@ class Client:
             elif used_key is not persistent_key:
                 raise RuntimeError(f"used key ({id(used_key)}) is not equal to persistent key {id(persistent_key)} and pfs is disabled")
 
-    async def _process_outbound_message(self, message: PendingRequest) -> None:
+    async def _prepare_outbound_message(self, message: PendingRequest) -> tuple[Value, int]:
         message.retries += 1
 
         if message.response.done():
-            return logging.warning("request %r already completed", message.request)
+            raise RuntimeError(f"Message `{message!r}` already completed")
 
         if cleaner := message.cleaner:
             cleaner.cancel()
@@ -428,13 +467,43 @@ class Client:
             self._pending_requests[message_id] = message
             message.cleaner = self._loop.call_later(120, self._cancel_pending_request, message_id)
 
-        logging.debug("writing message %d (%s)", message_id, message.request["_cons"])
+        return payload, message_id
 
+    async def _process_outbound_message(self, message: PendingRequest) -> None:
+        payload, message_id = await self._prepare_outbound_message(message)
+        logging.debug("writing message %d (%s)", message_id, message.request["_cons"])
         await self._mtproto.write_encrypted(payload, self._used_session_key)
+
+    async def _process_outbound_container_message(self, message: PendingContainerRequest) -> None:
+        payloads: list[Value] = []
+
+        for request in message.requests:
+            payload, _ = await self._prepare_outbound_message(request)
+            payloads.append(payload)
+
+        boxed_message, boxed_message_id = self._mtproto.prepare_message_for_write(
+            seq_no=self._used_session_key.get_next_even_seqno(),
+            body=dict(
+                _cons="msg_container",
+                messages=payloads
+            )
+        )
+
+        await self._mtproto.write_encrypted(boxed_message, self._used_session_key)
 
     async def _mtproto_write_loop(self) -> None:
         while True:
-            await self._process_outbound_message(await self._write_queue.get())
+            request = await self._write_queue.get()
+
+            match request:
+                case PendingRequest():
+                    await self._process_outbound_message(request)
+
+                case PendingContainerRequest():
+                    await self._process_outbound_container_message(request)
+
+                case _:
+                    raise TypeError(fr"Unexpected object in write queue `{request!r}`")
 
     async def _mtproto_read_loop(self) -> None:
         while True:

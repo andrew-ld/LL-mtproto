@@ -18,6 +18,8 @@
 import asyncio
 import typing
 
+from mypy.dmypy.client import request
+
 from ll_mtproto.tl.structure import StructureBody
 from ll_mtproto.tl.tl import TlBodyData, Value
 
@@ -37,7 +39,7 @@ class PendingRequest:
         "expect_answer",
         "force_init_connection",
         "serialized_payload",
-        "init_connection_wrapped"
+        "init_connection_wrapped",
     )
 
     response: asyncio.Future[StructureBody]
@@ -60,7 +62,7 @@ class PendingRequest:
             allow_container: bool,
             expect_answer: bool,
             force_init_connection: bool = False,
-            serialized_payload: Value | None
+            serialized_payload: Value | None = None
     ):
         self.response = response
         self.request = message
@@ -82,3 +84,12 @@ class PendingRequest:
 
         self.cleaner = None
         self.response.exception()
+
+    def get_value(self) -> BaseException | StructureBody:
+        if not self.response.done():
+            raise asyncio.InvalidStateError("Response is not already done")
+
+        if exception := self.response.exception():
+            return exception
+
+        return self.response.result()
