@@ -18,8 +18,6 @@
 import asyncio
 import typing
 
-from mypy.dmypy.client import request
-
 from ll_mtproto.tl.structure import StructureBody
 from ll_mtproto.tl.tl import TlBodyData, Value
 
