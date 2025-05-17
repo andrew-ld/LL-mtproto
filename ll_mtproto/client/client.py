@@ -238,6 +238,13 @@ class Client:
         if len(serialized_payloads) != len(payloads):
             raise TypeError("serialized payloads len and payloads len mismatches")
 
+        for payload, serialized_payload in zip(payloads, serialized_payloads):
+            payload_cons = payload["_cons"]
+            serialized_payload_cons = serialized_payload.cons.name
+
+            if payload_cons != serialized_payload_cons:
+                raise TypeError(f"Serialized payload constructor type `{serialized_payload_cons!r}` mismatches payload cons `{payload_cons!r}`")
+
         pending_requests: list[PendingRequest] = []
 
         for payload, serialized_payload in zip(payloads, serialized_payloads):
@@ -264,6 +271,12 @@ class Client:
     async def rpc_call(self, payload: TlBodyData, force_init_connection: bool = False, serialized_payload: Value | None = None) -> StructureBody:
         if serialized_payload is None:
             serialized_payload = await self._in_thread(lambda: self._datacenter.schema.boxed(payload))
+
+        payload_cons = payload["_cons"]
+        serialized_payload_cons = serialized_payload.cons.name
+
+        if payload_cons != serialized_payload_cons:
+            raise TypeError(f"Serialized payload constructor type `{serialized_payload_cons!r}` mismatches payload cons `{payload_cons!r}`")
 
         pending_request = PendingRequest(
             response=self._loop.create_future(),
