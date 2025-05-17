@@ -515,6 +515,7 @@ class Client:
 
     async def _process_outbound_message(self, message: PendingRequest) -> None:
         payload, message_id = await self._prepare_outbound_message(message)
+        message.container_message_id = None
         logging.debug("writing message %d (%s)", message_id, message.request["_cons"])
         await self._mtproto.write_encrypted(payload, self._used_session_key)
 
