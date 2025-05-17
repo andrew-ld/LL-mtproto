@@ -495,7 +495,7 @@ class Client:
 
         message.init_connection_wrapped = init_connection_required
 
-        request_body = message.serialized_payload
+        request_body: TlBodyData | Value | None = message.serialized_payload
 
         if request_body is None:
             request_body = message.serialized_payload = self._datacenter.schema.boxed(message.request)
