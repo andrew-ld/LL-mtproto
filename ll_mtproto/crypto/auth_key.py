@@ -116,6 +116,16 @@ class DhGenKey:
         return auth_key, auth_key_id, session
 
 
+class KeyState(typing.TypedDict):
+    auth_key: bytes | None
+    auth_key_id: int | None
+    server_salt: int | None
+    session: KeySession
+    unused_sessions: set[int]
+    created_at: float | None
+    expire_at: int | None
+
+
 class Key:
     __slots__ = (
         "auth_key",

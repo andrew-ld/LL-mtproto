@@ -409,11 +409,11 @@ class Client:
 
         container_message = self._pending_requests.get(container_message_id, None)
 
-        if not isinstance(container_message, PendingContainerRequest):
-            raise TypeError(fr"Message id `{container_message_id!r}` is not PendingContainerRequest: `{container_message!r}`")
-
         if container_message is None:
             return
+
+        if not isinstance(container_message, PendingContainerRequest):
+            raise TypeError(fr"Message id `{container_message_id!r}` is not PendingContainerRequest: `{container_message!r}`")
 
         if all(r.response.done() for r in container_message.requests):
             self._pending_requests.pop(container_message_id, None)
