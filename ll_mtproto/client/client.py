@@ -344,7 +344,7 @@ class Client:
             message=destroy_session_message,
             seq_no_func=self._used_session_key.get_next_odd_seqno,
             allow_container=False,
-            expect_answer=True,
+            expect_answer=False,
             serialized_payload=None
         )
 
@@ -561,6 +561,8 @@ class Client:
         message.last_message_id = container_message_id
 
         self._pending_requests[container_message_id] = message
+
+        logging.debug("writing container message %d", container_message_id)
 
         await self._mtproto.write_encrypted(container_body, self._used_session_key)
 
