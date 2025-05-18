@@ -722,6 +722,19 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
         self._method, self._size = self._generate_method(parameter)
 
     @staticmethod
+    def is_supported(p: Parameter) -> bool:
+        if p.parameter_flag is not None:
+            return False
+
+        if p.type in _fixed_size_primitives:
+            return True
+
+        if p.type == "Bool":
+            return True
+
+        return False
+
+    @staticmethod
     def _unpack_int(buf: bytes) -> int:
         return int.from_bytes(buf, "little", signed=True)
 
@@ -732,6 +745,10 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
     @staticmethod
     def _unpack_double(buf: bytes) -> float:
         return _decode_float_internal(buf)[0]
+
+    @staticmethod
+    def _unpack_boolean(buf: bytes) -> bool:
+        return buf == _boolTrueConsNumber
 
     @classmethod
     def _generate_method(cls, parameter: Parameter) -> tuple[typing.Callable[[bytes], "TlBodyDataValue"], int]:
@@ -759,6 +776,9 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
 
             case "int256":
                 return operator.itemgetter(0), 32
+
+            case "Bool":
+                return cls._unpack_boolean, 4
 
             case _:
                 raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
@@ -910,7 +930,7 @@ class Constructor:
         output: list[Parameter | AbstractSpecializedDeserialization] = []
 
         for parameter in parameters:
-            if isinstance(parameter, Parameter) and parameter.type in _fixed_size_primitives and parameter.parameter_flag is None:
+            if isinstance(parameter, Parameter) and FixedSizePrimitiveFastPathDeserialization.is_supported(parameter):
                 output.append(FixedSizePrimitiveFastPathDeserialization(parameter))
             else:
                 output.append(parameter)

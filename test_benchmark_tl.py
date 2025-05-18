@@ -28,5 +28,5 @@ def test_write():
     tlschema.serialize(True, tlobjcons, tlobjdict).get_flat_bytes()
 
 
-print(timeit.timeit(test_read, number=1_000_000))
-print(timeit.timeit(test_write, number=1_000_000))
+print("read", timeit.timeit(test_read, number=1_000_000))
+print("write", timeit.timeit(test_write, number=1_000_000))
