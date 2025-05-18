@@ -511,7 +511,7 @@ class Client:
         request_body: TlBodyData | Value | None = message.serialized_payload
 
         if request_body is None:
-            request_body = message.serialized_payload = self._datacenter.schema.boxed(message.request)
+            request_body = message.serialized_payload = await self._in_thread(lambda: self._datacenter.schema.boxed(message.request))
 
         if init_connection_required:
             request_body = self._wrap_into_init_connection(request_body)
