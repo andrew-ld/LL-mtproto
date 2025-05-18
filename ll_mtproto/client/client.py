@@ -226,7 +226,7 @@ class Client:
     async def rpc_call_container(
             self,
             payloads: list[TlBodyData],
-            force_init_connection: bool = False,
+            force_init_connection: bool | None = None,
             serialized_payloads: list[Value] | None = None
     ) -> list[StructureBody | BaseException]:
         if not payloads:
