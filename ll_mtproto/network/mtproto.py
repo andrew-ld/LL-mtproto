@@ -150,10 +150,14 @@ class MTProto:
             return message, message.body
 
     async def write_unencrypted_message(self, **body: TlBodyDataValue) -> None:
+        message_id = self.get_next_message_id()
+
+        logging.debug(f"writing plain message {message_id} ({body["_cons"]})")
+
         message = self._datacenter.schema.bare_kwargs(
             _cons="unencrypted_message",
             auth_key_id=0,
-            msg_id=self.get_next_message_id(),
+            msg_id=message_id,
             body=self._datacenter.schema.boxed(body),
         )
 
