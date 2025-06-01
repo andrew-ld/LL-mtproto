@@ -21,6 +21,7 @@ class PendingContainerRequest:
     __slots__ = ("requests", "last_message_id")
 
     requests: list[PendingRequest]
+    last_message_id: int | None
 
     @staticmethod
     def _validate_request(request: PendingRequest):
