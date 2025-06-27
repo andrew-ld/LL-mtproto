@@ -229,6 +229,9 @@ class Client:
             force_init_connection: bool | None = None,
             serialized_payloads: list[Value] | None = None
     ) -> list[StructureBody | BaseException]:
+        if force_init_connection is None:
+            force_init_connection = False
+
         if not payloads:
             return []
 

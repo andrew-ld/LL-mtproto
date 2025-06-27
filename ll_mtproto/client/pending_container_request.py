@@ -24,7 +24,7 @@ class PendingContainerRequest:
     last_message_id: int | None
 
     @staticmethod
-    def _validate_request(request: PendingRequest):
+    def _validate_request(request: PendingRequest) -> None:
         if not request.allow_container:
             raise TypeError(f"Pending request `{request!r}` dont allow container.")
 

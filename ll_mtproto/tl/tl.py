@@ -1023,7 +1023,26 @@ class Constructor:
 
                 case bytes():
                     match parameter.type:
-                        case "int128" | "sha1" | "int256" | "rawobject" | "encrypted":
+                        case "rawobject" | "encrypted":
+                            data.append_serialized_tl(argument)
+
+                        case "int128" | "sha1" | "int256":
+                            match parameter.type:
+                                case "int128":
+                                    expected_size = 16
+
+                                case "sha1":
+                                    expected_size = 20
+
+                                case "int256":
+                                    expected_size = 32
+
+                                case _:
+                                    raise RuntimeError("unreachable!")
+
+                            if len(argument) != expected_size:
+                                raise TypeError(f"Cannot serialize python bytes `{argument!r}` as `{parameter!r}` because size is not `{expected_size}`")
+
                             data.append_serialized_tl(argument)
 
                         case "string" | "bytes":
