@@ -1,6 +1,3 @@
-// https://github.com/tdlib/td/blob/5d1fe744712fbc752840176135b39e82086f5578/tdutils/td/utils/crypto.cpp
-// https://en.wikipedia.org/wiki/Pollard%27s_rho_algorithm#Variants
-
 #include <Python.h>
 
 #include <openssl/aes.h>
@@ -18,6 +15,95 @@
 #include <memory>
 #include <string>
 #include <vector>
+
+#if defined(__SSE2__)
+#include <emmintrin.h>
+#elif defined(__ARM_NEON)
+#include <arm_neon.h>
+#endif
+
+#if defined(_MSC_VER)
+#define ALWAYS_INLINE __forceinline
+#elif defined(__GNUC__) || defined(__clang__)
+#define ALWAYS_INLINE inline __attribute__((always_inline))
+#else
+#define ALWAYS_INLINE inline
+#endif
+
+namespace detail {
+#if defined(__SSE2__)
+struct SimdBlock128SSE2 {
+  __m128i value;
+
+  SimdBlock128SSE2() = default;
+  ALWAYS_INLINE explicit SimdBlock128SSE2(const void *p)
+      : value(_mm_loadu_si128(static_cast<const __m128i *>(p))) {}
+  ALWAYS_INLINE void store(void *p) const {
+    _mm_storeu_si128(static_cast<__m128i *>(p), value);
+  }
+  ALWAYS_INLINE SimdBlock128SSE2 operator^(const SimdBlock128SSE2 &other) const {
+    SimdBlock128SSE2 result;
+    result.value = _mm_xor_si128(value, other.value);
+    return result;
+  }
+  ALWAYS_INLINE const uint8_t *raw() const {
+    return reinterpret_cast<const uint8_t *>(this);
+  }
+  ALWAYS_INLINE uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
+};
+#endif
+
+#if defined(__ARM_NEON)
+struct SimdBlock128NEON {
+  uint8x16_t value;
+
+  SimdBlock128NEON() = default;
+  ALWAYS_INLINE explicit SimdBlock128NEON(const void *p)
+      : value(vld1q_u8(static_cast<const uint8_t *>(p))) {}
+  ALWAYS_INLINE void store(void *p) const {
+    vst1q_u8(static_cast<uint8_t *>(p), value);
+  }
+  ALWAYS_INLINE SimdBlock128NEON operator^(const SimdBlock128NEON &other) const {
+    SimdBlock128NEON result;
+    result.value = veorq_u8(value, other.value);
+    return result;
+  }
+  ALWAYS_INLINE const uint8_t *raw() const {
+    return reinterpret_cast<const uint8_t *>(this);
+  }
+  ALWAYS_INLINE uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
+};
+#endif
+
+struct SimdBlock128Fallback {
+  uint64_t value[2];
+
+  SimdBlock128Fallback() = default;
+  ALWAYS_INLINE explicit SimdBlock128Fallback(const void *p) {
+    memcpy(value, p, 16);
+  }
+  ALWAYS_INLINE void store(void *p) const { memcpy(p, value, 16); }
+  ALWAYS_INLINE SimdBlock128Fallback
+  operator^(const SimdBlock128Fallback &other) const {
+    SimdBlock128Fallback result;
+    result.value[0] = value[0] ^ other.value[0];
+    result.value[1] = value[1] ^ other.value[1];
+    return result;
+  }
+  ALWAYS_INLINE const uint8_t *raw() const {
+    return reinterpret_cast<const uint8_t *>(this);
+  }
+  ALWAYS_INLINE uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
+};
+}
+
+#if defined(__SSE2__)
+using SimdBlock128 = detail::SimdBlock128SSE2;
+#elif defined(__ARM_NEON)
+using SimdBlock128 = detail::SimdBlock128NEON;
+#else
+using SimdBlock128 = detail::SimdBlock128Fallback;
+#endif
 
 static void set_openssl_error(const char *msg) {
   std::string err_msg = msg;
@@ -53,7 +139,7 @@ struct MutableSlice {
 namespace Random {
 thread_local static uint64_t state = 0xDEADBEEFCAFEBABEULL;
 
-uint64_t fast_uint64() {
+ALWAYS_INLINE uint64_t fast_uint64() {
   uint64_t x = state;
   x ^= x >> 12;
   x ^= x << 25;
@@ -63,7 +149,7 @@ uint64_t fast_uint64() {
 }
 }
 
-static uint64_t pq_gcd(uint64_t a, uint64_t b) {
+ALWAYS_INLINE static uint64_t pq_gcd(uint64_t a, uint64_t b) {
   while (b) {
     a %= b;
     std::swap(a, b);
@@ -71,7 +157,7 @@ static uint64_t pq_gcd(uint64_t a, uint64_t b) {
   return a;
 }
 
-static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
+ALWAYS_INLINE static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
   __int128_t res = c;
   res += (__int128_t)a * b;
   return res % pq;
@@ -132,18 +218,6 @@ uint64_t factorize_u64(uint64_t pq) {
   return 1;
 }
 
-struct AesBlock {
-  uint64_t hi, lo;
-  void load(const uint8_t *from) { memcpy(this, from, sizeof(*this)); }
-  void store(uint8_t *to) const { memcpy(to, this, sizeof(*this)); }
-  uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
-  const uint8_t *raw() const { return reinterpret_cast<const uint8_t *>(this); }
-  void operator^=(const AesBlock &b) {
-    hi ^= b.hi;
-    lo ^= b.lo;
-  }
-};
-
 class Evp {
   EVP_CIPHER_CTX *ctx_ = nullptr;
 
@@ -192,59 +266,66 @@ static const EVP_CIPHER *get_ecb_cipher() {
   return ecb_cipher.get();
 }
 
-bool aes_ige_crypt(Slice key, MutableSlice iv, bool encrypt, Slice from,
-                   MutableSlice to) {
+template <bool IsEncrypt>
+bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
+                        MutableSlice to) {
   const uint8_t *in = from.ubegin();
   uint8_t *out = to.ubegin();
   size_t len = from.size();
+  size_t num_blocks = len / 16;
 
-  AesBlock encrypted_iv, plaintext_iv;
-  encrypted_iv.load(iv.ubegin());
-  plaintext_iv.load(iv.ubegin() + 16);
+  SimdBlock128 encrypted_iv(iv.ubegin());
+  SimdBlock128 plaintext_iv(iv.ubegin() + 16);
 
   Evp evp;
   const EVP_CIPHER *cipher = get_ecb_cipher();
   if (!cipher || !evp.is_valid())
     return false;
-
-  if (!evp.init(encrypt, cipher, key))
+  if (!evp.init(IsEncrypt, cipher, key))
     return false;
 
-  if (encrypt) {
-    for (size_t i = 0; i < len; i += 16) {
-      AesBlock block;
-      block.load(in + i);
-      block ^= encrypted_iv;
+  for (size_t i = 0; i < num_blocks; ++i) {
+    SimdBlock128 in_block(in + i * 16);
+    SimdBlock128 temp_block;
 
-      if (!evp.update(block.raw(), block.raw(), 16))
-        return false;
-
-      block ^= plaintext_iv;
-      block.store(out + i);
-
-      plaintext_iv.load(in + i);
-      encrypted_iv = block;
+    if constexpr (IsEncrypt) {
+      temp_block = in_block ^ encrypted_iv;
+    } else {
+      temp_block = in_block ^ plaintext_iv;
     }
-  } else {
-    for (size_t i = 0; i < len; i += 16) {
-      AesBlock block;
-      block.load(in + i);
-      block ^= plaintext_iv;
 
-      if (!evp.update(block.raw(), block.raw(), 16))
-        return false;
+    if (!evp.update(temp_block.raw(), out + i * 16, 16))
+      return false;
 
-      block ^= encrypted_iv;
-      block.store(out + i);
+    SimdBlock128 out_block(out + i * 16);
+    if constexpr (IsEncrypt) {
+      out_block = out_block ^ plaintext_iv;
+    } else {
+      out_block = out_block ^ encrypted_iv;
+    }
+    out_block.store(out + i * 16);
 
-      encrypted_iv.load(in + i);
-      plaintext_iv = block;
+    if constexpr (IsEncrypt) {
+      plaintext_iv = in_block;
+      encrypted_iv = out_block;
+    } else {
+      encrypted_iv = in_block;
+      plaintext_iv = out_block;
     }
   }
 
   encrypted_iv.store(iv.ubegin());
   plaintext_iv.store(iv.ubegin() + 16);
   return true;
+}
+
+bool aes_ige_crypt(Slice key, MutableSlice iv, bool encrypt, Slice from,
+                   MutableSlice to) {
+  if (encrypt) {
+    return aes_ige_crypt_impl<true>(key, iv, from, to);
+  } else {
+    return aes_ige_crypt_impl<false>(key, iv, from, to);
+  }
 }
 
 static PyObject *py_secure_random(PyObject *self, PyObject *args) {
