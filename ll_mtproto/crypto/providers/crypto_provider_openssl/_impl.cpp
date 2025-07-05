@@ -117,6 +117,12 @@ static void set_openssl_error(const char *msg) {
   PyErr_SetString(PyExc_ValueError, err_msg.c_str());
 }
 
+struct PyBufferGuard {
+  Py_buffer &view;
+  PyBufferGuard(Py_buffer &v) : view(v) {}
+  ~PyBufferGuard() { PyBuffer_Release(&view); }
+};
+
 struct Slice {
   const uint8_t *data_ = nullptr;
   size_t size_ = 0;
@@ -387,11 +393,9 @@ static PyObject *py_crypt_aes_ige(PyObject *self, PyObject *args,
   if (!PyArg_ParseTuple(args, "y*y*y*", &data, &key, &iv))
     return NULL;
 
-  auto guard = std::shared_ptr<void>(nullptr, [&](void *) {
-    PyBuffer_Release(&data);
-    PyBuffer_Release(&key);
-    PyBuffer_Release(&iv);
-  });
+  PyBufferGuard data_guard(data);
+  PyBufferGuard key_guard(key);
+  PyBufferGuard iv_guard(iv);
 
   if (key.len != 32 || iv.len != 32 || data.len % 16 != 0) {
     PyErr_SetString(PyExc_ValueError,
