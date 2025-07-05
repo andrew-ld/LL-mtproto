@@ -167,10 +167,6 @@ ALWAYS_INLINE static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b,
 }
 
 uint64_t factorize_u64(uint64_t pq) {
-  uint64_t root = sqrt(pq);
-  if (root * root == pq)
-    return root;
-
   uint64_t y = Random::fast_uint64() % (pq - 1) + 1;
   uint64_t c = Random::fast_uint64() % (pq - 1) + 1;
   uint64_t m = 128;
