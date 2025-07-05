@@ -56,7 +56,7 @@ async def test():
     address_resolver = CachedTransportAddressResolver()
     transport_link_factory = TransportLinkTcpFactory(TransportCodecPerformanceTrackFactory(TransportCodecAbridgedFactory()), address_resolver)
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
-    crypto_provider = CryptoProviderCryptg()
+    crypto_provider = CryptoProviderOpenSSL()
 
     session = Client(
         datacenter_info,

@@ -20,7 +20,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     address_resolver = CachedTransportAddressResolver()
     transport_link_factory = TransportLinkTcpFactory(TransportCodecAbridgedFactory(), address_resolver)
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=multiprocessing.cpu_count())
-    crypto_provider = CryptoProviderCryptg()
+    crypto_provider = CryptoProviderOpenSSL()
 
     session = Client(
         datacenter_info,

@@ -35,7 +35,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
 
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
 
-    crypto_provider = CryptoProviderCryptg()
+    crypto_provider = CryptoProviderOpenSSL()
 
     error_description_resolver = PwrTelegramErrorDescriptionResolver()
 

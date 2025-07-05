@@ -42,7 +42,7 @@ class TransportCodecAbridged(TransportCodecBase):
 
         return await reader.readexactly(packet_data_length * 4)
 
-    async def write_packet(self, writer: asyncio.StreamWriter, data: bytes) -> None:
+    async def write_packet(self, writer: asyncio.StreamWriter, data: bytes | bytearray) -> None:
         packet_header = bytearray()
 
         if self._must_write_transport_type:

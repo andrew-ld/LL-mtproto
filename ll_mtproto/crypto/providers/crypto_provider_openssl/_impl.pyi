@@ -14,24 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import abc
 
-__all__ = ("CryptoProviderBase",)
+def secure_random(nbytes: int) -> bytes:
+    ...
 
+def factorize_pq(pq: int) -> tuple[int, int]:
+    ...
 
-class CryptoProviderBase(abc.ABC):
-    @abc.abstractmethod
-    def factorize_pq(self, pq: int) -> tuple[int, int]:
-        raise NotImplementedError()
+def encrypt_aes_ige(plaintext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
+    ...
 
-    @abc.abstractmethod
-    def secure_random(self, nbytes: int) -> bytes:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def decrypt_aes_ige(self, plaintext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def encrypt_aes_ige(self, ciphertext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
-        raise NotImplementedError()
+def decrypt_aes_ige(ciphertext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
+    ...

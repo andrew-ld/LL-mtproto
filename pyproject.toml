@@ -14,13 +14,6 @@ authors = [
 readme = "README.md"
 license = { file = "LICENSE" }
 requires-python = ">=3.13.0"
-dynamic = ["dependencies"]
-
-[tool.setuptools.dynamic]
-dependencies = {file = ["requirements.txt"]}
-
-[tool.setuptools]
-include-package-data = true
 
 [tool.mypy]
 python_version = "3.13"
@@ -28,7 +21,3 @@ files = [ "ll_mtproto/tl/tl.py" ]
 warn_return_any = true
 warn_unused_configs = true
 strict = true
-
-[[tool.mypy.overrides]]
-module = ["cryptg.*"]
-ignore_missing_imports = true

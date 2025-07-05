@@ -14,30 +14,23 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import secrets
 
-import cryptg
-
+from ll_mtproto.crypto.providers.crypto_provider_openssl import _impl
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 
-__all__ = ("CryptoProviderCryptg",)
+
+__all__ = ("CryptoProviderOpenSSL",)
 
 
-class CryptoProviderCryptg(CryptoProviderBase):
+class CryptoProviderOpenSSL(CryptoProviderBase):
     def factorize_pq(self, pq: int) -> tuple[int, int]:
-        return cryptg.factorize_pq_pair(pq)
-
-    def decrypt_aes_ige(self, plaintext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
-        result_ciphertext = bytes(plaintext)
-        result_iv = bytes(iv)
-        cryptg.decrypt_ige(result_ciphertext, key, result_iv)
-        return result_ciphertext, result_iv
-
-    def encrypt_aes_ige(self, ciphertext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
-        result_plaintext = bytes(ciphertext)
-        result_iv = bytes(iv)
-        cryptg.encrypt_ige(result_plaintext, key, result_iv)
-        return result_plaintext, result_iv
+        return _impl.factorize_pq(pq)
 
     def secure_random(self, nbytes: int) -> bytes:
-        return secrets.token_bytes(nbytes)
+        return _impl.secure_random(nbytes)
+
+    def encrypt_aes_ige(self, plaintext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
+        return _impl.encrypt_aes_ige(plaintext, key, iv)
+
+    def decrypt_aes_ige(self, ciphertext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
+        return _impl.decrypt_aes_ige(ciphertext, key, iv)

@@ -149,7 +149,7 @@ class TransportLinkTcp(TransportLinkBase):
         del read_buffer[:n]
         return bytes(result)
 
-    async def write(self, data: bytes) -> None:
+    async def write(self, data: bytes | bytearray) -> None:
         data = bytearray(data)
 
         _, writer, codec, _ = await self._reconnect_if_needed()

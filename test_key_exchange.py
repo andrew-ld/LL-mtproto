@@ -7,7 +7,7 @@ from ll_mtproto import TelegramDatacenter
 from ll_mtproto.client.client import Client
 from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.crypto.auth_key import AuthKey
-from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCryptg
+from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.dh.mtproto_key_creator_dispatcher import initialize_key_creator_dispatcher
 from ll_mtproto.network.dispatcher import dispatch_event
@@ -17,7 +17,7 @@ from ll_mtproto.network.transport.transport_codec_abridged import TransportCodec
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
 
 blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
-crypto_provider = CryptoProviderCryptg()
+crypto_provider = CryptoProviderOpenSSL()
 resolver = CachedTransportAddressResolver()
 link = TransportLinkTcpFactory(TransportCodecAbridgedFactory(), resolver)
 

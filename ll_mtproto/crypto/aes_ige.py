@@ -44,11 +44,13 @@ class AesIge:
         if len(cipher) % 16 != 0:
             raise ValueError(f"Encrypted length must be divisible by 16 bytes")
 
-        return self._crypto_provider.decrypt_aes_ige(cipher, self._key, self._iv)
+        plaintext, self._iv = self._crypto_provider.decrypt_aes_ige(cipher, self._key, self._iv)
+        return plaintext
 
     def encrypt(self, plain: bytes) -> bytes:
         padded_plain = plain + self._crypto_provider.secure_random((-len(plain)) % 16)
-        return self._crypto_provider.encrypt_aes_ige(padded_plain, self._key, self._iv)
+        ciphertext, self._iv = self._crypto_provider.encrypt_aes_ige(padded_plain, self._key, self._iv)
+        return ciphertext
 
     def encrypt_with_hash(self, plain: bytes) -> bytes:
         return self.encrypt(sha1(plain) + plain)

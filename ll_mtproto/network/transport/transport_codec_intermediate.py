@@ -36,7 +36,7 @@ class TransportCodecIntermediate(TransportCodecBase):
         packet_data_length = struct.unpack("<i", await reader.readexactly(4))
         return await reader.readexactly(*packet_data_length)
 
-    async def write_packet(self, writer: asyncio.StreamWriter, data: bytes) -> None:
+    async def write_packet(self, writer: asyncio.StreamWriter, data: bytes | bytearray) -> None:
         packet_header = bytearray()
 
         if self._must_write_transport_type:
