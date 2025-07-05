@@ -235,7 +235,6 @@ public:
   bool init(bool is_encrypt, const EVP_CIPHER *cipher, Slice key) {
     if (UNLIKELY(EVP_CipherInit_ex(ctx_, cipher, nullptr, key.ubegin(), nullptr,
                                    is_encrypt ? 1 : 0) != 1)) {
-      set_openssl_error("EVP_CipherInit_ex failed");
       return false;
     }
     EVP_CIPHER_CTX_set_padding(ctx_, 0);
@@ -246,7 +245,6 @@ public:
     int len;
     if (UNLIKELY(EVP_CipherUpdate(ctx_, dst, &len, src, size) != 1 ||
                  len != size)) {
-      set_openssl_error("EVP_CipherUpdate failed");
       return false;
     }
     return true;
@@ -264,7 +262,6 @@ static const EVP_CIPHER *get_ecb_cipher() {
     ecb_cipher.reset(EVP_CIPHER_fetch(nullptr, "AES-256-ECB", nullptr));
   }
   if (UNLIKELY(!ecb_cipher)) {
-    set_openssl_error("EVP_CIPHER_fetch failed for AES-256-ECB");
     return nullptr;
   }
   return ecb_cipher.get();
@@ -355,7 +352,12 @@ static PyObject *py_secure_random(PyObject *self, PyObject *args) {
 
   char *buffer = PyBytes_AS_STRING(result);
 
-  if (UNLIKELY(RAND_bytes(reinterpret_cast<uint8_t *>(buffer), nbytes) != 1)) {
+  int is_success;
+  Py_BEGIN_ALLOW_THREADS;
+  is_success = RAND_bytes(reinterpret_cast<uint8_t *>(buffer), nbytes);
+  Py_END_ALLOW_THREADS;
+
+  if (UNLIKELY(is_success != 1)) {
     set_openssl_error("RAND_bytes failed");
     Py_DECREF(result);
     return NULL;
@@ -381,7 +383,10 @@ static PyObject *py_factorize_pq(PyObject *self, PyObject *args) {
     return NULL;
   }
 
-  uint64_t p = factorize_u64(pq);
+  uint64_t p;
+  Py_BEGIN_ALLOW_THREADS;
+  p = factorize_u64(pq);
+  Py_END_ALLOW_THREADS;
 
   if (UNLIKELY(p <= 1 || pq % p != 0)) {
     PyErr_SetString(PyExc_ValueError, "Factorization failed.");
@@ -432,9 +437,14 @@ static PyObject *py_crypt_aes_ige(PyObject *self, PyObject *args,
 
   memcpy(next_iv_ptr, iv.buf, iv.len);
 
-  if (UNLIKELY(!aes_ige_crypt(
-          Slice(key.buf, key.len), MutableSlice(next_iv_ptr, iv.len), encrypt,
-          Slice(data.buf, data.len), MutableSlice(out_data_ptr, data.len)))) {
+  bool success;
+  Py_BEGIN_ALLOW_THREADS;
+  success = aes_ige_crypt(
+      Slice(key.buf, key.len), MutableSlice(next_iv_ptr, iv.len), encrypt,
+      Slice(data.buf, data.len), MutableSlice(out_data_ptr, data.len));
+  Py_END_ALLOW_THREADS;
+
+  if (UNLIKELY(!success)) {
     Py_DECREF(result_bytes);
     Py_DECREF(next_iv_bytes);
     return NULL;
