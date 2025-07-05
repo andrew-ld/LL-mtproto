@@ -41,7 +41,8 @@ struct SimdBlock128SSE2 {
   ALWAYS_INLINE void store(void *p) const {
     _mm_storeu_si128(static_cast<__m128i *>(p), value);
   }
-  ALWAYS_INLINE SimdBlock128SSE2 operator^(const SimdBlock128SSE2 &other) const {
+  ALWAYS_INLINE SimdBlock128SSE2
+  operator^(const SimdBlock128SSE2 &other) const {
     SimdBlock128SSE2 result;
     result.value = _mm_xor_si128(value, other.value);
     return result;
@@ -63,7 +64,8 @@ struct SimdBlock128NEON {
   ALWAYS_INLINE void store(void *p) const {
     vst1q_u8(static_cast<uint8_t *>(p), value);
   }
-  ALWAYS_INLINE SimdBlock128NEON operator^(const SimdBlock128NEON &other) const {
+  ALWAYS_INLINE SimdBlock128NEON
+  operator^(const SimdBlock128NEON &other) const {
     SimdBlock128NEON result;
     result.value = veorq_u8(value, other.value);
     return result;
@@ -157,29 +159,21 @@ ALWAYS_INLINE static uint64_t pq_gcd(uint64_t a, uint64_t b) {
   return a;
 }
 
-ALWAYS_INLINE static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
+ALWAYS_INLINE static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b,
+                                         uint64_t pq) {
   __int128_t res = c;
   res += (__int128_t)a * b;
   return res % pq;
 }
 
 uint64_t factorize_u64(uint64_t pq) {
-  if (pq <= 1)
-    return 1;
-  if (pq % 2 == 0)
-    return 2;
-  if (pq % 3 == 0)
-    return 3;
-  if (pq % 5 == 0)
-    return 5;
-
   uint64_t root = sqrt(pq);
   if (root * root == pq)
     return root;
 
   uint64_t y = Random::fast_uint64() % (pq - 1) + 1;
   uint64_t c = Random::fast_uint64() % (pq - 1) + 1;
-  uint64_t m = Random::fast_uint64() % (pq - 1) + 1;
+  uint64_t m = 128;
   uint64_t g = 1, r = 1, q = 1, x = 0, ys = 0;
 
   while (g == 1) {
@@ -190,23 +184,24 @@ uint64_t factorize_u64(uint64_t pq) {
     uint64_t k = 0;
     while (k < r && g == 1) {
       ys = y;
-      for (uint64_t i = 0; i < std::min(m, r - k); i++) {
+      uint64_t iterations = std::min(m, r - k);
+      for (uint64_t i = 0; i < iterations; i++) {
         y = pq_add_mul(c, y, y, pq);
-        q = pq_add_mul(0, q, (x > y ? x - y : y - x), pq);
+        uint64_t diff = (x > y) ? (x - y) : (y - x);
+        q = pq_add_mul(0, q, diff, pq);
       }
       g = pq_gcd(q, pq);
-      k += m;
+      k += iterations;
     }
     r *= 2;
   }
 
   if (g == pq) {
+    g = 1;
     y = ys;
-    while (true) {
+    while (g == 1) {
       y = pq_add_mul(c, y, y, pq);
       g = pq_gcd((x > y ? x - y : y - x), pq);
-      if (g > 1)
-        break;
     }
   }
 
