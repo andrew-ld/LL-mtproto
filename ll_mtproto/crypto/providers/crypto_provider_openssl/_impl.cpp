@@ -1,7 +1,5 @@
 #include <Python.h>
 
-#include <openssl/aes.h>
-#include <openssl/bn.h>
 #include <openssl/core_names.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
@@ -328,12 +326,21 @@ static PyObject *py_secure_random(PyObject *self, PyObject *args) {
     PyErr_SetString(PyExc_ValueError, "nbytes must be non-negative");
     return NULL;
   }
-  std::vector<uint8_t> buffer(nbytes);
-  if (RAND_bytes(buffer.data(), nbytes) != 1) {
-    set_openssl_error("RAND_bytes failed");
+
+  PyObject *result = PyBytes_FromStringAndSize(NULL, nbytes);
+  if (!result) {
     return NULL;
   }
-  return PyBytes_FromStringAndSize((char *)buffer.data(), nbytes);
+
+  char *buffer = PyBytes_AS_STRING(result);
+
+  if (RAND_bytes(reinterpret_cast<uint8_t *>(buffer), nbytes) != 1) {
+    set_openssl_error("RAND_bytes failed");
+    Py_DECREF(result);
+    return NULL;
+  }
+
+  return result;
 }
 
 static PyObject *py_factorize_pq(PyObject *self, PyObject *args) {
@@ -392,24 +399,25 @@ static PyObject *py_crypt_aes_ige(PyObject *self, PyObject *args,
     return NULL;
   }
 
-  std::vector<uint8_t> out_data(data.len);
-  std::vector<uint8_t> next_iv(iv.len);
-  memcpy(next_iv.data(), iv.buf, iv.len);
+  PyObject *result_bytes = PyBytes_FromStringAndSize(NULL, data.len);
+  PyObject *next_iv_bytes = PyBytes_FromStringAndSize(NULL, iv.len);
 
-  if (!aes_ige_crypt(Slice(key.buf, key.len),
-                     MutableSlice(next_iv.data(), next_iv.size()), encrypt,
-                     Slice(data.buf, data.len),
-                     MutableSlice(out_data.data(), out_data.size()))) {
-    return NULL;
-  }
-
-  PyObject *result_bytes =
-      PyBytes_FromStringAndSize((char *)out_data.data(), out_data.size());
-  PyObject *next_iv_bytes =
-      PyBytes_FromStringAndSize((char *)next_iv.data(), next_iv.size());
   if (!result_bytes || !next_iv_bytes) {
     Py_XDECREF(result_bytes);
     Py_XDECREF(next_iv_bytes);
+    return PyErr_NoMemory();
+  }
+
+  uint8_t *out_data_ptr = (uint8_t *)PyBytes_AS_STRING(result_bytes);
+  uint8_t *next_iv_ptr = (uint8_t *)PyBytes_AS_STRING(next_iv_bytes);
+
+  memcpy(next_iv_ptr, iv.buf, iv.len);
+
+  if (!aes_ige_crypt(Slice(key.buf, key.len), MutableSlice(next_iv_ptr, iv.len),
+                     encrypt, Slice(data.buf, data.len),
+                     MutableSlice(out_data_ptr, data.len))) {
+    Py_DECREF(result_bytes);
+    Py_DECREF(next_iv_bytes);
     return NULL;
   }
 
