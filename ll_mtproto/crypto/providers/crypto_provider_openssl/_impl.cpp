@@ -173,6 +173,7 @@ static uint64_t state;
 void seed() { RAND_bytes(reinterpret_cast<uint8_t *>(&state), sizeof(state)); }
 
 uint64_t fast_uint64() {
+  // https://en.wikipedia.org/wiki/Xorshift#xorshift*
   uint64_t x = state;
   x ^= x >> 12;
   x ^= x << 25;
@@ -184,6 +185,7 @@ uint64_t fast_uint64() {
 
 #ifdef COUNT_TRAILING_ZEROS
 static uint64_t pq_gcd(uint64_t a, uint64_t b) {
+  // https://en.wikipedia.org/wiki/Binary_GCD_algorithm
   if (UNLIKELY(a == 0))
     return b;
   if (UNLIKELY(b == 0))
@@ -238,6 +240,9 @@ static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
 #endif
 
 uint64_t factorize_u64(uint64_t pq) {
+  // https://en.wikipedia.org/wiki/Pollard%27s_rho_algorithm
+  // https://en.wikipedia.org/wiki/Cycle_detection#Floyd's_tortoise_and_hare
+  // https://maths-people.anu.edu.au/~brent/pd/rpb051i.pdf
   uint64_t y = Random::fast_uint64() % (pq - 1) + 1;
   uint64_t c = Random::fast_uint64() % (pq - 1) + 1;
   uint64_t m = 128;
@@ -329,6 +334,7 @@ static const EVP_CIPHER *get_ecb_cipher() {
 template <bool IsEncrypt>
 bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
                         MutableSlice to) {
+  // https://github.com/tdlib/td/blob/5d1fe744712fbc752840176135b39e82086f5578/tdutils/td/utils/crypto.cpp#L487
   const uint8_t *in = from.ubegin();
   uint8_t *out = to.ubegin();
   size_t len = from.size();
