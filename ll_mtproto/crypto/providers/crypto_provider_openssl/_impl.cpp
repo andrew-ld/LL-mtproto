@@ -14,10 +14,16 @@
 #include <string>
 #include <vector>
 
+#if defined(_MSC_VER)
+#include <intrin.h>
+#endif
+
 #if defined(__SSE2__)
 #include <emmintrin.h>
+#define HAS_EMMINTRIN
 #elif defined(__ARM_NEON)
 #include <arm_neon.h>
+#define HAS_ARM_NEON
 #endif
 
 #if defined(_MSC_VER)
@@ -26,6 +32,17 @@
 #define ALWAYS_INLINE inline __attribute__((always_inline))
 #else
 #define ALWAYS_INLINE inline
+#endif
+
+#if defined(__x86_64__)
+#include <immintrin.h>
+#define HAS_IMMINTRIN
+#endif
+
+#if defined(HAS_IMMINTRIN)
+#define COUNT_TRAILING_ZEROS(x) _tzcnt_u64(x)
+#elif defined(__GNUC__) || defined(__clang__)
+#define COUNT_TRAILING_ZEROS(x) __builtin_ctzll(x)
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -37,7 +54,7 @@
 #endif
 
 namespace detail {
-#if defined(__SSE2__)
+#if defined(HAS_EMMINTRIN)
 struct alignas(16) SimdBlock128SSE2 {
   __m128i value;
 
@@ -60,7 +77,7 @@ struct alignas(16) SimdBlock128SSE2 {
 };
 #endif
 
-#if defined(__ARM_NEON)
+#if defined(HAS_ARM_NEON)
 struct alignas(16) SimdBlock128NEON {
   uint8x16_t value;
 
@@ -105,9 +122,9 @@ struct alignas(16) SimdBlock128Fallback {
 };
 } // namespace detail
 
-#if defined(__SSE2__)
+#if defined(HAS_EMMINTRIN)
 using SimdBlock128 = detail::SimdBlock128SSE2;
-#elif defined(__ARM_NEON)
+#elif defined(HAS_ARM_NEON)
 using SimdBlock128 = detail::SimdBlock128NEON;
 #else
 using SimdBlock128 = detail::SimdBlock128Fallback;
@@ -153,7 +170,7 @@ struct MutableSlice {
 namespace Random {
 thread_local static uint64_t state = 0xDEADBEEFCAFEBABEULL;
 
-ALWAYS_INLINE uint64_t fast_uint64() {
+uint64_t fast_uint64() {
   uint64_t x = state;
   x ^= x >> 12;
   x ^= x << 25;
@@ -163,20 +180,60 @@ ALWAYS_INLINE uint64_t fast_uint64() {
 }
 } // namespace Random
 
-ALWAYS_INLINE static uint64_t pq_gcd(uint64_t a, uint64_t b) {
+#ifdef COUNT_TRAILING_ZEROS
+static uint64_t pq_gcd(uint64_t a, uint64_t b) {
+  if (a == 0)
+    return b;
+  if (b == 0)
+    return a;
+
+  unsigned long a_tz = COUNT_TRAILING_ZEROS(a);
+  unsigned long b_tz = COUNT_TRAILING_ZEROS(b);
+  unsigned long common_factor_pow2 = std::min(a_tz, b_tz);
+
+  a >>= a_tz;
+  b >>= b_tz;
+
+  while (true) {
+    if (a > b) {
+      a -= b;
+      a >>= COUNT_TRAILING_ZEROS(a);
+    } else if (b > a) {
+      b -= a;
+      b >>= COUNT_TRAILING_ZEROS(b);
+    } else {
+      break;
+    }
+  }
+
+  return a << common_factor_pow2;
+}
+#else
+static uint64_t pq_gcd(uint64_t a, uint64_t b) {
   while (b) {
     a %= b;
     std::swap(a, b);
   }
   return a;
 }
+#endif
 
-ALWAYS_INLINE static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b,
-                                         uint64_t pq) {
+#if defined(HAS_IMMINTRIN)
+static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
+  unsigned long long low, high;
+  low = _mulx_u64(a, b, &high);
+  unsigned char carry = _addcarry_u64(0, low, c, &low);
+  _addcarry_u64(carry, high, 0, &high);
+  __int128_t res = ((__int128_t)high << 64) | low;
+  return res % pq;
+}
+#else
+static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
   __int128_t res = c;
   res += (__int128_t)a * b;
   return res % pq;
 }
+#endif
 
 uint64_t factorize_u64(uint64_t pq) {
   uint64_t y = Random::fast_uint64() % (pq - 1) + 1;

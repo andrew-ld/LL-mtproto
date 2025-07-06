@@ -1,11 +1,16 @@
+import sysconfig
+
 from mypyc.build import mypycify
 from setuptools import setup, Extension
+
+sysconfig_platform = sysconfig.get_platform()
+is_x86_64 = sysconfig_platform.endswith('x86_64')
 
 mypyc_extensions = mypycify([
     'll_mtproto/tl/tl.py',
 ])
 
-cpp_extension = Extension(
+openssl_crypto_provider = Extension(
     'll_mtproto.crypto.providers.crypto_provider_openssl._impl',
     sources=['ll_mtproto/crypto/providers/crypto_provider_openssl/_impl.cpp'],
     libraries=['crypto'],
@@ -14,6 +19,9 @@ cpp_extension = Extension(
     language='c++',
 )
 
+if is_x86_64:
+    openssl_crypto_provider.extra_compile_args.append("-march=haswell")
+
 setup(
-    ext_modules=mypyc_extensions + [cpp_extension],
+    ext_modules=mypyc_extensions + [openssl_crypto_provider],
 )
