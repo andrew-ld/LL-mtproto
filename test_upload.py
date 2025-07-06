@@ -8,6 +8,7 @@ import secrets
 import time
 
 from ll_mtproto import *
+from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 
 
 async def test(api_id: int, api_hash: str, bot_token: str):

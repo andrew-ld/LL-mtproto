@@ -1,9 +1,9 @@
 import time
 import statistics
 
-from ll_mtproto import CryptoProviderOpenSSL
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.crypto.providers.crypto_provider_cryptg import CryptoProviderCryptg
+from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 
 
 def benchmark_random(data_size: int, iterations: int, provider: CryptoProviderBase) -> None:

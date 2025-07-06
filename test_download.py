@@ -5,6 +5,7 @@ import concurrent.futures
 import logging
 
 from ll_mtproto import *
+from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 
 
 async def get_updates(client: Client):

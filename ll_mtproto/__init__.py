@@ -26,7 +26,6 @@ from ll_mtproto.network.transport.transport_address_resolver_cached import Cache
 from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediateFactory
 from ll_mtproto.network.transport.transport_codec_abridged import TransportCodecAbridgedFactory
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
-from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 
 __all__ = (
     "Client",
@@ -41,5 +40,4 @@ __all__ = (
     "TransportCodecAbridgedFactory",
     "TransportLinkTcpFactory",
     "PwrTelegramErrorDescriptionResolver",
-    "CryptoProviderOpenSSL"
 )
