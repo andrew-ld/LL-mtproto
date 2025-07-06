@@ -184,9 +184,9 @@ uint64_t fast_uint64() {
 
 #ifdef COUNT_TRAILING_ZEROS
 static uint64_t pq_gcd(uint64_t a, uint64_t b) {
-  if (a == 0)
+  if (UNLIKELY(a == 0))
     return b;
-  if (b == 0)
+  if (UNLIKELY(b == 0))
     return a;
 
   unsigned long a_tz = COUNT_TRAILING_ZEROS(a);
