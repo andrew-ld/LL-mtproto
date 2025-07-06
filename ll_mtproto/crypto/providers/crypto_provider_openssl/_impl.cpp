@@ -168,7 +168,9 @@ struct MutableSlice {
 };
 
 namespace Random {
-thread_local static uint64_t state = 0xDEADBEEFCAFEBABEULL;
+static uint64_t state;
+
+void seed() { RAND_bytes(reinterpret_cast<uint8_t *>(&state), sizeof(state)); }
 
 uint64_t fast_uint64() {
   uint64_t x = state;
@@ -540,4 +542,7 @@ static struct PyModuleDef crypto_module = {
     .m_clear = NULL,
     .m_free = NULL};
 
-PyMODINIT_FUNC PyInit__impl(void) { return PyModule_Create(&crypto_module); }
+PyMODINIT_FUNC PyInit__impl(void) {
+  Random::seed();
+  return PyModule_Create(&crypto_module);
+}

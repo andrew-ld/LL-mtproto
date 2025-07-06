@@ -120,7 +120,7 @@ def benchmark_ige(data_size: int, iterations: int, provider: CryptoProviderBase)
 def benchmark_provider(provider: CryptoProviderBase) -> None:
     print(f"\n--- Benchmarking provider {provider.__class__.__name__} ---")
 
-    benchmark_factorize(iterations=1000, provider=provider)
+    benchmark_factorize(iterations=10_000, provider=provider)
 
     test_cases = [
         (
