@@ -53,6 +53,16 @@
 #define UNLIKELY(x) (x)
 #endif
 
+#if defined(__GNUC__) || defined(__clang__)
+#define PREFETCH_READ_NTA(addr)                                                \
+  __builtin_prefetch((addr), 0, 0) // Non-temporal (streaming)
+#define PREFETCH_WRITE_NTA(addr)                                               \
+  __builtin_prefetch((addr), 1, 0) // Write, non-temporal
+#else
+#define PREFETCH_READ_NTA(addr)
+#define PREFETCH_WRITE_NTA(addr)
+#endif
+
 namespace detail {
 #if defined(HAS_EMMINTRIN)
 struct alignas(16) SimdBlock128SSE2 {
@@ -350,14 +360,19 @@ bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
   if (UNLIKELY(!evp.init(IsEncrypt, cipher, key)))
     return false;
 
-  for (size_t i = 0; i < num_blocks; ++i) {
-#if defined(__GNUC__) || defined(__clang__)
-    static const size_t kPrefetchDistance = 4;
-    __builtin_prefetch(in + (i + kPrefetchDistance) * 16, 0, 3);
-    __builtin_prefetch(out + (i + kPrefetchDistance) * 16, 1, 3);
-#endif
+  static constexpr size_t PREFETCH_DISTANCE_1 = 64;
+  static constexpr size_t PREFETCH_DISTANCE_2 = 128;
 
-    SimdBlock128 in_block(in + i * 16);
+  for (size_t i = 0; i < num_blocks; ++i) {
+    const uint8_t *current_in = in + i * 16;
+    uint8_t *current_out = out + i * 16;
+
+    PREFETCH_READ_NTA(current_in + PREFETCH_DISTANCE_1);
+    PREFETCH_WRITE_NTA(current_out + PREFETCH_DISTANCE_1);
+    PREFETCH_READ_NTA(current_in + PREFETCH_DISTANCE_2);
+    PREFETCH_WRITE_NTA(current_out + PREFETCH_DISTANCE_2);
+
+    SimdBlock128 in_block(current_in);
     SimdBlock128 temp_block;
 
     if constexpr (IsEncrypt) {
@@ -366,16 +381,16 @@ bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
       temp_block = in_block ^ plaintext_iv;
     }
 
-    if (UNLIKELY(!evp.update(temp_block.raw(), out + i * 16, 16)))
+    if (UNLIKELY(!evp.update(temp_block.raw(), current_out, 16)))
       return false;
 
-    SimdBlock128 out_block(out + i * 16);
+    SimdBlock128 out_block(current_out);
     if constexpr (IsEncrypt) {
       out_block = out_block ^ plaintext_iv;
     } else {
       out_block = out_block ^ encrypted_iv;
     }
-    out_block.store(out + i * 16);
+    out_block.store(current_out);
 
     if constexpr (IsEncrypt) {
       plaintext_iv = in_block;
