@@ -54,10 +54,8 @@
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
-#define PREFETCH_READ_NTA(addr)                                                \
-  __builtin_prefetch((addr), 0, 0) // Non-temporal (streaming)
-#define PREFETCH_WRITE_NTA(addr)                                               \
-  __builtin_prefetch((addr), 1, 0) // Write, non-temporal
+#define PREFETCH_READ_NTA(addr) __builtin_prefetch((addr), 0, 0)
+#define PREFETCH_WRITE_NTA(addr) __builtin_prefetch((addr), 1, 0)
 #else
 #define PREFETCH_READ_NTA(addr)
 #define PREFETCH_WRITE_NTA(addr)
@@ -360,18 +358,8 @@ bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
   if (UNLIKELY(!evp.init(IsEncrypt, cipher, key)))
     return false;
 
-  static constexpr size_t PREFETCH_DISTANCE_1 = 64;
-  static constexpr size_t PREFETCH_DISTANCE_2 = 128;
-
-  for (size_t i = 0; i < num_blocks; ++i) {
-    const uint8_t *current_in = in + i * 16;
-    uint8_t *current_out = out + i * 16;
-
-    PREFETCH_READ_NTA(current_in + PREFETCH_DISTANCE_1);
-    PREFETCH_WRITE_NTA(current_out + PREFETCH_DISTANCE_1);
-    PREFETCH_READ_NTA(current_in + PREFETCH_DISTANCE_2);
-    PREFETCH_WRITE_NTA(current_out + PREFETCH_DISTANCE_2);
-
+  auto process_block = [&](const uint8_t *current_in,
+                           uint8_t *current_out) -> bool {
     SimdBlock128 in_block(current_in);
     SimdBlock128 temp_block;
 
@@ -399,6 +387,32 @@ bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
       encrypted_iv = in_block;
       plaintext_iv = out_block;
     }
+    return true;
+  };
+
+  size_t i = 0;
+
+  for (; i + 4 <= num_blocks; i += 4) {
+    const size_t offset = i << 4;
+    const size_t prefetch_offset = offset + 64;
+
+    PREFETCH_WRITE_NTA(out + prefetch_offset);
+    PREFETCH_READ_NTA(in + prefetch_offset);
+
+    if (UNLIKELY(!process_block(in + offset, out + offset)))
+      return false;
+    if (UNLIKELY(!process_block(in + offset + 16, out + offset + 16)))
+      return false;
+    if (UNLIKELY(!process_block(in + offset + 32, out + offset + 32)))
+      return false;
+    if (UNLIKELY(!process_block(in + offset + 48, out + offset + 48)))
+      return false;
+  }
+
+  for (; i < num_blocks; i++) {
+    const size_t offset = i << 4;
+    if (UNLIKELY(!process_block(in + offset, out + offset)))
+      return false;
   }
 
   encrypted_iv.store(iv.ubegin());
@@ -535,6 +549,7 @@ static PyObject *py_crypt_aes_ige(PyObject *self, PyObject *args,
   Py_END_ALLOW_THREADS;
 
   if (UNLIKELY(!success)) {
+    set_openssl_error("AES-IGE operation failed");
     Py_DECREF(result_bytes);
     Py_DECREF(next_iv_bytes);
     return NULL;
