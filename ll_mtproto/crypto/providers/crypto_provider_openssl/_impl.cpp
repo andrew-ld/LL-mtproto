@@ -228,7 +228,7 @@ static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
   low = _mulx_u64(a, b, &high);
   unsigned char carry = _addcarry_u64(0, low, c, &low);
   _addcarry_u64(carry, high, 0, &high);
-  __int128_t res = ((__int128_t)high << 64) | low;
+  __uint128_t res = ((__uint128_t)high << 64) | low;
   return (uint64_t)(res % (__uint128_t)pq);
 }
 #else
