@@ -120,6 +120,13 @@ def benchmark_ige(data_size: int, iterations: int, provider: CryptoProviderBase)
 def benchmark_provider(provider: CryptoProviderBase) -> None:
     print(f"\n--- Benchmarking provider {provider.__class__.__name__} ---")
 
+    random_data = provider.secure_random(1024 * 1024 * 32)
+    random_key = provider.secure_random(32)
+    random_iv = provider.secure_random(32)
+    random_data_encrypted, _ = provider.encrypt_aes_ige(random_data, random_key, random_iv)
+    random_data_decrypted, _ = provider.decrypt_aes_ige(random_data_encrypted, random_key, random_iv)
+    assert random_data_decrypted == random_data
+
     benchmark_factorize(iterations=10_000, provider=provider)
 
     test_cases = [
