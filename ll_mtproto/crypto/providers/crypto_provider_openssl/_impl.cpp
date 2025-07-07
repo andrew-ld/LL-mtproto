@@ -454,10 +454,12 @@ static PyObject *py_factorize_pq(PyObject *self, PyObject *args) {
   unsigned int retries = 0;
 retry:
   p = factorize_u64(pq);
-  if (UNLIKELY(p <= 1 && retries < 3)) {
-    retries += 1;
-    // This is a probabilistic algorithm.
-    goto retry;
+  if (UNLIKELY(p <= 1)) {
+    if (LIKELY(retries < 3)) {
+      retries += 1;
+      // This is a probabilistic algorithm.
+      goto retry;
+    }
   }
   Py_END_ALLOW_THREADS;
 
