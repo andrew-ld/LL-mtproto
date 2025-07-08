@@ -391,7 +391,7 @@ static Provider *get_aes_256_ecb_provider() {
   return &cache;
 }
 
-class Evp {
+template <bool IsEncrypt> class Evp {
   void *provctx_ = nullptr;
   const Provider *provfunc_ = nullptr;
 
@@ -407,7 +407,7 @@ public:
       provfunc_->freectx(provctx_);
   }
 
-  [[nodiscard]] bool init(const bool is_encrypt, const Slice key) const {
+  [[nodiscard]] bool init(const Slice key) const {
     if (!provctx_ || !provfunc_)
       return false;
 
@@ -420,7 +420,8 @@ public:
     provfunc_->set_ctx_params(provctx_, params);
 
     int ret;
-    if (is_encrypt) {
+
+    if constexpr (IsEncrypt) {
       ret = provfunc_->encrypt_init(provctx_, key.ubegin(), key.size(), nullptr,
                                     0, nullptr);
     } else {
@@ -450,8 +451,8 @@ auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
   SimdBlock128 encrypted_iv(iv.ubegin());
   SimdBlock128 plaintext_iv(iv.ubegin() + 16);
 
-  const Evp evp;
-  if (UNLIKELY(!evp.init(IsEncrypt, key)))
+  const Evp<IsEncrypt> evp;
+  if (UNLIKELY(!evp.init(key)))
     return false;
 
   auto process_block = [&](const uint8_t *current_in,
