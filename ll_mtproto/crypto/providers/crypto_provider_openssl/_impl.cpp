@@ -1,7 +1,11 @@
 #include <Python.h>
 
+#include <openssl/core_dispatch.h>
+#include <openssl/core_names.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
+#include <openssl/params.h>
+#include <openssl/provider.h>
 #include <openssl/rand.h>
 
 #include <algorithm>
@@ -63,20 +67,25 @@ struct alignas(16) SimdBlock128SSE2 {
   __m128i value;
 
   SimdBlock128SSE2() = default;
+
   ALWAYS_INLINE explicit SimdBlock128SSE2(const void *p)
       : value(_mm_loadu_si128(static_cast<const __m128i *>(p))) {}
+
   ALWAYS_INLINE void store(void *p) const {
     _mm_storeu_si128(static_cast<__m128i *>(p), value);
   }
+
   ALWAYS_INLINE SimdBlock128SSE2
   operator^(const SimdBlock128SSE2 &other) const {
     SimdBlock128SSE2 result{};
     result.value = _mm_xor_si128(value, other.value);
     return result;
   }
+
   [[nodiscard]] ALWAYS_INLINE const uint8_t *raw() const {
     return reinterpret_cast<const uint8_t *>(this);
   }
+
   ALWAYS_INLINE uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
 };
 #endif
@@ -108,9 +117,11 @@ struct alignas(16) SimdBlock128Fallback {
   uint64_t value[2]{};
 
   SimdBlock128Fallback() = default;
+
   ALWAYS_INLINE explicit SimdBlock128Fallback(const void *p) {
     memcpy(value, p, 16);
   }
+
   ALWAYS_INLINE void store(void *p) const { memcpy(p, value, 16); }
   ALWAYS_INLINE SimdBlock128Fallback
   operator^(const SimdBlock128Fallback &other) const {
@@ -119,9 +130,11 @@ struct alignas(16) SimdBlock128Fallback {
     result.value[1] = value[1] ^ other.value[1];
     return result;
   }
+
   [[nodiscard]] ALWAYS_INLINE const uint8_t *raw() const {
     return reinterpret_cast<const uint8_t *>(this);
   }
+
   ALWAYS_INLINE uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
 };
 } // namespace detail
@@ -148,15 +161,19 @@ static void set_openssl_error(const char *msg) {
 
 struct PyBufferGuard {
   Py_buffer &view;
+
   explicit PyBufferGuard(Py_buffer &v) : view(v) {}
+
   ~PyBufferGuard() { PyBuffer_Release(&view); }
 };
 
 struct Slice {
   const uint8_t *data_ = nullptr;
   size_t size_ = 0;
+
   Slice(const void *data, const size_t size)
       : data_(static_cast<const uint8_t *>(data)), size_(size) {}
+
   [[nodiscard]] const uint8_t *ubegin() const { return data_; }
   [[nodiscard]] size_t size() const { return size_; }
 };
@@ -164,8 +181,10 @@ struct Slice {
 struct MutableSlice {
   uint8_t *data_ = nullptr;
   size_t size_ = 0;
+
   MutableSlice(void *data, const unsigned long size)
       : data_(static_cast<uint8_t *>(data)), size_(size) {}
+
   [[nodiscard]] uint8_t *ubegin() const { return data_; }
   [[nodiscard]] size_t size() const { return size_; }
   [[nodiscard]] Slice as_slice() const { return {data_, size_}; }
@@ -291,52 +310,133 @@ uint64_t factorize_u64(const uint64_t pq) {
   return 1;
 }
 
-class Evp {
-  EVP_CIPHER_CTX *ctx_ = nullptr;
-
-public:
-  Evp() { ctx_ = EVP_CIPHER_CTX_new(); }
-  ~Evp() {
-    if (ctx_)
-      EVP_CIPHER_CTX_free(ctx_);
-  }
-  [[nodiscard]] bool is_valid() const { return ctx_ != nullptr; }
-
-  bool init(const bool is_encrypt, const EVP_CIPHER *cipher,
-            const Slice key) const {
-    if (UNLIKELY(EVP_CipherInit_ex(ctx_, cipher, nullptr, key.ubegin(), nullptr,
-                                   is_encrypt ? 1 : 0) != 1)) {
-      return false;
-    }
-    EVP_CIPHER_CTX_set_padding(ctx_, 0);
-    return true;
-  }
-
-  bool update(const uint8_t *src, uint8_t *dst, const int size) const {
-    int len;
-    if (UNLIKELY(EVP_CipherUpdate(ctx_, dst, &len, src, size) != 1 ||
-                 len != size)) {
-      return false;
-    }
-    return true;
-  }
+struct Provider {
+  OSSL_FUNC_cipher_newctx_fn *newctx;
+  OSSL_FUNC_cipher_freectx_fn *freectx;
+  OSSL_FUNC_cipher_encrypt_init_fn *encrypt_init;
+  OSSL_FUNC_cipher_decrypt_init_fn *decrypt_init;
+  OSSL_FUNC_cipher_update_fn *update;
+  OSSL_FUNC_cipher_set_ctx_params_fn *set_ctx_params;
 };
 
-struct EvpCipherDeleter {
-  void operator()(EVP_CIPHER *p) const { EVP_CIPHER_free(p); }
-};
-using EvpCipherPtr = std::unique_ptr<EVP_CIPHER, EvpCipherDeleter>;
+static Provider *get_aes_256_ecb_provider() {
+  thread_local Provider cache;
+  thread_local bool initialized = false;
 
-static const EVP_CIPHER *get_ecb_cipher() {
-  thread_local EvpCipherPtr ecb_cipher;
-  if (UNLIKELY(!ecb_cipher)) {
-    ecb_cipher.reset(EVP_CIPHER_fetch(nullptr, "AES-256-ECB", nullptr));
+  if (LIKELY(initialized)) {
+    return &cache;
   }
-  if (UNLIKELY(!ecb_cipher)) {
+
+  OSSL_PROVIDER *prov = OSSL_PROVIDER_load(nullptr, "default");
+
+  if (UNLIKELY(!prov)) {
     return nullptr;
   }
-  return ecb_cipher.get();
+
+  int no_cache = 0;
+
+  const OSSL_ALGORITHM *algorithm =
+      OSSL_PROVIDER_query_operation(prov, OSSL_OP_CIPHER, &no_cache);
+
+  const OSSL_DISPATCH *dispatch = nullptr;
+
+  while (algorithm->algorithm_names) {
+    if (strstr(algorithm->algorithm_names, "AES-256-ECB")) {
+      dispatch = algorithm->implementation;
+      break;
+    }
+    algorithm++;
+  }
+
+  if (UNLIKELY(!dispatch)) {
+    return nullptr;
+  }
+
+  while (dispatch->function_id) {
+    switch (dispatch->function_id) {
+    case OSSL_FUNC_CIPHER_NEWCTX:
+      cache.newctx =
+          reinterpret_cast<OSSL_FUNC_cipher_newctx_fn *>(dispatch->function);
+      break;
+    case OSSL_FUNC_CIPHER_FREECTX:
+      cache.freectx =
+          reinterpret_cast<OSSL_FUNC_cipher_freectx_fn *>(dispatch->function);
+      break;
+    case OSSL_FUNC_CIPHER_ENCRYPT_INIT:
+      cache.encrypt_init = reinterpret_cast<OSSL_FUNC_cipher_encrypt_init_fn *>(
+          dispatch->function);
+      break;
+    case OSSL_FUNC_CIPHER_DECRYPT_INIT:
+      cache.decrypt_init = reinterpret_cast<OSSL_FUNC_cipher_decrypt_init_fn *>(
+          dispatch->function);
+      break;
+    case OSSL_FUNC_CIPHER_UPDATE:
+      cache.update =
+          reinterpret_cast<OSSL_FUNC_cipher_update_fn *>(dispatch->function);
+      break;
+    case OSSL_FUNC_CIPHER_SET_CTX_PARAMS:
+      cache.set_ctx_params =
+          reinterpret_cast<OSSL_FUNC_cipher_set_ctx_params_fn *>(
+              dispatch->function);
+      break;
+    default:
+      break;
+    }
+    dispatch++;
+  }
+
+  OSSL_PROVIDER_unload(prov);
+
+  initialized = true;
+  return &cache;
 }
+
+class Evp {
+  void *provctx_ = nullptr;
+  const Provider *provfunc_ = nullptr;
+
+public:
+  Evp() {
+    provfunc_ = get_aes_256_ecb_provider();
+    if (provfunc_ && provfunc_->newctx)
+      provctx_ = provfunc_->newctx(nullptr);
+  }
+
+  ~Evp() {
+    if (provctx_ && provfunc_ && provfunc_->freectx)
+      provfunc_->freectx(provctx_);
+  }
+
+  [[nodiscard]] bool init(const bool is_encrypt, const Slice key) const {
+    if (!provctx_ || !provfunc_)
+      return false;
+
+    int padding_len = 0;
+
+    const OSSL_PARAM params[2] = {
+        OSSL_PARAM_construct_int(OSSL_CIPHER_PARAM_PADDING, &padding_len),
+        OSSL_PARAM_END};
+
+    provfunc_->set_ctx_params(provctx_, params);
+
+    int ret;
+    if (is_encrypt) {
+      ret = provfunc_->encrypt_init(provctx_, key.ubegin(), key.size(), nullptr,
+                                    0, nullptr);
+    } else {
+      ret = provfunc_->decrypt_init(provctx_, key.ubegin(), key.size(), nullptr,
+                                    0, nullptr);
+    }
+    return ret == 1;
+  }
+
+  [[nodiscard]] bool update(const uint8_t *src, uint8_t *dst,
+                            const size_t dst_len) const {
+    size_t out;
+    return provfunc_->update(provctx_, dst, &out, dst_len, src, dst_len) == 1 &&
+           out == dst_len;
+  }
+};
 
 template <bool IsEncrypt>
 auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
@@ -351,10 +451,7 @@ auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
   SimdBlock128 plaintext_iv(iv.ubegin() + 16);
 
   const Evp evp;
-  const EVP_CIPHER *cipher = get_ecb_cipher();
-  if (UNLIKELY(!cipher || !evp.is_valid()))
-    return false;
-  if (UNLIKELY(!evp.init(IsEncrypt, cipher, key)))
+  if (UNLIKELY(!evp.init(IsEncrypt, key)))
     return false;
 
   auto process_block = [&](const uint8_t *current_in,
