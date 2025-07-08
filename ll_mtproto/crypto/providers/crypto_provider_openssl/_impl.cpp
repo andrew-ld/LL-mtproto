@@ -310,12 +310,12 @@ uint64_t factorize_u64(const uint64_t pq) {
   return 1;
 }
 
-struct Provider {
+struct alignas(16) Provider {
+  OSSL_FUNC_cipher_update_fn *update;
   OSSL_FUNC_cipher_newctx_fn *newctx;
   OSSL_FUNC_cipher_freectx_fn *freectx;
   OSSL_FUNC_cipher_encrypt_init_fn *encrypt_init;
   OSSL_FUNC_cipher_decrypt_init_fn *decrypt_init;
-  OSSL_FUNC_cipher_update_fn *update;
   OSSL_FUNC_cipher_set_ctx_params_fn *set_ctx_params;
 };
 
@@ -349,6 +349,7 @@ static Provider *get_aes_256_ecb_provider() {
   }
 
   if (UNLIKELY(!dispatch)) {
+    OSSL_PROVIDER_unload(prov);
     return nullptr;
   }
 
