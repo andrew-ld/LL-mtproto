@@ -1,18 +1,14 @@
 #include <Python.h>
 
-#include <openssl/core_names.h>
 #include <openssl/err.h>
 #include <openssl/evp.h>
-#include <openssl/params.h>
 #include <openssl/rand.h>
 
 #include <algorithm>
-#include <cmath>
 #include <cstdint>
 #include <cstring>
 #include <memory>
 #include <string>
-#include <vector>
 
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -74,11 +70,11 @@ struct alignas(16) SimdBlock128SSE2 {
   }
   ALWAYS_INLINE SimdBlock128SSE2
   operator^(const SimdBlock128SSE2 &other) const {
-    SimdBlock128SSE2 result;
+    SimdBlock128SSE2 result{};
     result.value = _mm_xor_si128(value, other.value);
     return result;
   }
-  ALWAYS_INLINE const uint8_t *raw() const {
+  [[nodiscard]] ALWAYS_INLINE const uint8_t *raw() const {
     return reinterpret_cast<const uint8_t *>(this);
   }
   ALWAYS_INLINE uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
@@ -109,7 +105,7 @@ struct alignas(16) SimdBlock128NEON {
 #endif
 
 struct alignas(16) SimdBlock128Fallback {
-  uint64_t value[2];
+  uint64_t value[2]{};
 
   SimdBlock128Fallback() = default;
   ALWAYS_INLINE explicit SimdBlock128Fallback(const void *p) {
@@ -123,7 +119,7 @@ struct alignas(16) SimdBlock128Fallback {
     result.value[1] = value[1] ^ other.value[1];
     return result;
   }
-  ALWAYS_INLINE const uint8_t *raw() const {
+  [[nodiscard]] ALWAYS_INLINE const uint8_t *raw() const {
     return reinterpret_cast<const uint8_t *>(this);
   }
   ALWAYS_INLINE uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
@@ -152,7 +148,7 @@ static void set_openssl_error(const char *msg) {
 
 struct PyBufferGuard {
   Py_buffer &view;
-  PyBufferGuard(Py_buffer &v) : view(v) {}
+  explicit PyBufferGuard(Py_buffer &v) : view(v) {}
   ~PyBufferGuard() { PyBuffer_Release(&view); }
 };
 
@@ -161,8 +157,8 @@ struct Slice {
   size_t size_ = 0;
   Slice(const void *data, size_t size)
       : data_(static_cast<const uint8_t *>(data)), size_(size) {}
-  const uint8_t *ubegin() const { return data_; }
-  size_t size() const { return size_; }
+  [[nodiscard]] const uint8_t *ubegin() const { return data_; }
+  [[nodiscard]] size_t size() const { return size_; }
 };
 
 struct MutableSlice {
@@ -170,9 +166,9 @@ struct MutableSlice {
   size_t size_ = 0;
   MutableSlice(void *data, size_t size)
       : data_(static_cast<uint8_t *>(data)), size_(size) {}
-  uint8_t *ubegin() { return data_; }
-  size_t size() const { return size_; }
-  Slice as_slice() const { return Slice(data_, size_); }
+  [[nodiscard]] uint8_t *ubegin() const { return data_; }
+  [[nodiscard]] size_t size() const { return size_; }
+  [[nodiscard]] Slice as_slice() const { return {data_, size_}; }
 };
 
 namespace Random {
@@ -234,10 +230,10 @@ static uint64_t pq_gcd(uint64_t a, uint64_t b) {
 static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
   unsigned long long low, high;
   low = _mulx_u64(a, b, &high);
-  unsigned char carry = _addcarry_u64(0, low, c, &low);
+  const unsigned char carry = _addcarry_u64(0, low, c, &low);
   _addcarry_u64(carry, high, 0, &high);
-  __uint128_t res = ((__uint128_t)high << 64) | low;
-  return (uint64_t)(res % (__uint128_t)pq);
+  const __uint128_t res = (static_cast<__uint128_t>(high) << 64) | low;
+  return static_cast<uint64_t>(res % static_cast<__uint128_t>(pq));
 }
 #else
 static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
@@ -252,9 +248,10 @@ uint64_t factorize_u64(uint64_t pq) {
   // https://en.wikipedia.org/wiki/Cycle_detection#Floyd's_tortoise_and_hare
   // https://maths-people.anu.edu.au/~brent/pd/rpb051i.pdf
   uint64_t y = Random::fast_uint64() % (pq - 1) + 1;
-  uint64_t c = Random::fast_uint64() % (pq - 1) + 1;
-  uint64_t m = 128;
+  const uint64_t c = Random::fast_uint64() % (pq - 1) + 1;
   uint64_t g = 1, r = 1, q = 1, x = 0, ys = 0;
+
+  static constexpr uint64_t M = 128;
 
   while (g == 1) {
     x = y;
@@ -264,7 +261,7 @@ uint64_t factorize_u64(uint64_t pq) {
     uint64_t k = 0;
     while (k < r && g == 1) {
       ys = y;
-      uint64_t iterations = std::min(m, r - k);
+      uint64_t iterations = std::min(M, r - k);
       for (uint64_t i = 0; i < iterations; i++) {
         y = pq_add_mul(c, y, y, pq);
         uint64_t diff = (x > y) ? (x - y) : (y - x);
@@ -302,9 +299,9 @@ public:
     if (ctx_)
       EVP_CIPHER_CTX_free(ctx_);
   }
-  bool is_valid() const { return ctx_ != nullptr; }
+  [[nodiscard]] bool is_valid() const { return ctx_ != nullptr; }
 
-  bool init(bool is_encrypt, const EVP_CIPHER *cipher, Slice key) {
+  bool init(const bool is_encrypt, const EVP_CIPHER *cipher, Slice key) const {
     if (UNLIKELY(EVP_CipherInit_ex(ctx_, cipher, nullptr, key.ubegin(), nullptr,
                                    is_encrypt ? 1 : 0) != 1)) {
       return false;
@@ -313,7 +310,7 @@ public:
     return true;
   }
 
-  bool update(const uint8_t *src, uint8_t *dst, int size) {
+  bool update(const uint8_t *src, uint8_t *dst, int size) const {
     int len;
     if (UNLIKELY(EVP_CipherUpdate(ctx_, dst, &len, src, size) != 1 ||
                  len != size)) {
@@ -324,7 +321,7 @@ public:
 };
 
 struct EvpCipherDeleter {
-  void operator()(EVP_CIPHER *p) { EVP_CIPHER_free(p); }
+  void operator()(EVP_CIPHER *p) const { EVP_CIPHER_free(p); }
 };
 using EvpCipherPtr = std::unique_ptr<EVP_CIPHER, EvpCipherDeleter>;
 
@@ -429,19 +426,19 @@ bool aes_ige_crypt(Slice key, MutableSlice iv, bool encrypt, Slice from,
   }
 }
 
-static PyObject *py_secure_random(PyObject *self, PyObject *args) {
-  (void)self;
+static PyObject *py_secure_random([[maybe_unused]] PyObject *self,
+                                  PyObject *args) {
   int nbytes;
   if (UNLIKELY(!PyArg_ParseTuple(args, "i", &nbytes)))
-    return NULL;
+    return nullptr;
   if (UNLIKELY(nbytes < 0)) {
     PyErr_SetString(PyExc_ValueError, "nbytes must be non-negative");
-    return NULL;
+    return nullptr;
   }
 
-  PyObject *result = PyBytes_FromStringAndSize(NULL, nbytes);
+  PyObject *result = PyBytes_FromStringAndSize(nullptr, nbytes);
   if (UNLIKELY(!result)) {
-    return NULL;
+    return nullptr;
   }
 
   char *buffer = PyBytes_AS_STRING(result);
@@ -454,27 +451,27 @@ static PyObject *py_secure_random(PyObject *self, PyObject *args) {
   if (UNLIKELY(is_success != 1)) {
     set_openssl_error("RAND_bytes failed");
     Py_DECREF(result);
-    return NULL;
+    return nullptr;
   }
 
   return result;
 }
 
-static PyObject *py_factorize_pq(PyObject *self, PyObject *args) {
-  (void)self;
+static PyObject *py_factorize_pq([[maybe_unused]] PyObject *self,
+                                 PyObject *args) {
   PyObject *pq_py;
   if (UNLIKELY(!PyArg_ParseTuple(args, "O!", &PyLong_Type, &pq_py)))
-    return NULL;
+    return nullptr;
 
   if (UNLIKELY(_PyLong_NumBits(pq_py) > 64)) {
     PyErr_SetString(PyExc_ValueError,
                     "Number is larger than 64 bits and not supported.");
-    return NULL;
+    return nullptr;
   }
 
   uint64_t pq = PyLong_AsUnsignedLongLong(pq_py);
   if (UNLIKELY(PyErr_Occurred())) {
-    return NULL;
+    return nullptr;
   }
 
   uint64_t p;
@@ -494,7 +491,7 @@ retry:
 
   if (UNLIKELY(p <= 1 || pq % p != 0)) {
     PyErr_SetString(PyExc_ValueError, "Factorization failed.");
-    return NULL;
+    return nullptr;
   }
   uint64_t q = pq / p;
 
@@ -504,18 +501,17 @@ retry:
   if (UNLIKELY(!p_py || !q_py)) {
     Py_XDECREF(p_py);
     Py_XDECREF(q_py);
-    return NULL;
+    return nullptr;
   }
 
   return Py_BuildValue("(NN)", p_py, q_py);
 }
 
-static PyObject *py_crypt_aes_ige(PyObject *self, PyObject *args,
-                                  bool encrypt) {
-  (void)self;
+static PyObject *py_crypt_aes_ige([[maybe_unused]] PyObject *self,
+                                  PyObject *args, const bool encrypt) {
   Py_buffer data, key, iv;
   if (UNLIKELY(!PyArg_ParseTuple(args, "y*y*y*", &data, &key, &iv)))
-    return NULL;
+    return nullptr;
 
   PyBufferGuard data_guard(data);
   PyBufferGuard key_guard(key);
@@ -524,11 +520,11 @@ static PyObject *py_crypt_aes_ige(PyObject *self, PyObject *args,
   if (UNLIKELY(key.len != 32 || iv.len != 32 || data.len % 16 != 0)) {
     PyErr_SetString(PyExc_ValueError,
                     "Key/IV must be 32 bytes and data length a multiple of 16");
-    return NULL;
+    return nullptr;
   }
 
-  PyObject *result_bytes = PyBytes_FromStringAndSize(NULL, data.len);
-  PyObject *next_iv_bytes = PyBytes_FromStringAndSize(NULL, iv.len);
+  PyObject *result_bytes = PyBytes_FromStringAndSize(nullptr, data.len);
+  PyObject *next_iv_bytes = PyBytes_FromStringAndSize(nullptr, iv.len);
 
   if (UNLIKELY(!result_bytes || !next_iv_bytes)) {
     Py_XDECREF(result_bytes);
@@ -536,8 +532,10 @@ static PyObject *py_crypt_aes_ige(PyObject *self, PyObject *args,
     return PyErr_NoMemory();
   }
 
-  uint8_t *out_data_ptr = (uint8_t *)PyBytes_AS_STRING(result_bytes);
-  uint8_t *next_iv_ptr = (uint8_t *)PyBytes_AS_STRING(next_iv_bytes);
+  const auto out_data_ptr =
+      reinterpret_cast<uint8_t *>(PyBytes_AS_STRING(result_bytes));
+  auto *next_iv_ptr =
+      reinterpret_cast<uint8_t *>(PyBytes_AS_STRING(next_iv_bytes));
 
   memcpy(next_iv_ptr, iv.buf, iv.len);
 
@@ -552,7 +550,7 @@ static PyObject *py_crypt_aes_ige(PyObject *self, PyObject *args,
     set_openssl_error("AES-IGE operation failed");
     Py_DECREF(result_bytes);
     Py_DECREF(next_iv_bytes);
-    return NULL;
+    return nullptr;
   }
 
   return Py_BuildValue("(NN)", result_bytes, next_iv_bytes);
@@ -575,7 +573,7 @@ static PyMethodDef CryptoMethods[] = {
      "Encrypt data using AES-256-IGE. Returns (ciphertext, next_iv)."},
     {"decrypt_aes_ige", py_decrypt_aes_ige, METH_VARARGS,
      "Decrypt data using AES-256-IGE. Returns (plaintext, next_iv)."},
-    {NULL, NULL, 0, NULL}};
+    {nullptr, nullptr, 0, nullptr}};
 
 static struct PyModuleDef crypto_module = {
     .m_base = PyModuleDef_HEAD_INIT,
@@ -583,12 +581,12 @@ static struct PyModuleDef crypto_module = {
     .m_doc = "Low-level crypto functions using OpenSSL 3.",
     .m_size = -1,
     .m_methods = CryptoMethods,
-    .m_slots = NULL,
-    .m_traverse = NULL,
-    .m_clear = NULL,
-    .m_free = NULL};
+    .m_slots = nullptr,
+    .m_traverse = nullptr,
+    .m_clear = nullptr,
+    .m_free = nullptr};
 
-PyMODINIT_FUNC PyInit__impl(void) {
+PyMODINIT_FUNC PyInit__impl(void) { // NOLINT(*-reserved-identifier)
   Random::seed();
   return PyModule_Create(&crypto_module);
 }
