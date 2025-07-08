@@ -155,7 +155,7 @@ struct PyBufferGuard {
 struct Slice {
   const uint8_t *data_ = nullptr;
   size_t size_ = 0;
-  Slice(const void *data, size_t size)
+  Slice(const void *data, const size_t size)
       : data_(static_cast<const uint8_t *>(data)), size_(size) {}
   [[nodiscard]] const uint8_t *ubegin() const { return data_; }
   [[nodiscard]] size_t size() const { return size_; }
@@ -164,7 +164,7 @@ struct Slice {
 struct MutableSlice {
   uint8_t *data_ = nullptr;
   size_t size_ = 0;
-  MutableSlice(void *data, size_t size)
+  MutableSlice(void *data, const unsigned long size)
       : data_(static_cast<uint8_t *>(data)), size_(size) {}
   [[nodiscard]] uint8_t *ubegin() const { return data_; }
   [[nodiscard]] size_t size() const { return size_; }
@@ -195,9 +195,9 @@ static uint64_t pq_gcd(uint64_t a, uint64_t b) {
   if (UNLIKELY(b == 0))
     return a;
 
-  unsigned long a_tz = COUNT_TRAILING_ZEROS(a);
-  unsigned long b_tz = COUNT_TRAILING_ZEROS(b);
-  unsigned long common_factor_pow2 = std::min(a_tz, b_tz);
+  const unsigned long a_tz = COUNT_TRAILING_ZEROS(a);
+  const unsigned long b_tz = COUNT_TRAILING_ZEROS(b);
+  const unsigned long common_factor_pow2 = std::min(a_tz, b_tz);
 
   a >>= a_tz;
   b >>= b_tz;
@@ -227,12 +227,13 @@ static uint64_t pq_gcd(uint64_t a, uint64_t b) {
 #endif
 
 #if defined(HAS_IMMINTRIN)
-static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
+static uint64_t pq_add_mul(const uint64_t c, const uint64_t a, const uint64_t b,
+                           const uint64_t pq) {
   unsigned long long low, high;
   low = _mulx_u64(a, b, &high);
   const unsigned char carry = _addcarry_u64(0, low, c, &low);
   _addcarry_u64(carry, high, 0, &high);
-  const __uint128_t res = (static_cast<__uint128_t>(high) << 64) | low;
+  const __uint128_t res = static_cast<__uint128_t>(high) << 64 | low;
   return static_cast<uint64_t>(res % static_cast<__uint128_t>(pq));
 }
 #else
@@ -243,7 +244,7 @@ static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
 }
 #endif
 
-uint64_t factorize_u64(uint64_t pq) {
+uint64_t factorize_u64(const uint64_t pq) {
   // https://en.wikipedia.org/wiki/Pollard%27s_rho_algorithm
   // https://en.wikipedia.org/wiki/Cycle_detection#Floyd's_tortoise_and_hare
   // https://maths-people.anu.edu.au/~brent/pd/rpb051i.pdf
@@ -261,10 +262,10 @@ uint64_t factorize_u64(uint64_t pq) {
     uint64_t k = 0;
     while (k < r && g == 1) {
       ys = y;
-      uint64_t iterations = std::min(M, r - k);
+      const uint64_t iterations = std::min(M, r - k);
       for (uint64_t i = 0; i < iterations; i++) {
         y = pq_add_mul(c, y, y, pq);
-        uint64_t diff = (x > y) ? (x - y) : (y - x);
+        const uint64_t diff = x > y ? x - y : y - x;
         q = pq_add_mul(0, q, diff, pq);
       }
       g = pq_gcd(q, pq);
@@ -278,12 +279,12 @@ uint64_t factorize_u64(uint64_t pq) {
     y = ys;
     while (g == 1) {
       y = pq_add_mul(c, y, y, pq);
-      g = pq_gcd((x > y ? x - y : y - x), pq);
+      g = pq_gcd(x > y ? x - y : y - x, pq);
     }
   }
 
   if (LIKELY(g > 1 && g < pq)) {
-    uint64_t other = pq / g;
+    const uint64_t other = pq / g;
     return std::min(g, other);
   }
 
@@ -301,7 +302,8 @@ public:
   }
   [[nodiscard]] bool is_valid() const { return ctx_ != nullptr; }
 
-  bool init(const bool is_encrypt, const EVP_CIPHER *cipher, Slice key) const {
+  bool init(const bool is_encrypt, const EVP_CIPHER *cipher,
+            const Slice key) const {
     if (UNLIKELY(EVP_CipherInit_ex(ctx_, cipher, nullptr, key.ubegin(), nullptr,
                                    is_encrypt ? 1 : 0) != 1)) {
       return false;
@@ -310,7 +312,7 @@ public:
     return true;
   }
 
-  bool update(const uint8_t *src, uint8_t *dst, int size) const {
+  bool update(const uint8_t *src, uint8_t *dst, const int size) const {
     int len;
     if (UNLIKELY(EVP_CipherUpdate(ctx_, dst, &len, src, size) != 1 ||
                  len != size)) {
@@ -326,7 +328,7 @@ struct EvpCipherDeleter {
 using EvpCipherPtr = std::unique_ptr<EVP_CIPHER, EvpCipherDeleter>;
 
 static const EVP_CIPHER *get_ecb_cipher() {
-  thread_local static EvpCipherPtr ecb_cipher;
+  thread_local EvpCipherPtr ecb_cipher;
   if (UNLIKELY(!ecb_cipher)) {
     ecb_cipher.reset(EVP_CIPHER_fetch(nullptr, "AES-256-ECB", nullptr));
   }
@@ -337,18 +339,18 @@ static const EVP_CIPHER *get_ecb_cipher() {
 }
 
 template <bool IsEncrypt>
-bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
-                        MutableSlice to) {
+auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
+                        const Slice from, const MutableSlice to) -> bool {
   // https://github.com/tdlib/td/blob/5d1fe744712fbc752840176135b39e82086f5578/tdutils/td/utils/crypto.cpp#L487
   const uint8_t *in = from.ubegin();
   uint8_t *out = to.ubegin();
-  size_t len = from.size();
-  size_t num_blocks = len / 16;
+  const size_t len = from.size();
+  const size_t num_blocks = len / 16;
 
   SimdBlock128 encrypted_iv(iv.ubegin());
   SimdBlock128 plaintext_iv(iv.ubegin() + 16);
 
-  Evp evp;
+  const Evp evp;
   const EVP_CIPHER *cipher = get_ecb_cipher();
   if (UNLIKELY(!cipher || !evp.is_valid()))
     return false;
@@ -357,7 +359,7 @@ bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
 
   auto process_block = [&](const uint8_t *current_in,
                            uint8_t *current_out) -> bool {
-    SimdBlock128 in_block(current_in);
+    const SimdBlock128 in_block(current_in);
     SimdBlock128 temp_block;
 
     if constexpr (IsEncrypt) {
@@ -417,8 +419,8 @@ bool aes_ige_crypt_impl(Slice key, MutableSlice iv, Slice from,
   return true;
 }
 
-bool aes_ige_crypt(Slice key, MutableSlice iv, bool encrypt, Slice from,
-                   MutableSlice to) {
+bool aes_ige_crypt(const Slice key, const MutableSlice iv, const bool encrypt,
+                   const Slice from, const MutableSlice to) {
   if (encrypt) {
     return aes_ige_crypt_impl<true>(key, iv, from, to);
   } else {
@@ -469,7 +471,7 @@ static PyObject *py_factorize_pq([[maybe_unused]] PyObject *self,
     return nullptr;
   }
 
-  uint64_t pq = PyLong_AsUnsignedLongLong(pq_py);
+  const uint64_t pq = PyLong_AsUnsignedLongLong(pq_py);
   if (UNLIKELY(PyErr_Occurred())) {
     return nullptr;
   }
@@ -493,7 +495,7 @@ retry:
     PyErr_SetString(PyExc_ValueError, "Factorization failed.");
     return nullptr;
   }
-  uint64_t q = pq / p;
+  const uint64_t q = pq / p;
 
   PyObject *p_py = PyLong_FromUnsignedLongLong(p);
   PyObject *q_py = PyLong_FromUnsignedLongLong(q);
@@ -575,7 +577,7 @@ static PyMethodDef CryptoMethods[] = {
      "Decrypt data using AES-256-IGE. Returns (plaintext, next_iv)."},
     {nullptr, nullptr, 0, nullptr}};
 
-static struct PyModuleDef crypto_module = {
+static PyModuleDef crypto_module = {
     .m_base = PyModuleDef_HEAD_INIT,
     .m_name = "_impl",
     .m_doc = "Low-level crypto functions using OpenSSL 3.",
