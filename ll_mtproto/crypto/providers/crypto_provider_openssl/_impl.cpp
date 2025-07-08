@@ -428,6 +428,7 @@ public:
       ret = provfunc_->decrypt_init(provctx_, key.ubegin(), key.size(), nullptr,
                                     0, nullptr);
     }
+
     return ret == 1;
   }
 
