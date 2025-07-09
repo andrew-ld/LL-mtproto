@@ -3,7 +3,7 @@ import concurrent.futures
 import logging
 import typing
 
-from ll_mtproto import TelegramDatacenter
+from ll_mtproto import TelegramDatacenter, TelegramTestDatacenter
 from ll_mtproto.client.client import Client
 from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.crypto.auth_key import AuthKey
@@ -26,12 +26,12 @@ async def in_thread(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
     return await asyncio.get_running_loop().run_in_executor(blocking_executor, *args, **kwargs)
 
 
-async def main():
+async def test_cluster(cluster: TelegramTestDatacenter | TelegramDatacenter):
     tasks = []
 
     async def configure_resolver():
         tmp_connection_info = ConnectionInfo.generate_from_os_info(6)
-        tmp_datacenter_info = TelegramDatacenter.VENUS
+        tmp_datacenter_info = cluster.VENUS
 
         tmp_auth_key = AuthKey()
         tmp_auth_key.set_content_change_callback(lambda: None)
@@ -39,13 +39,13 @@ async def main():
         tmp_client = Client(tmp_datacenter_info, tmp_auth_key, tmp_connection_info, link, blocking_executor, crypto_provider)
 
         try:
-            resolver.apply_telegram_config(TelegramDatacenter.ALL_DATACENTERS, await tmp_client.rpc_call({"_cons": "help.getConfig"}))
+            resolver.apply_telegram_config(cluster.ALL_DATACENTERS, await tmp_client.rpc_call({"_cons": "help.getConfig"}))
         finally:
             tmp_client.disconnect()
 
     await configure_resolver()
 
-    for dc in TelegramDatacenter.ALL_DATACENTERS:
+    for dc in cluster.ALL_DATACENTERS:
         for _ in range(2):
             tasks.append(test_exchange(dc, True))
 
@@ -76,6 +76,10 @@ async def test_exchange(datacenter: DatacenterInfo, temp_key: bool) -> None:
             await dispatch_event(dispatcher, mtproto, None)
 
         print("key generated", result.result().auth_key_id)
+
+
+async def main():
+    await asyncio.gather(test_cluster(TelegramDatacenter), test_cluster(TelegramTestDatacenter))
 
 
 if __name__ == "__main__":
