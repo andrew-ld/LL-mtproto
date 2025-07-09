@@ -28,15 +28,13 @@ class CryptoProviderCryptg(CryptoProviderBase):
         return cryptg.factorize_pq_pair(pq)
 
     def decrypt_aes_ige(self, plaintext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
-        result_ciphertext = bytes(plaintext)
         result_iv = bytes(iv)
-        cryptg.decrypt_ige(result_ciphertext, key, result_iv)
+        result_ciphertext = cryptg.decrypt_ige(plaintext, key, result_iv)
         return result_ciphertext, result_iv
 
     def encrypt_aes_ige(self, ciphertext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
-        result_plaintext = bytes(ciphertext)
         result_iv = bytes(iv)
-        cryptg.encrypt_ige(result_plaintext, key, result_iv)
+        result_plaintext = cryptg.encrypt_ige(ciphertext, key, result_iv)
         return result_plaintext, result_iv
 
     def secure_random(self, nbytes: int) -> bytes:
