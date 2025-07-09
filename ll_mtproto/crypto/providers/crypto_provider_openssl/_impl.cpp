@@ -412,6 +412,10 @@ public:
 
     provfunc_->set_ctx_params(provctx_, params);
 
+    if (padding_len != 0) [[unlikely]] {
+      return false;
+    }
+
     int ret;
 
     if constexpr (IsEncrypt) {
