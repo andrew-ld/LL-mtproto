@@ -11,7 +11,6 @@
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
-#include <memory>
 #include <string>
 
 #if defined(_MSC_VER)
@@ -46,14 +45,6 @@
 #endif
 
 #if defined(__GNUC__) || defined(__clang__)
-#define LIKELY(x) __builtin_expect(!!(x), 1)
-#define UNLIKELY(x) __builtin_expect(!!(x), 0)
-#else
-#define LIKELY(x) (x)
-#define UNLIKELY(x) (x)
-#endif
-
-#if defined(__GNUC__) || defined(__clang__)
 #define PREFETCH_READ_NTA(addr) __builtin_prefetch((addr), 0, 0)
 #define PREFETCH_WRITE_NTA(addr) __builtin_prefetch((addr), 1, 0)
 #else
@@ -69,10 +60,10 @@ struct alignas(16) SimdBlock128SSE2 {
   SimdBlock128SSE2() = default;
 
   ALWAYS_INLINE explicit SimdBlock128SSE2(const void *p)
-      : value(_mm_loadu_si128(static_cast<const __m128i *>(p))) {}
+      : value(_mm_load_si128(static_cast<const __m128i *>(p))) {}
 
   ALWAYS_INLINE void store(void *p) const {
-    _mm_storeu_si128(static_cast<__m128i *>(p), value);
+    _mm_store_si128(static_cast<__m128i *>(p), value);
   }
 
   ALWAYS_INLINE SimdBlock128SSE2
@@ -209,9 +200,9 @@ uint64_t fast_uint64() {
 #ifdef COUNT_TRAILING_ZEROS
 static uint64_t pq_gcd(uint64_t a, uint64_t b) {
   // https://en.wikipedia.org/wiki/Binary_GCD_algorithm
-  if (UNLIKELY(a == 0))
+  if (a == 0) [[unlikely]]
     return b;
-  if (UNLIKELY(b == 0))
+  if (b == 0) [[unlikely]]
     return a;
 
   const unsigned long a_tz = COUNT_TRAILING_ZEROS(a);
@@ -293,7 +284,7 @@ uint64_t factorize_u64(const uint64_t pq) {
     r *= 2;
   }
 
-  if (UNLIKELY(g == pq)) {
+  if (g == pq) [[unlikely]] {
     g = 1;
     y = ys;
     while (g == 1) {
@@ -302,7 +293,7 @@ uint64_t factorize_u64(const uint64_t pq) {
     }
   }
 
-  if (LIKELY(g > 1 && g < pq)) {
+  if (g > 1 && g < pq) [[likely]] {
     const uint64_t other = pq / g;
     return std::min(g, other);
   }
@@ -323,13 +314,13 @@ static Provider *get_aes_256_ecb_provider() {
   thread_local Provider cache;
   thread_local bool initialized = false;
 
-  if (LIKELY(initialized)) {
+  if (initialized) [[likely]] {
     return &cache;
   }
 
   OSSL_PROVIDER *prov = OSSL_PROVIDER_load(nullptr, "default");
 
-  if (UNLIKELY(!prov)) {
+  if (!prov) [[unlikely]] {
     return nullptr;
   }
 
@@ -348,7 +339,7 @@ static Provider *get_aes_256_ecb_provider() {
     algorithm++;
   }
 
-  if (UNLIKELY(!dispatch)) {
+  if (!dispatch) [[unlikely]] {
     OSSL_PROVIDER_unload(prov);
     return nullptr;
   }
@@ -399,17 +390,18 @@ template <bool IsEncrypt> class Evp {
 public:
   Evp() {
     provfunc_ = get_aes_256_ecb_provider();
-    if (provfunc_ && provfunc_->newctx)
+    if (provfunc_ && provfunc_->newctx) [[likely]]
       provctx_ = provfunc_->newctx(nullptr);
   }
 
   ~Evp() {
-    if (provctx_ && provfunc_ && provfunc_->freectx)
+    if (provctx_ && provfunc_ && provfunc_->freectx) [[likely]]
       provfunc_->freectx(provctx_);
   }
 
   [[nodiscard]] bool init(const Slice key) const {
-    if (!provctx_ || !provfunc_)
+    if (!provctx_ || !provfunc_ || !provfunc_->set_ctx_params ||
+        !provfunc_->encrypt_init || !provfunc_->decrypt_init) [[unlikely]]
       return false;
 
     int padding_len = 0;
@@ -435,9 +427,15 @@ public:
 
   [[nodiscard]] bool update(const uint8_t *src, uint8_t *dst,
                             const size_t dst_len) const {
+    if (!provctx_ || !provfunc_ || !provfunc_->update) [[unlikely]]
+      return false;
+
     size_t out;
-    return provfunc_->update(provctx_, dst, &out, dst_len, src, dst_len) == 1 &&
-           out == dst_len;
+
+    const int res =
+        provfunc_->update(provctx_, dst, &out, dst_len, src, dst_len);
+
+    return res == 1 && out == dst_len;
   }
 };
 
@@ -454,7 +452,7 @@ auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
   SimdBlock128 plaintext_iv(iv.ubegin() + 16);
 
   const Evp<IsEncrypt> evp;
-  if (UNLIKELY(!evp.init(key)))
+  if (!evp.init(key)) [[unlikely]]
     return false;
 
   auto process_block = [&](const uint8_t *current_in,
@@ -468,7 +466,7 @@ auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
       temp_block = in_block ^ plaintext_iv;
     }
 
-    if (UNLIKELY(!evp.update(temp_block.raw(), current_out, 16)))
+    if (!evp.update(temp_block.raw(), current_out, 16)) [[unlikely]]
       return false;
 
     SimdBlock128 out_block(current_out);
@@ -498,19 +496,19 @@ auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
     PREFETCH_WRITE_NTA(out + prefetch_offset);
     PREFETCH_READ_NTA(in + prefetch_offset);
 
-    if (UNLIKELY(!process_block(in + offset, out + offset)))
+    if (!process_block(in + offset, out + offset)) [[unlikely]]
       return false;
-    if (UNLIKELY(!process_block(in + offset + 16, out + offset + 16)))
+    if (!process_block(in + offset + 16, out + offset + 16)) [[unlikely]]
       return false;
-    if (UNLIKELY(!process_block(in + offset + 32, out + offset + 32)))
+    if (!process_block(in + offset + 32, out + offset + 32)) [[unlikely]]
       return false;
-    if (UNLIKELY(!process_block(in + offset + 48, out + offset + 48)))
+    if (!process_block(in + offset + 48, out + offset + 48)) [[unlikely]]
       return false;
   }
 
   for (; i < num_blocks; i++) {
     const size_t offset = i << 4;
-    if (UNLIKELY(!process_block(in + offset, out + offset)))
+    if (!process_block(in + offset, out + offset)) [[unlikely]]
       return false;
   }
 
@@ -519,27 +517,18 @@ auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
   return true;
 }
 
-bool aes_ige_crypt(const Slice key, const MutableSlice iv, const bool encrypt,
-                   const Slice from, const MutableSlice to) {
-  if (encrypt) {
-    return aes_ige_crypt_impl<true>(key, iv, from, to);
-  } else {
-    return aes_ige_crypt_impl<false>(key, iv, from, to);
-  }
-}
-
 static PyObject *py_secure_random([[maybe_unused]] PyObject *self,
                                   PyObject *args) {
   int nbytes;
-  if (UNLIKELY(!PyArg_ParseTuple(args, "i", &nbytes)))
+  if (!PyArg_ParseTuple(args, "i", &nbytes)) [[unlikely]]
     return nullptr;
-  if (UNLIKELY(nbytes < 0)) {
+  if (nbytes < 0) [[unlikely]] {
     PyErr_SetString(PyExc_ValueError, "nbytes must be non-negative");
     return nullptr;
   }
 
   PyObject *result = PyBytes_FromStringAndSize(nullptr, nbytes);
-  if (UNLIKELY(!result)) {
+  if (!result) [[unlikely]] {
     return nullptr;
   }
 
@@ -550,7 +539,7 @@ static PyObject *py_secure_random([[maybe_unused]] PyObject *self,
   is_success = RAND_bytes(reinterpret_cast<uint8_t *>(buffer), nbytes);
   Py_END_ALLOW_THREADS;
 
-  if (UNLIKELY(is_success != 1)) {
+  if (is_success != 1) [[unlikely]] {
     set_openssl_error("RAND_bytes failed");
     Py_DECREF(result);
     return nullptr;
@@ -562,17 +551,17 @@ static PyObject *py_secure_random([[maybe_unused]] PyObject *self,
 static PyObject *py_factorize_pq([[maybe_unused]] PyObject *self,
                                  PyObject *args) {
   PyObject *pq_py;
-  if (UNLIKELY(!PyArg_ParseTuple(args, "O!", &PyLong_Type, &pq_py)))
+  if (!PyArg_ParseTuple(args, "O!", &PyLong_Type, &pq_py)) [[unlikely]]
     return nullptr;
 
-  if (UNLIKELY(_PyLong_NumBits(pq_py) > 64)) {
+  if (_PyLong_NumBits(pq_py) > 64) [[unlikely]] {
     PyErr_SetString(PyExc_ValueError,
                     "Number is larger than 64 bits and not supported.");
     return nullptr;
   }
 
   const uint64_t pq = PyLong_AsUnsignedLongLong(pq_py);
-  if (UNLIKELY(PyErr_Occurred())) {
+  if (PyErr_Occurred()) [[unlikely]] {
     return nullptr;
   }
 
@@ -582,8 +571,8 @@ static PyObject *py_factorize_pq([[maybe_unused]] PyObject *self,
   unsigned int retries = 0;
 retry:
   p = factorize_u64(pq);
-  if (UNLIKELY(p <= 1)) {
-    if (LIKELY(retries < 3)) {
+  if (p <= 1) [[unlikely]] {
+    if (retries < 3) [[likely]] {
       retries += 1;
       // This is a probabilistic algorithm.
       goto retry;
@@ -591,7 +580,7 @@ retry:
   }
   Py_END_ALLOW_THREADS;
 
-  if (UNLIKELY(p <= 1 || pq % p != 0)) {
+  if (p <= 1 || pq % p != 0) [[unlikely]] {
     PyErr_SetString(PyExc_ValueError, "Factorization failed.");
     return nullptr;
   }
@@ -600,7 +589,7 @@ retry:
   PyObject *p_py = PyLong_FromUnsignedLongLong(p);
   PyObject *q_py = PyLong_FromUnsignedLongLong(q);
 
-  if (UNLIKELY(!p_py || !q_py)) {
+  if (!p_py || !q_py) [[unlikely]] {
     Py_XDECREF(p_py);
     Py_XDECREF(q_py);
     return nullptr;
@@ -609,17 +598,18 @@ retry:
   return Py_BuildValue("(NN)", p_py, q_py);
 }
 
+template <bool IsEncrypt>
 static PyObject *py_crypt_aes_ige([[maybe_unused]] PyObject *self,
-                                  PyObject *args, const bool encrypt) {
+                                  PyObject *args) {
   Py_buffer data, key, iv;
-  if (UNLIKELY(!PyArg_ParseTuple(args, "y*y*y*", &data, &key, &iv)))
+  if (!PyArg_ParseTuple(args, "y*y*y*", &data, &key, &iv)) [[unlikely]]
     return nullptr;
 
   PyBufferGuard data_guard(data);
   PyBufferGuard key_guard(key);
   PyBufferGuard iv_guard(iv);
 
-  if (UNLIKELY(key.len != 32 || iv.len != 32 || data.len % 16 != 0)) {
+  if (key.len != 32 || iv.len != 32 || data.len % 16 != 0) [[unlikely]] {
     PyErr_SetString(PyExc_ValueError,
                     "Key/IV must be 32 bytes and data length a multiple of 16");
     return nullptr;
@@ -628,7 +618,7 @@ static PyObject *py_crypt_aes_ige([[maybe_unused]] PyObject *self,
   PyObject *result_bytes = PyBytes_FromStringAndSize(nullptr, data.len);
   PyObject *next_iv_bytes = PyBytes_FromStringAndSize(nullptr, iv.len);
 
-  if (UNLIKELY(!result_bytes || !next_iv_bytes)) {
+  if (!result_bytes || !next_iv_bytes) [[unlikely]] {
     Py_XDECREF(result_bytes);
     Py_XDECREF(next_iv_bytes);
     return PyErr_NoMemory();
@@ -643,12 +633,12 @@ static PyObject *py_crypt_aes_ige([[maybe_unused]] PyObject *self,
 
   bool success;
   Py_BEGIN_ALLOW_THREADS;
-  success = aes_ige_crypt(
-      Slice(key.buf, key.len), MutableSlice(next_iv_ptr, iv.len), encrypt,
+  success = aes_ige_crypt_impl<IsEncrypt>(
+      Slice(key.buf, key.len), MutableSlice(next_iv_ptr, iv.len),
       Slice(data.buf, data.len), MutableSlice(out_data_ptr, data.len));
   Py_END_ALLOW_THREADS;
 
-  if (UNLIKELY(!success)) {
+  if (!success) [[unlikely]] {
     set_openssl_error("AES-IGE operation failed");
     Py_DECREF(result_bytes);
     Py_DECREF(next_iv_bytes);
@@ -659,11 +649,11 @@ static PyObject *py_crypt_aes_ige([[maybe_unused]] PyObject *self,
 }
 
 static PyObject *py_encrypt_aes_ige(PyObject *self, PyObject *args) {
-  return py_crypt_aes_ige(self, args, true);
+  return py_crypt_aes_ige<true>(self, args);
 }
 
 static PyObject *py_decrypt_aes_ige(PyObject *self, PyObject *args) {
-  return py_crypt_aes_ige(self, args, false);
+  return py_crypt_aes_ige<false>(self, args);
 }
 
 static PyMethodDef CryptoMethods[] = {
