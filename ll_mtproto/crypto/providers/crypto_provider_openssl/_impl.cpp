@@ -248,9 +248,9 @@ static uint64_t pq_add_mul(const uint64_t c, const uint64_t a, const uint64_t b,
 }
 #else
 static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
-  __int128_t res = c;
-  res += (__int128_t)a * b;
-  return res % pq;
+  __uint128_t res = c;
+  res += static_cast<__uint128_t>(a) * b;
+  return static_cast<uint64_t>(res % pq);
 }
 #endif
 
