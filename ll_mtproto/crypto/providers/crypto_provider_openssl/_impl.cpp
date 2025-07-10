@@ -173,7 +173,7 @@ struct MutableSlice {
   uint8_t *data_ = nullptr;
   size_t size_ = 0;
 
-  MutableSlice(void *data, const unsigned long size)
+  MutableSlice(void *data, const size_t size)
       : data_(static_cast<uint8_t *>(data)), size_(size) {}
 
   [[nodiscard]] uint8_t *ubegin() const { return data_; }
