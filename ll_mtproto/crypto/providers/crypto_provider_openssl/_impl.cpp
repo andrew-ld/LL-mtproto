@@ -9,8 +9,10 @@
 #include <openssl/rand.h>
 
 #include <algorithm>
+#include <bits/unique_ptr.h>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <string>
 
 #if defined(_MSC_VER)
@@ -311,11 +313,11 @@ struct alignas(16) Provider {
 };
 
 static Provider *get_aes_256_ecb_provider() {
-  thread_local Provider cache;
+  thread_local std::unique_ptr<Provider> cache;
   thread_local bool initialized = false;
 
   if (initialized) [[likely]] {
-    return &cache;
+    return cache.get();
   }
 
   OSSL_PROVIDER *prov = OSSL_PROVIDER_load(nullptr, "default");
@@ -344,30 +346,34 @@ static Provider *get_aes_256_ecb_provider() {
     return nullptr;
   }
 
+  cache = std::make_unique<Provider>();
+
   while (dispatch->function_id) {
     switch (dispatch->function_id) {
     case OSSL_FUNC_CIPHER_NEWCTX:
-      cache.newctx =
+      cache->newctx =
           reinterpret_cast<OSSL_FUNC_cipher_newctx_fn *>(dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_FREECTX:
-      cache.freectx =
+      cache->freectx =
           reinterpret_cast<OSSL_FUNC_cipher_freectx_fn *>(dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_ENCRYPT_INIT:
-      cache.encrypt_init = reinterpret_cast<OSSL_FUNC_cipher_encrypt_init_fn *>(
-          dispatch->function);
+      cache->encrypt_init =
+          reinterpret_cast<OSSL_FUNC_cipher_encrypt_init_fn *>(
+              dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_DECRYPT_INIT:
-      cache.decrypt_init = reinterpret_cast<OSSL_FUNC_cipher_decrypt_init_fn *>(
-          dispatch->function);
+      cache->decrypt_init =
+          reinterpret_cast<OSSL_FUNC_cipher_decrypt_init_fn *>(
+              dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_UPDATE:
-      cache.update =
+      cache->update =
           reinterpret_cast<OSSL_FUNC_cipher_update_fn *>(dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_SET_CTX_PARAMS:
-      cache.set_ctx_params =
+      cache->set_ctx_params =
           reinterpret_cast<OSSL_FUNC_cipher_set_ctx_params_fn *>(
               dispatch->function);
       break;
@@ -380,7 +386,8 @@ static Provider *get_aes_256_ecb_provider() {
   OSSL_PROVIDER_unload(prov);
 
   initialized = true;
-  return &cache;
+
+  return cache.get();
 }
 
 template <bool IsEncrypt> class Evp {
