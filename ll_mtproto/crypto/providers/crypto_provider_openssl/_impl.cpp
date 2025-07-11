@@ -649,8 +649,8 @@ static PyObject *py_crypt_aes_ige([[maybe_unused]] PyObject *self,
   memcpy(next_iv_buffer, iv.buf, iv.len);
 
 #if defined(HAS_MMAN)
-  madvise(data.buf, data.len, MADV_SEQUENTIAL | MADV_WILLNEED | MADV_NOHUGEPAGE);
-  madvise(out_data_ptr, data.len, MADV_SEQUENTIAL | MADV_DONTNEED | MADV_NOHUGEPAGE);
+  madvise(data.buf, data.len, MADV_SEQUENTIAL | MADV_WILLNEED);
+  madvise(out_data_ptr, data.len, MADV_SEQUENTIAL | MADV_DONTNEED);
 #endif
 
   bool success;
