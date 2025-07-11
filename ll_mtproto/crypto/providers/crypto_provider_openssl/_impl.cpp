@@ -312,12 +312,13 @@ struct alignas(16) Provider {
   OSSL_FUNC_cipher_set_ctx_params_fn *set_ctx_params;
 };
 
-static Provider *get_aes_256_ecb_provider() {
-  thread_local std::unique_ptr<Provider> cache;
-  thread_local bool initialized = false;
+static Py_tss_t provider_cache_key{};
 
-  if (initialized) [[likely]] {
-    return cache.get();
+static Provider *get_aes_256_ecb_provider() {
+  if (const auto provider =
+          static_cast<Provider *>(PyThread_tss_get(&provider_cache_key));
+      provider != nullptr) [[likely]] {
+    return provider;
   }
 
   OSSL_PROVIDER *prov = OSSL_PROVIDER_load(nullptr, "default");
@@ -346,34 +347,39 @@ static Provider *get_aes_256_ecb_provider() {
     return nullptr;
   }
 
-  cache = std::make_unique<Provider>();
+  auto *provider_cache = new Provider();
+
+  if (PyThread_tss_set(&provider_cache_key, provider_cache) != 0) [[unlikely]] {
+    delete provider_cache;
+    return nullptr;
+  }
 
   while (dispatch->function_id) {
     switch (dispatch->function_id) {
     case OSSL_FUNC_CIPHER_NEWCTX:
-      cache->newctx =
+      provider_cache->newctx =
           reinterpret_cast<OSSL_FUNC_cipher_newctx_fn *>(dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_FREECTX:
-      cache->freectx =
+      provider_cache->freectx =
           reinterpret_cast<OSSL_FUNC_cipher_freectx_fn *>(dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_ENCRYPT_INIT:
-      cache->encrypt_init =
+      provider_cache->encrypt_init =
           reinterpret_cast<OSSL_FUNC_cipher_encrypt_init_fn *>(
               dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_DECRYPT_INIT:
-      cache->decrypt_init =
+      provider_cache->decrypt_init =
           reinterpret_cast<OSSL_FUNC_cipher_decrypt_init_fn *>(
               dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_UPDATE:
-      cache->update =
+      provider_cache->update =
           reinterpret_cast<OSSL_FUNC_cipher_update_fn *>(dispatch->function);
       break;
     case OSSL_FUNC_CIPHER_SET_CTX_PARAMS:
-      cache->set_ctx_params =
+      provider_cache->set_ctx_params =
           reinterpret_cast<OSSL_FUNC_cipher_set_ctx_params_fn *>(
               dispatch->function);
       break;
@@ -385,9 +391,7 @@ static Provider *get_aes_256_ecb_provider() {
 
   OSSL_PROVIDER_unload(prov);
 
-  initialized = true;
-
-  return cache.get();
+  return provider_cache;
 }
 
 template <bool IsEncrypt> class Evp {
@@ -691,5 +695,10 @@ static PyModuleDef crypto_module = {
 
 PyMODINIT_FUNC PyInit__impl(void) { // NOLINT(*-reserved-identifier)
   Random::seed();
+
+  if (PyThread_tss_create(&provider_cache_key) != 0) {
+    return PyErr_NoMemory();
+  }
+
   return PyModule_Create(&crypto_module);
 }
