@@ -15,6 +15,11 @@
 #include <memory>
 #include <string>
 
+#if defined(__linux__)
+#include <sys/mman.h>
+#define HAS_MMAN
+#endif
+
 #if defined(_MSC_VER)
 #include <intrin.h>
 #endif
@@ -631,33 +636,42 @@ static PyObject *py_crypt_aes_ige([[maybe_unused]] PyObject *self,
   }
 
   PyObject *result_bytes = PyBytes_FromStringAndSize(nullptr, data.len);
-  PyObject *next_iv_bytes = PyBytes_FromStringAndSize(nullptr, iv.len);
 
-  if (!result_bytes || !next_iv_bytes) [[unlikely]] {
+  if (!result_bytes) [[unlikely]] {
     Py_XDECREF(result_bytes);
-    Py_XDECREF(next_iv_bytes);
     return PyErr_NoMemory();
   }
 
   const auto out_data_ptr =
       reinterpret_cast<uint8_t *>(PyBytes_AS_STRING(result_bytes));
-  auto *next_iv_ptr =
-      reinterpret_cast<uint8_t *>(PyBytes_AS_STRING(next_iv_bytes));
 
-  memcpy(next_iv_ptr, iv.buf, iv.len);
+  alignas(16) uint8_t next_iv_buffer[32];
+  memcpy(next_iv_buffer, iv.buf, iv.len);
+
+#if defined(HAS_MMAN)
+  madvise(data.buf, data.len, MADV_SEQUENTIAL | MADV_WILLNEED | MADV_NOHUGEPAGE);
+  madvise(out_data_ptr, data.len, MADV_SEQUENTIAL | MADV_DONTNEED | MADV_NOHUGEPAGE);
+#endif
 
   bool success;
   Py_BEGIN_ALLOW_THREADS;
   success = aes_ige_crypt_impl<IsEncrypt>(
-      Slice(key.buf, key.len), MutableSlice(next_iv_ptr, iv.len),
+      Slice(key.buf, key.len), MutableSlice(next_iv_buffer, iv.len),
       Slice(data.buf, data.len), MutableSlice(out_data_ptr, data.len));
   Py_END_ALLOW_THREADS;
 
   if (!success) [[unlikely]] {
     set_openssl_error("AES-IGE operation failed");
     Py_DECREF(result_bytes);
-    Py_DECREF(next_iv_bytes);
     return nullptr;
+  }
+
+  PyObject *next_iv_bytes = PyBytes_FromStringAndSize(
+      reinterpret_cast<char *>(next_iv_buffer), iv.len);
+
+  if (!next_iv_bytes) [[unlikely]] {
+    Py_DECREF(result_bytes);
+    return PyErr_NoMemory();
   }
 
   return Py_BuildValue("(NN)", result_bytes, next_iv_bytes);
