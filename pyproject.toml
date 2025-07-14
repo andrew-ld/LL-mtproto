@@ -22,5 +22,5 @@ warn_return_any = true
 warn_unused_configs = true
 strict = true
 
-[tool.setuptools]
-packages = ["ll_mtproto"]
+[tool.setuptools.packages.find]
+where = ["."]

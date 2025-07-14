@@ -1,14 +1,18 @@
+import os
+import sys
 import sysconfig
 
 from mypyc.build import mypycify
 from setuptools import setup, Extension
 from setuptools.command.build_py import build_py as _build_py
 
-from ll_mtproto.tl.types_generator import generate_schema_types
-
 
 class build_py(_build_py):
     def run(self):
+        sys.path.append(os.getcwd())
+
+        from ll_mtproto.tl.types_generator import generate_schema_types
+
         generate_schema_types(
             schema_file="ll_mtproto/resources/tl/application.tl",
             output_file="ll_mtproto/tl/tls_application.py"
