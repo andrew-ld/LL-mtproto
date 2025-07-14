@@ -10,8 +10,8 @@ _string = str
 _int256 = bytes
 _ulong = int
 _long = int
-_padded_object = Structure
-_plain_object = Structure
+_PaddedObject = Structure
+_PlainObject = Structure
 _encrypted = bytes
 _rawobject = bytes | Value
 _sha1 = bytes
@@ -335,7 +335,7 @@ class MessageFromClient(Structure, TypedStructure):
 	CONS: typing.ClassVar[str] = "message_from_client"
 	msg_id: _ulong
 	seqno: _uint
-	body: _plain_object
+	body: _PlainObject
 
 
 @dataclasses.dataclass
@@ -602,4 +602,4 @@ class UnencryptedMessage(Structure, TypedStructure):
 	CONS: typing.ClassVar[str] = "unencrypted_message"
 	auth_key_id: _long
 	msg_id: _ulong
-	body: _padded_object
+	body: _PaddedObject
