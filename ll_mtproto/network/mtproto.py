@@ -1,16 +1,13 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
 # Copyright (C) 2020-2025 (andrew) https://github.com/andrew-ld/LL-mtproto
-
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -23,14 +20,16 @@ import logging
 from ll_mtproto.crypto.aes_ige import AesIge, AesIgeAsyncStream
 from ll_mtproto.crypto.auth_key import Key, DhGenKey
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
+from ll_mtproto.in_thread import InThread
 from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, sha1
 from ll_mtproto.tl.structure import Structure
-from ll_mtproto.tl.tl import Constructor, TlBodyDataValue, Value, TlBodyData, NativeByteReader
-from ll_mtproto.typed import InThread
+from ll_mtproto.tl.tl import TlBodyDataValue, Value, TlBodyData, NativeByteReader, extract_cons_from_tl_body
+from ll_mtproto.tl.tl_utils import TypedSchemaConstructor
+from ll_mtproto.tl.tls_system import MessageInnerDataFromServer, UnencryptedMessage, MessageFromServer
 
 __all__ = ("MTProto",)
 
@@ -81,8 +80,8 @@ class MTProto:
     _in_thread: InThread
     _crypto_provider: CryptoProviderBase
 
-    _unencrypted_message_constructor: Constructor
-    _message_inner_data_from_server_constructor: Constructor
+    _unencrypted_message_constructor: TypedSchemaConstructor[UnencryptedMessage]
+    _message_inner_data_from_server_constructor: TypedSchemaConstructor[MessageInnerDataFromServer]
 
     def __init__(
             self,
@@ -98,19 +97,8 @@ class MTProto:
         self._datacenter = datacenter
         self._in_thread = in_thread
         self._crypto_provider = crypto_provider
-
-        unencrypted_message_constructor = datacenter.schema.constructors.get("unencrypted_message", None)
-
-        if unencrypted_message_constructor is None:
-            raise TypeError(f"Unable to find unencrypted_message constructor")
-
-        message_inner_data_from_server_constructor = datacenter.schema.constructors.get("message_inner_data_from_server", None)
-
-        if message_inner_data_from_server_constructor is None:
-            raise TypeError(f"Unable to find message_inner_data_from_server constructor")
-
-        self._unencrypted_message_constructor = unencrypted_message_constructor
-        self._message_inner_data_from_server_constructor = message_inner_data_from_server_constructor
+        self._unencrypted_message_constructor = TypedSchemaConstructor(datacenter.schema, UnencryptedMessage)
+        self._message_inner_data_from_server_constructor = TypedSchemaConstructor(datacenter.schema, MessageInnerDataFromServer)
 
     def get_next_message_id(self) -> int:
         message_id = self._datacenter.get_synchronized_time() << 32
@@ -125,7 +113,7 @@ class MTProto:
 
         return message_id
 
-    async def read_unencrypted_message(self) -> tuple[Structure, Structure]:
+    async def read_unencrypted_message(self) -> tuple[UnencryptedMessage, Structure]:
         async with self._read_message_lock:
             server_auth_key_id = await self._link.readn(8)
 
@@ -141,7 +129,7 @@ class MTProto:
             full_message_reader = NativeByteReader(b"".join((server_auth_key_id, message_id, body_len_envelope, body_envelope)))
 
             try:
-                message = Structure.from_dict(await self._in_thread(lambda: self._unencrypted_message_constructor.deserialize_bare_data(full_message_reader)))
+                message = await self._in_thread(lambda: self._unencrypted_message_constructor.deserialize_bare_data(full_message_reader))
             finally:
                 del full_message_reader
 
@@ -152,14 +140,13 @@ class MTProto:
     async def write_unencrypted_message(self, **body: TlBodyDataValue) -> None:
         message_id = self.get_next_message_id()
 
-        constructor_name = body["_cons"]
-        logging.debug(f"writing plain message {message_id} ({constructor_name!r})")
+        logging.debug("writing plain message %d (%s)", message_id, extract_cons_from_tl_body(body))
 
         message = self._datacenter.schema.bare_kwargs(
             _cons="unencrypted_message",
             auth_key_id=0,
             msg_id=message_id,
-            body=self._datacenter.schema.boxed(body),
+            body=body,
         )
 
         await self._link.write(message.get_flat_bytes())
@@ -190,7 +177,7 @@ class MTProto:
 
         await self._link.write(full_message.get_flat_bytes())
 
-    async def read_encrypted(self, key: Key | DhGenKey) -> tuple[Structure, Structure]:
+    async def read_encrypted(self, key: Key | DhGenKey) -> tuple[MessageFromServer, Structure]:
         auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
         auth_key_part = auth_key_key[88 + 8:88 + 8 + 32]
@@ -204,7 +191,7 @@ class MTProto:
             if server_auth_key_id_bytes == b'S\xfe\xff\xffS\xfe\xff\xff':
                 raise ValueError("Too many requests!")
 
-            server_auth_key_id = int.from_bytes(server_auth_key_id_bytes, "little", signed=False)
+            server_auth_key_id = int.from_bytes(server_auth_key_id_bytes, "little", signed=True)
 
             if server_auth_key_id != auth_key_id:
                 raise ValueError("Received a message with unknown auth key id!", server_auth_key_id)
@@ -220,7 +207,7 @@ class MTProto:
             message_inner_data_reader = NativeByteReader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
 
             try:
-                message = Structure.from_dict(self._message_inner_data_from_server_constructor.deserialize_bare_data(message_inner_data_reader))
+                message = await self._in_thread(lambda: self._message_inner_data_from_server_constructor.deserialize_bare_data(message_inner_data_reader))
             finally:
                 del message_inner_data_reader
 
@@ -250,7 +237,7 @@ class MTProto:
             message_body_reader = NativeByteReader(message_body_envelope)
 
             try:
-                message_body = Structure.from_dict(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(message_body_reader)))
+                message_body = Structure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(message_body_reader)))
             finally:
                 del message_body_reader
 

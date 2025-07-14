@@ -12,7 +12,7 @@ authors = [
     {name = "andrew-ld"}
 ]
 readme = "README.md"
-license = { file = "LICENSE" }
+license-files = ["LICENSE"]
 requires-python = ">=3.13.0"
 
 [tool.mypy]
@@ -21,3 +21,6 @@ files = [ "ll_mtproto/tl/tl.py" ]
 warn_return_any = true
 warn_unused_configs = true
 strict = true
+
+[tool.setuptools]
+packages = ["ll_mtproto"]

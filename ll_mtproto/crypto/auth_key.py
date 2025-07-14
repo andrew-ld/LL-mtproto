@@ -1,6 +1,5 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
 # Copyright (C) 2020-2025 (andrew) https://github.com/andrew-ld/LL-mtproto
-
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -179,7 +178,7 @@ class Key:
     @staticmethod
     def generate_auth_key_id(auth_key: bytes | None) -> int | None:
         auth_key_id = sha1(auth_key)[-8:] if auth_key else None
-        return int.from_bytes(auth_key_id, "little", signed=False) if auth_key_id else None
+        return int.from_bytes(auth_key_id, "little", signed=True) if auth_key_id else None
 
     def flush_changes(self) -> None:
         self._update_callback.on_content_change_callback()

@@ -1,6 +1,5 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
 # Copyright (C) 2020-2025 (andrew) https://github.com/andrew-ld/LL-mtproto
-
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
@@ -16,12 +15,13 @@ import asyncio
 
 from ll_mtproto.crypto.auth_key import DhGenKey
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
+from ll_mtproto.in_thread import InThread
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.dh.mtproto_key_creator import MTProtoKeyCreator
 from ll_mtproto.network.dispatcher import Dispatcher
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl.structure import Structure
-from ll_mtproto.typed import InThread
+from ll_mtproto.tl.tls_system import UnencryptedMessage
 
 __all__ = ("initialize_key_creator_dispatcher", "KeyCreatorDispatcher")
 
@@ -46,7 +46,8 @@ class KeyCreatorDispatcher(Dispatcher):
         if crypto_flag:
             raise TypeError(f"Expected an plaintext signaling, found `{signaling!r}`")
 
-        await self._mtproto.write_unencrypted_message(_cons="msgs_ack", msg_ids=[signaling.msg_id])
+        if isinstance(signaling, UnencryptedMessage):
+            await self._mtproto.write_unencrypted_message(_cons="msgs_ack", msg_ids=[signaling.msg_id])
 
 
 async def initialize_key_creator_dispatcher(

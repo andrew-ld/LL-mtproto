@@ -1,16 +1,13 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
 # Copyright (C) 2020-2025 (andrew) https://github.com/andrew-ld/LL-mtproto
-
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -25,24 +22,27 @@ from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.client.error_description_resolver.base_error_description_resolver import BaseErrorDescriptionResolver
 from ll_mtproto.client.pending_container_request import PendingContainerRequest
 from ll_mtproto.client.pending_request import PendingRequest
-from ll_mtproto.client.rpc_error import RpcError
-from ll_mtproto.client.update import Update
+from ll_mtproto.client.rpc_error import RpcErrorException
 from ll_mtproto.crypto.auth_key import AuthKey, Key, AuthKeyUpdatedCallback
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
+from ll_mtproto.in_thread import InThread
 from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundException
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.dh.mtproto_key_binder_dispatcher import MTProtoKeyBinderDispatcher
 from ll_mtproto.network.dh.mtproto_key_creator_dispatcher import initialize_key_creator_dispatcher
-from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event
+from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event, SignalingMessage
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
-from ll_mtproto.tl.structure import Structure, StructureBody
-from ll_mtproto.tl.tl import TlBodyData, Constructor, NativeByteReader, Value
-from ll_mtproto.typed import InThread
+from ll_mtproto.tl.structure import Structure, StructureValue, TypedStructure
+from ll_mtproto.tl.tl import TlBodyData, NativeByteReader, Value, extract_cons_from_tl_body, extract_cons_from_tl_body_opt
+from ll_mtproto.tl.tl_utils import TypedSchemaConstructor, flat_value_buffer
+from ll_mtproto.tl.tls_system import RpcError, DestroySessionOk, DestroySessionNone, FutureSalts, RpcResult, BadServerSalt, BadMsgNotification, \
+    NewSessionCreated, Pong, MessageFromServer, MessageFromClient, UnencryptedMessage, MsgsAck
 
 __all__ = ("Client",)
 
 
+# noinspection PyProtectedMember
 class _ClientDispatcher(Dispatcher):
     __slots__ = ("_impl",)
 
@@ -54,13 +54,11 @@ class _ClientDispatcher(Dispatcher):
     async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
         if not crypto_flag:
             raise RuntimeError("process_telegram_message_body accepts only encrypted messages")
-        # noinspection PyProtectedMember
         await self._impl._process_telegram_message_body(body)
 
-    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
+    async def process_telegram_signaling_message(self, signaling: SignalingMessage, crypto_flag: bool) -> None:
         if not crypto_flag:
             raise RuntimeError("process_telegram_signaling_message accepts only encrypted messages")
-        # noinspection PyProtectedMember
         self._impl._process_telegram_signaling_message(signaling)
 
 
@@ -111,7 +109,7 @@ class Client:
     _pending_pong: asyncio.TimerHandle | None
     _datacenter: DatacenterInfo
     _pending_ping: asyncio.TimerHandle | asyncio.Task[None] | None
-    _updates_queue: asyncio.Queue[Update | None]
+    _updates_queue: asyncio.Queue[Structure | None]
     _no_updates: bool
     _pending_future_salt: asyncio.TimerHandle | asyncio.Task[None] | None
     _connection_info: ConnectionInfo
@@ -122,7 +120,7 @@ class Client:
     _write_queue: asyncio.Queue[PendingRequest | PendingContainerRequest]
     _used_session_key: Key
     _used_persistent_key: Key
-    _rpc_error_constructor: Constructor
+    _rpc_error_constructor: TypedSchemaConstructor[RpcError]
     _dispatcher: _ClientDispatcher
     _crypto_provider: CryptoProviderBase
     _error_description_resolver: BaseErrorDescriptionResolver | None
@@ -151,13 +149,7 @@ class Client:
         self._blocking_executor = blocking_executor
 
         self._in_thread = _ClientInThreadImpl(blocking_executor)
-
-        rpc_error_constructor = datacenter.schema.constructors.get("rpc_error", None)
-
-        if rpc_error_constructor is None:
-            raise TypeError(f"Unable to find rpc_error constructor")
-
-        self._rpc_error_constructor = rpc_error_constructor
+        self._rpc_error_constructor = TypedSchemaConstructor(datacenter.schema, RpcError)
 
         self._loop = asyncio.get_running_loop()
         self._auth_key_lock = asyncio.Lock()
@@ -216,7 +208,7 @@ class Client:
 
         return client
 
-    async def get_update(self) -> Update | None:
+    async def get_update(self) -> Structure | None:
         if self._no_updates:
             raise RuntimeError("the updates queue is always empty if no_updates has been set to true.")
 
@@ -225,24 +217,26 @@ class Client:
 
     async def rpc_call_container(
             self,
-            payloads: list[TlBodyData],
-            force_init_connection: bool | None = None,
+            payloads: list[TlBodyData | TypedStructure],
+            force_init_connection: bool = False,
             serialized_payloads: list[Value] | None = None
-    ) -> list[StructureBody | BaseException]:
-        if force_init_connection is None:
-            force_init_connection = False
-
+    ) -> list[StructureValue | BaseException]:
         if not payloads:
             return []
 
-        if serialized_payloads is None:
-            serialized_payloads = await self._in_thread(lambda: list(map(self._datacenter.schema.boxed, payloads)))
+        payloads_as_body_data: list[TlBodyData] = list(
+            p.as_tl_body_data() if isinstance(p, TypedStructure) else p
+            for p in payloads
+        )
 
-        if len(serialized_payloads) != len(payloads):
+        if serialized_payloads is None:
+            serialized_payloads = await self._in_thread(lambda: list(map(self._datacenter.schema.boxed, payloads_as_body_data)))
+
+        if len(serialized_payloads) != len(payloads_as_body_data):
             raise TypeError("serialized payloads len and payloads len mismatches")
 
-        for payload, serialized_payload in zip(payloads, serialized_payloads):
-            payload_cons = payload["_cons"]
+        for payload, serialized_payload in zip(payloads_as_body_data, serialized_payloads):
+            payload_cons = extract_cons_from_tl_body(payload)
             serialized_payload_cons = serialized_payload.cons.name
 
             if payload_cons != serialized_payload_cons:
@@ -250,7 +244,7 @@ class Client:
 
         pending_requests: list[PendingRequest] = []
 
-        for payload, serialized_payload in zip(payloads, serialized_payloads):
+        for payload, serialized_payload in zip(payloads_as_body_data, serialized_payloads):
             pending_request = PendingRequest(
                 response=self._loop.create_future(),
                 message=payload,
@@ -271,11 +265,19 @@ class Client:
 
         return [request.get_value() for request in pending_requests]
 
-    async def rpc_call(self, payload: TlBodyData, force_init_connection: bool = False, serialized_payload: Value | None = None) -> StructureBody:
+    async def rpc_call(
+            self,
+            payload: TlBodyData | TypedStructure,
+            force_init_connection: bool = False,
+            serialized_payload: Value | None = None
+    ) -> StructureValue:
+        if isinstance(payload, TypedStructure):
+            payload = payload.as_tl_body_data()
+
         if serialized_payload is None:
             serialized_payload = await self._in_thread(lambda: self._datacenter.schema.boxed(payload))
 
-        payload_cons = payload["_cons"]
+        payload_cons = extract_cons_from_tl_body(payload)
         serialized_payload_cons = serialized_payload.cons.name
 
         if payload_cons != serialized_payload_cons:
@@ -532,7 +534,7 @@ class Client:
     async def _process_outbound_message(self, message: PendingRequest) -> None:
         payload, message_id = await self._prepare_outbound_message(message)
         message.container_message_id = None
-        logging.debug("writing message %d (%s)", message_id, message.request["_cons"])
+        logging.debug("writing message %d (%s)", message_id, extract_cons_from_tl_body_opt(message.request))
         await self._mtproto.write_encrypted(payload, self._used_session_key)
 
     async def _process_outbound_container_message(self, message: PendingContainerRequest) -> None:
@@ -644,66 +646,43 @@ class Client:
             await self._start_mtproto_loop()
 
     async def _process_telegram_message_body(self, body: Structure) -> None:
-        match (constructor_name := body.constructor_name):
-            case "rpc_result":
+        match body:
+            case RpcResult():
                 await self._process_rpc_result(body)
 
-            case "updates":
-                await self._process_updates(body)
-
-            case "updatesCombined":
-                await self._process_updates(body)
-
-            case "updateShort":
-                await self._process_update_short(body)
-
-            case "updateShortMessage":
-                await self._process_update_short_message(body)
-
-            case "updateShortChatMessage":
-                await self._process_update_short_message(body)
-
-            case "updateShortSentMessage":
-                await self._process_update_short_message(body)
-
-            case "bad_server_salt":
+            case BadServerSalt():
                 await self._process_bad_server_salt(body)
 
-            case "bad_msg_notification":
+            case BadMsgNotification():
                 await self._process_bad_msg_notification(body)
 
-            case "new_session_created":
+            case NewSessionCreated():
                 await self._process_new_session_created(body)
 
-            case "pong":
+            case Pong():
                 self._process_pong(body)
 
-            case "future_salts":
+            case FutureSalts():
                 self._process_future_salts(body)
 
-            case "msgs_ack":
+            case MsgsAck():
                 pass
 
-            case "destroy_session_ok" | "destroy_session_none":
+            case DestroySessionOk() | DestroySessionNone():
                 self._process_session_destroy(body)
 
-            case _:
-                logging.critical("unknown message type (%s) received", constructor_name)
+            case "updates" | "updatesCombined" | "updateShort" | "updateShortMessage" | "updateShortChatMessage" | "updateShortSentMessage":
+                await self._process_updates(body)
 
-    def _process_session_destroy(self, body: Structure) -> None:
+            case _:
+                logging.critical("unknown message type (%s) received", body)
+
+    def _process_session_destroy(self, body: DestroySessionOk | DestroySessionNone) -> None:
         logging.debug("session destroy received: %s", body.constructor_name)
         self._used_session_key.unused_sessions.remove(body.session_id)
         self._used_session_key.flush_changes()
 
-    async def _process_update_short_message(self, body: Structure) -> None:
-        if not self._no_updates:
-            await self._updates_queue.put(Update([], [], body))
-
-    async def _process_update_short(self, body: Structure) -> None:
-        if not self._no_updates:
-            await self._updates_queue.put(Update([], [], body.update))
-
-    def _process_future_salts(self, body: Structure) -> None:
+    def _process_future_salts(self, body: FutureSalts) -> None:
         if pending_request := self._pop_pending_request_exact(body.req_msg_id):
             pending_request.response.set_result(body)
             self._finalize_request_and_cleanup(pending_request)
@@ -730,20 +709,16 @@ class Client:
 
         self._used_session_key.flush_changes()
 
-    async def _process_new_session_created(self, body: Structure) -> None:
+    async def _process_new_session_created(self, body: NewSessionCreated) -> None:
         self._used_session_key.server_salt = body.server_salt
 
     async def _process_updates(self, body: Structure) -> None:
         if self._no_updates:
             return
 
-        users = body.users
-        chats = body.chats
+        await self._updates_queue.put(body)
 
-        for update in body.updates:
-            await self._updates_queue.put(Update(users, chats, update))
-
-    def _process_pong(self, pong: Structure) -> None:
+    def _process_pong(self, pong: Pong) -> None:
         logging.debug("pong message: %d", pong.ping_id)
 
         if pending_pong := self._pending_pong:
@@ -765,7 +740,7 @@ class Client:
 
         self._pending_ping = self._loop.call_later(30, _initialize_create_ping_request)
 
-    def _acknowledge_telegram_message(self, signaling: Structure) -> None:
+    def _acknowledge_telegram_message(self, signaling: MessageFromClient | MessageFromServer) -> None:
         if signaling.seqno % 2 == 1:
             self._msgids_to_ack.append(signaling.msg_id)
 
@@ -787,11 +762,12 @@ class Client:
 
         await self._rpc_call(request)
 
-    def _process_telegram_signaling_message(self, signaling: Structure) -> None:
-        self._used_session_key.session.seqno = max(self._used_session_key.session.seqno, signaling.seqno)
-        self._acknowledge_telegram_message(signaling)
+    def _process_telegram_signaling_message(self, signaling: SignalingMessage) -> None:
+        if not isinstance(signaling, UnencryptedMessage):
+            self._used_session_key.session.seqno = max(self._used_session_key.session.seqno, signaling.seqno)
+            self._acknowledge_telegram_message(signaling)
 
-    async def _process_bad_server_salt(self, body: Structure) -> None:
+    async def _process_bad_server_salt(self, body: BadServerSalt) -> None:
         if self._used_session_key.server_salt:
             self._used_session_key.session.stable_seqno = False
 
@@ -805,7 +781,7 @@ class Client:
 
         self._used_session_key.flush_changes()
 
-    async def _process_bad_msg_notification(self, body: Structure) -> None:
+    async def _process_bad_msg_notification(self, body: BadMsgNotification) -> None:
         if body.error_code == 32:
             await self._process_bad_msg_notification_msg_seqno_too_low(body)
         elif body.error_code == 33:
@@ -813,9 +789,9 @@ class Client:
         else:
             await self._process_bad_msg_notification_reject_message(body)
 
-    async def _process_bad_msg_notification_reject_message(self, body: Structure) -> None:
+    async def _process_bad_msg_notification_reject_message(self, body: BadMsgNotification) -> None:
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            rpc_error = RpcError(body.error_code, "BAD_MSG_NOTIFICATION", None)
+            rpc_error = RpcErrorException(body.error_code, "BAD_MSG_NOTIFICATION", None)
 
             match bad_request:
                 case PendingContainerRequest():
@@ -832,13 +808,13 @@ class Client:
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: Structure) -> None:
+    async def _process_bad_msg_notification_msg_seqno_too_high(self, body: BadMsgNotification) -> None:
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
             await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
-    async def _process_bad_msg_notification_msg_seqno_too_low(self, body: Structure) -> None:
+    async def _process_bad_msg_notification_msg_seqno_too_low(self, body: BadMsgNotification) -> None:
         session = self._used_session_key.session
 
         session.seqno_increment = min(2 ** 31 - 1, session.seqno_increment << 1)
@@ -857,10 +833,10 @@ class Client:
         else:
             error_description = None
 
-        pending_request.response.set_exception(RpcError(error_code, error_message, error_description))
+        pending_request.response.set_exception(RpcErrorException(error_code, error_message, error_description))
         self._finalize_request_and_cleanup(pending_request)
 
-    async def _process_rpc_result(self, body: Structure) -> None:
+    async def _process_rpc_result(self, body: RpcResult) -> None:
         self._used_session_key.session.stable_seqno = True
         self._used_session_key.session.seqno_increment = 1
 
@@ -870,24 +846,23 @@ class Client:
             return logging.error("rpc_result %d not associated with a request", body.req_msg_id)
 
         if self._rpc_error_constructor.boxed_buffer_match(body.result):
-            response_constructor = self._rpc_error_constructor
+            response_constructor = self._rpc_error_constructor.cons
         else:
             response_constructor = None
 
-        if request_type := pending_request.request.get("_cons", None):
-            request_constructor = self._datacenter.schema.constructors[typing.cast(str, request_type)]
+        if request_cons_cons := extract_cons_from_tl_body_opt(pending_request.request):
+            request_body = pending_request.request
+            request_cons = self._datacenter.schema.constructors[request_cons_cons]
 
-            if request_constructor.is_gzip_container:
-                request_constructor = self._datacenter.schema.constructors[typing.cast(str, typing.cast(TlBodyData, pending_request.request["data"])["_cons"])]
+            while request_cons.is_gzip_container:
+                request_body = typing.cast(TlBodyData, request_body["data"])
+                request_cons = self._datacenter.schema.constructors[extract_cons_from_tl_body(request_body)]
 
-                if request_constructor.is_gzip_container:
-                    raise TypeError("Recursive gzip container!")
-
-            response_parameter = request_constructor.ptype_parameter
+            response_parameter = request_cons.ptype_parameter
         else:
             response_parameter = None
 
-        body_result_reader = NativeByteReader(body.result)
+        body_result_reader = NativeByteReader(flat_value_buffer(body.result))
 
         try:
             if response_constructor is not None:
@@ -901,34 +876,31 @@ class Client:
         finally:
             del body_result_reader
 
-        if result == "rpc_error":
-            error_message = typing.cast(str, result.error_message)
-            error_code = typing.cast(int, result.error_code)
-
-            if error_message == "AUTH_KEY_PERM_EMPTY":
+        if isinstance(result, RpcError):
+            if result.error_message == "AUTH_KEY_PERM_EMPTY":
                 if self._use_perfect_forward_secrecy:
                     self._used_session_key.clear_key()
                     self._used_session_key.flush_changes()
                     self.disconnect()
 
                 else:
-                    self._finalize_response_throw_rpc_error(error_message, error_code, pending_request)
+                    self._finalize_response_throw_rpc_error(result.error_message, result.error_code, pending_request)
 
             elif pending_request.retries >= 5:
-                self._finalize_response_throw_rpc_error(error_message, error_code, pending_request)
+                self._finalize_response_throw_rpc_error(result.error_message, result.error_code, pending_request)
 
-            elif error_message == "CONNECTION_NOT_INITED":
+            elif result.error_message == "CONNECTION_NOT_INITED":
                 self._init_connection_required = True
                 if pending_request.allow_container:
                     pending_request.force_init_connection = True
                 await self._rpc_call(pending_request)
 
-            elif 500 <= error_code < 600:
+            elif 500 <= result.error_code < 600:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
                 await self._rpc_call(pending_request)
 
             else:
-                self._finalize_response_throw_rpc_error(error_message, error_code, pending_request)
+                self._finalize_response_throw_rpc_error(result.error_message, result.error_code, pending_request)
         else:
             if pending_request.init_connection_wrapped:
                 self._init_connection_required = False

@@ -1,16 +1,13 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
 # Copyright (C) 2020-2025 (andrew) https://github.com/andrew-ld/LL-mtproto
-
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -22,13 +19,14 @@ import hmac
 from ll_mtproto.crypto.aes_ige import AesIge
 from ll_mtproto.crypto.auth_key import Key, DhGenKey
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
+from ll_mtproto.in_thread import InThread
 from ll_mtproto.math import primes
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl.byteutils import to_bytes, sha1, xor, SyncByteReaderProxy
 from ll_mtproto.tl.structure import Structure
 from ll_mtproto.tl.tl import NativeByteReader
-from ll_mtproto.typed import InThread
+from ll_mtproto.tl.tls_system import DhGenOk, ServerDHParamsOk, ServerDHInnerData, ResPQ
 
 __all__ = ("MTProtoKeyCreator",)
 
@@ -151,7 +149,7 @@ class MTProtoKeyCreator:
             self._result.set_result(self._exchange_state.key)
 
     async def _process_dh_gen_ok(self, params3: Structure, state: _KeyExchangeStateWaitingDhGenOk) -> None:
-        if params3 != "dh_gen_ok":
+        if not isinstance(params3, DhGenOk):
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
         if not hmac.compare_digest(params3.nonce, self._nonce):
@@ -168,7 +166,7 @@ class MTProtoKeyCreator:
         self._exchange_state = _KeyExchangeStateCompleted(key=state.key)
 
     async def _process_dh_params(self, params: Structure, state: _KeyExchangeStateWaitingDhParams) -> None:
-        if params != "server_DH_params_ok":
+        if not isinstance(params, ServerDHParamsOk):
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params)
 
         if not hmac.compare_digest(params.nonce, self._nonce):
@@ -197,13 +195,13 @@ class MTProtoKeyCreator:
         answer_reader_sha1 = hashlib.sha1()
         answer_reader_with_hash = SyncByteReaderProxy(answer_reader, answer_reader_sha1.update)
 
-        params2 = Structure.from_dict(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(answer_reader_with_hash)))
+        params2 = Structure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(answer_reader_with_hash)))
         answer_hash_computed = await self._in_thread(answer_reader_sha1.digest)
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):
             raise RuntimeError("Diffie–Hellman exchange failed: params2 hash mismatch")
 
-        if params2 != "server_DH_inner_data":
+        if not isinstance(params2, ServerDHInnerData):
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params2)
 
         if not hmac.compare_digest(params2.nonce, self._nonce):
@@ -292,7 +290,7 @@ class MTProtoKeyCreator:
         )
 
     async def _process_res_pq(self, res_pq: Structure) -> None:
-        if res_pq != "resPQ":
+        if not isinstance(res_pq, ResPQ):
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", res_pq)
 
         if not hmac.compare_digest(res_pq.nonce, self._nonce):

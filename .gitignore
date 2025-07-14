@@ -155,3 +155,4 @@ cython_debug/
 *.session
 *.session.config
 tests/
+ll_mtproto/tl/tls_application.py

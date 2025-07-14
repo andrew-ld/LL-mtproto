@@ -100,7 +100,7 @@ async def test(api_id: int, api_hash: str, bot_token: str):
                     try:
                         await media_session.rpc_call(pending_request)
                         break
-                    except RpcError as rpc_error:
+                    except RpcErrorException as rpc_error:
                         if rpc_error.code == 420:
                             continue
                         raise rpc_error from rpc_error

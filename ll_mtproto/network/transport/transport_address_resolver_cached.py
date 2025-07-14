@@ -1,22 +1,20 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
 # Copyright (C) 2020-2025 (andrew) https://github.com/andrew-ld/LL-mtproto
-
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 import copy
 import random
+import typing
 
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_address_resolver_base import TransportAddressResolverBase
@@ -39,19 +37,17 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
     def get_cache_copy(self) -> dict[DatacenterInfo, list[tuple[str, int]]]:
         return copy.deepcopy(self._cached_resolved)
 
+    @typing.no_type_check
     def apply_telegram_config(
             self,
             datacenters: frozenset[DatacenterInfo],
             config: Structure,
             allow_ipv6: bool = False
     ) -> None:
-        if config.constructor_name != "config":
-            raise TypeError(f"Expected: config, Found: {config!r}")
-
         supported_dc_options = config.dc_options
 
         if not allow_ipv6:
-            supported_dc_options = filter(lambda option: not option.ipv6, supported_dc_options)
+            supported_dc_options = list(filter(lambda option: not option.ipv6, supported_dc_options))
 
         for datacenter in datacenters:
             self._cached_resolved.pop(datacenter, None)

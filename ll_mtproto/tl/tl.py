@@ -1,16 +1,13 @@
 # Copyright (C) 2017-2018 (nikat) https://github.com/nikat/mtproto2json
 # Copyright (C) 2020-2025 (andrew) https://github.com/andrew-ld/LL-mtproto
-
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU Affero General Public License as published by
 # the Free Software Foundation, either version 3 of the License, or
 # (at your option) any later version.
-
 # This program is distributed in the hope that it will be useful,
 # but WITHOUT ANY WARRANTY; without even the implied warranty of
 # MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
 # GNU Affero General Public License for more details.
-
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
@@ -26,10 +23,23 @@ import struct
 import sys
 import typing
 
+from ll_mtproto.tl.bytereader import SyncByteReader
 from ll_mtproto.tl.byteutils import GzipStreamReader, BinaryStreamReader
-from ll_mtproto.typed import SyncByteReader
 
-__all__ = ("Schema", "Value", "Parameter", "Constructor", "TlBodyData", "TlBodyDataValue", "pack_binary_string", "NativeByteReader", "Flags")
+__all__ = (
+    "Schema",
+    "Parameter",
+    "Constructor",
+    "TlBodyData",
+    "TlBodyDataValue",
+    "pack_binary_string",
+    "NativeByteReader",
+    "Flags",
+    "TlPrimitiveValue",
+    "Value",
+    "extract_cons_from_tl_body",
+    "extract_cons_from_tl_body_opt"
+)
 
 
 class NativeByteReader(SyncByteReader):
@@ -143,14 +153,12 @@ _primitives = frozenset(
         "string",
         "bytes",
         "rawobject",
-        "object",
-        "padded_object",
-        "bytesobject",
         "flags",
-        "encrypted",
         "gzip",
         "true",
-        "Bool"
+        "Bool",
+        "PlainObject",
+        "PaddedObject"
     )
 )
 
@@ -281,6 +289,9 @@ class Schema:
                 raise SyntaxError(f"Error in parameter `{parameter_token}`")
 
             if parameter_parsed:
+                if parameter_parsed["name"] == "from":
+                    parameter_parsed["name"] = "from_"
+
                 is_vector = "vector" in parameter_parsed
 
                 if is_vector:
@@ -306,9 +317,7 @@ class Schema:
                     if "flag_index" in parameter_parsed
                     else 0,
                     is_vector=is_vector,
-                    is_boxed="boxed_vector" in parameter_parsed
-                    if is_vector
-                    else "boxed" in parameter_parsed,
+                    is_boxed="boxed_vector" in parameter_parsed if is_vector else "boxed" in parameter_parsed,
                     element_parameter=element_parameter,
                 )
             else:
@@ -429,11 +438,8 @@ class Schema:
             case "rawobject":
                 return reader(-1)
 
-            case "object" | "padded_object":
+            case "PaddedObject" | "PlainObject":
                 return self.read_by_boxed_data(_unpack_long_binary_string_stream(reader))
-
-            case "bytesobject":
-                return reader(int.from_bytes(reader(4), "little", signed=False))
 
             case "flags":
                 raise TypeError(f"Cannot deserialize flags directly {parameter!r}")
@@ -441,7 +447,7 @@ class Schema:
             case _:
                 raise TypeError(f"Unknown primitive type {parameter!r}")
 
-    def typecheck(self, expected: "Parameter", found: "TlBodyDataValue") -> None:
+    def typecheck(self, expected: "Parameter", found: typing.Union["TlBodyDataValue", "Value"]) -> None:
         def _debug_type_error_msg() -> str:
             return f"expected: {expected!r}, found: {found!r}"
 
@@ -536,13 +542,13 @@ class Schema:
         return self.serialize(False, _cons, body)
 
     def bare(self, body: "TlBodyData") -> "Value":
-        return self.serialize(False, typing.cast(str, body["_cons"]), body)
+        return self.serialize(False, extract_cons_from_tl_body(body), body)
 
     def boxed_kwargs(self, *, _cons: str, **body: "TlBodyDataValue") -> "Value":
         return self.serialize(True, _cons, body)
 
     def boxed(self, body: "TlBodyData") -> "Value":
-        return self.serialize(True, typing.cast(str, body["_cons"]), body)
+        return self.serialize(True, extract_cons_from_tl_body(body), body)
 
     def read_by_parameter(self, reader: SyncByteReader, parameter: "Parameter") -> "TlBodyDataValue":
         return self.deserialize(reader, parameter)
@@ -890,7 +896,10 @@ class Constructor:
         self.deserialization_default_dict = self._generate_deserialization_default_dict(parameters, name)
         self.is_gzip_container = name == "gzip_packed"
 
-    def boxed_buffer_match(self, buffer: bytes | bytearray) -> bool:
+    def boxed_buffer_match(self, buffer: bytes | bytearray | Value) -> bool:
+        if isinstance(buffer, Value):
+            return buffer.cons.name == self.name
+
         if self.number is None:
             raise TypeError(f"Tried to check a boxed value for a numberless constructor `{self!r}`")
 
@@ -966,12 +975,12 @@ class Constructor:
     def __repr__(self) -> str:
         return f"{self.name} {''.join(repr(p) for p in self.parameters)}= {self.ptype};"
 
-    def _serialize_argument(self, data: Value, parameter: Parameter, argument: "TlBodyDataValue") -> None:
+    def _serialize_argument(self, data: Value, parameter: Parameter, argument: typing.Union["TlBodyDataValue", "Value"]) -> None:
         if isinstance(argument, str):
             argument = argument.encode("utf-8")
 
         if isinstance(argument, dict):
-            argument = self.schema.serialize(parameter.is_boxed, typing.cast(str, argument["_cons"]), argument)
+            argument = self.schema.serialize(parameter.is_boxed, extract_cons_from_tl_body(argument), argument)
 
         if argument is not None and (parameter_flag := parameter.parameter_flag) is not None:
             data.set_flag(parameter_flag.flag_number, parameter_flag.flag_index)
@@ -1023,7 +1032,7 @@ class Constructor:
 
                 case bytes():
                     match parameter.type:
-                        case "rawobject" | "encrypted":
+                        case "rawobject":
                             data.append_serialized_tl(argument)
 
                         case "int128" | "sha1" | "int256":
@@ -1053,13 +1062,13 @@ class Constructor:
 
                 case Value():
                     match parameter.type:
-                        case "object":
+                        case "PlainObject":
                             data.append_serialized_tl(_pack_long_binary_string(argument.get_flat_bytes()))
 
                         case "rawobject":
                             data.append_serialized_tl(argument.get_flat_bytes())
 
-                        case "padded_object":
+                        case "PaddedObject":
                             data.append_serialized_tl(_pack_long_binary_string_padded(argument.get_flat_bytes()))
 
                         case "gzip":
@@ -1171,15 +1180,27 @@ class Constructor:
         return fields
 
 
-TlBodyDataValue = typing.Union[
+def extract_cons_from_tl_body(data: "TlBodyData") -> str:
+    return typing.cast(str, data["_cons"])
+
+
+def extract_cons_from_tl_body_opt(data: "TlBodyData") -> str | None:
+    return typing.cast(str | None, data.get("_cons", None))
+
+
+TlPrimitiveValue = typing.Union[
     bytes,
     str,
     int,
     float,
-    typing.Iterable['TlBodyDataValue'],
-    'TlBodyData',
     None,
     Value
+]
+
+TlBodyDataValue = typing.Union[
+    typing.Iterable['TlBodyDataValue'],
+    'TlBodyData',
+    TlPrimitiveValue
 ]
 
 TlBodyData = typing.Dict[str, TlBodyDataValue]
