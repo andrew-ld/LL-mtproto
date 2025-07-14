@@ -38,7 +38,7 @@ openssl_crypto_provider = Extension(
 )
 
 if is_x86_64:
-    openssl_crypto_provider.extra_compile_args.append("-march=haswell")
+    openssl_crypto_provider.extra_compile_args.append("-march=x86-64-v3")
 
 setup(
     ext_modules=mypyc_extensions + [openssl_crypto_provider],
