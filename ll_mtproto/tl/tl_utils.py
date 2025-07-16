@@ -20,7 +20,7 @@ from ll_mtproto.tl.tl import Schema, Constructor, Value
 
 __all__ = ("TypedSchemaConstructor", "flat_value_buffer")
 
-T = typing.TypeVar('T', bound=TypedStructure)
+T = typing.TypeVar('T', bound=TypedStructure[typing.Any])
 
 
 class TypedSchemaConstructor(typing.Generic[T]):

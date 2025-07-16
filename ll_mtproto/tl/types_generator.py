@@ -15,12 +15,42 @@
 import argparse
 import operator
 
-from ll_mtproto.tl.tl import Schema
+from ll_mtproto.tl.tl import Schema, Parameter
 
 
 def from_snake_to_pascal_case(snake_case_text: str) -> str:
     s = snake_case_text.replace(".", "_").split("_")
     return "".join(word[0].upper() + word[1:] for word in s)
+
+
+def parameter_to_python_type(p: Parameter | None) -> str:
+    if p is None:
+        return "None"
+
+    inner_type = p
+    vector_depth = 0
+
+    while inner_type.is_vector:
+        if not inner_type.element_parameter:
+            raise TypeError(f"Type {inner_type!r} is a vector but element parameter is not present")
+
+        inner_type = inner_type.element_parameter
+        vector_depth += 1
+
+    output_text = "typing.List[" * vector_depth
+    output_text += "_"
+
+    if not inner_type.type:
+        raise TypeError(f"Type {inner_type!r} type definition is not present")
+
+    if inner_type.is_primitive:
+        output_text += inner_type.type
+    else:
+        output_text += from_snake_to_pascal_case(inner_type.type)
+
+    output_text += "]" * vector_depth
+
+    return output_text
 
 
 def generate_schema_types(schema_file: str, output_file: str) -> None:
@@ -94,37 +124,16 @@ _int = int
         if cons_name in disallowed_cons:
             continue
 
-        output_text += f"\n\n@dataclasses.dataclass\nclass {from_snake_to_pascal_case(cons_name)}(Structure, TypedStructure):\n"
+        ptype = parameter_to_python_type(cons.ptype_parameter)
+
+        output_text += f"\n\n@dataclasses.dataclass\nclass {from_snake_to_pascal_case(cons_name)}(Structure, TypedStructure[{ptype}]):\n"
         output_text += f"\tCONS: typing.ClassVar[str] = \"{cons_name}\"\n"
 
         for p in cons.parameters:
             if p.is_flag:
                 continue
 
-            inner_type = p
-            vector_depth = 0
-
-            while inner_type.is_vector:
-                if not inner_type.element_parameter:
-                    raise TypeError(f"Type {inner_type!r} is a vector but element parameter is not present")
-
-                inner_type = inner_type.element_parameter
-                vector_depth += 1
-
-            output_text += f"\t{p.name}: "
-            output_text += "typing.List[" * vector_depth
-            output_text += "_"
-
-            if not inner_type.type:
-                raise TypeError(f"Type {inner_type!r} type definition is not present")
-
-            if inner_type.is_primitive:
-                output_text += inner_type.type
-            else:
-                output_text += from_snake_to_pascal_case(inner_type.type)
-
-            output_text += "]" * vector_depth
-            output_text += "\n"
+            output_text += f"\t{p.name}: {parameter_to_python_type(p)}\n"
 
     with open(output_file, "w") as output:
         output.write(output_text)

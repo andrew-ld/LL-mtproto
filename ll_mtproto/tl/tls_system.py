@@ -188,14 +188,14 @@ _SetClientDHParamsAnswer = typing.Union[
 
 
 @dataclasses.dataclass
-class AuthorizationInnerData(Structure, TypedStructure):
+class AuthorizationInnerData(Structure, TypedStructure[_DataToEncrypt]):
 	CONS: typing.ClassVar[str] = "authorization_inner_data"
 	data_hash: _sha1
 	data: _string
 
 
 @dataclasses.dataclass
-class BadMsgNotification(Structure, TypedStructure):
+class BadMsgNotification(Structure, TypedStructure[_BadMsgNotification]):
 	CONS: typing.ClassVar[str] = "bad_msg_notification"
 	bad_msg_id: _long
 	bad_msg_seqno: _int
@@ -203,7 +203,7 @@ class BadMsgNotification(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class BadServerSalt(Structure, TypedStructure):
+class BadServerSalt(Structure, TypedStructure[_BadMsgNotification]):
 	CONS: typing.ClassVar[str] = "bad_server_salt"
 	bad_msg_id: _long
 	bad_msg_seqno: _int
@@ -212,7 +212,7 @@ class BadServerSalt(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class BindAuthKeyInner(Structure, TypedStructure):
+class BindAuthKeyInner(Structure, TypedStructure[_BindAuthKeyInner]):
 	CONS: typing.ClassVar[str] = "bind_auth_key_inner"
 	nonce: _long
 	temp_auth_key_id: _long
@@ -222,7 +222,7 @@ class BindAuthKeyInner(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class ClientDHInnerData(Structure, TypedStructure):
+class ClientDHInnerData(Structure, TypedStructure[_ClientDHInnerData]):
 	CONS: typing.ClassVar[str] = "client_DH_inner_data"
 	nonce: _int128
 	server_nonce: _int128
@@ -231,45 +231,45 @@ class ClientDHInnerData(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class DestroyAuthKey(Structure, TypedStructure):
+class DestroyAuthKey(Structure, TypedStructure[_DestroyAuthKeyRes]):
 	CONS: typing.ClassVar[str] = "destroy_auth_key"
 
 
 @dataclasses.dataclass
-class DestroyAuthKeyFail(Structure, TypedStructure):
+class DestroyAuthKeyFail(Structure, TypedStructure[_DestroyAuthKeyRes]):
 	CONS: typing.ClassVar[str] = "destroy_auth_key_fail"
 
 
 @dataclasses.dataclass
-class DestroyAuthKeyNone(Structure, TypedStructure):
+class DestroyAuthKeyNone(Structure, TypedStructure[_DestroyAuthKeyRes]):
 	CONS: typing.ClassVar[str] = "destroy_auth_key_none"
 
 
 @dataclasses.dataclass
-class DestroyAuthKeyOk(Structure, TypedStructure):
+class DestroyAuthKeyOk(Structure, TypedStructure[_DestroyAuthKeyRes]):
 	CONS: typing.ClassVar[str] = "destroy_auth_key_ok"
 
 
 @dataclasses.dataclass
-class DestroySession(Structure, TypedStructure):
+class DestroySession(Structure, TypedStructure[_DestroySessionRes]):
 	CONS: typing.ClassVar[str] = "destroy_session"
 	session_id: _ulong
 
 
 @dataclasses.dataclass
-class DestroySessionNone(Structure, TypedStructure):
+class DestroySessionNone(Structure, TypedStructure[_DestroySessionRes]):
 	CONS: typing.ClassVar[str] = "destroy_session_none"
 	session_id: _ulong
 
 
 @dataclasses.dataclass
-class DestroySessionOk(Structure, TypedStructure):
+class DestroySessionOk(Structure, TypedStructure[_DestroySessionRes]):
 	CONS: typing.ClassVar[str] = "destroy_session_ok"
 	session_id: _ulong
 
 
 @dataclasses.dataclass
-class DhGenFail(Structure, TypedStructure):
+class DhGenFail(Structure, TypedStructure[_SetClientDHParamsAnswer]):
 	CONS: typing.ClassVar[str] = "dh_gen_fail"
 	nonce: _int128
 	server_nonce: _int128
@@ -277,7 +277,7 @@ class DhGenFail(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class DhGenOk(Structure, TypedStructure):
+class DhGenOk(Structure, TypedStructure[_SetClientDHParamsAnswer]):
 	CONS: typing.ClassVar[str] = "dh_gen_ok"
 	nonce: _int128
 	server_nonce: _int128
@@ -285,7 +285,7 @@ class DhGenOk(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class DhGenRetry(Structure, TypedStructure):
+class DhGenRetry(Structure, TypedStructure[_SetClientDHParamsAnswer]):
 	CONS: typing.ClassVar[str] = "dh_gen_retry"
 	nonce: _int128
 	server_nonce: _int128
@@ -293,7 +293,7 @@ class DhGenRetry(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class EncryptedMessage(Structure, TypedStructure):
+class EncryptedMessage(Structure, TypedStructure[_DataToSend]):
 	CONS: typing.ClassVar[str] = "encrypted_message"
 	auth_key_id: _long
 	msg_key: _int128
@@ -301,7 +301,7 @@ class EncryptedMessage(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class FutureSalt(Structure, TypedStructure):
+class FutureSalt(Structure, TypedStructure[_FutureSalt]):
 	CONS: typing.ClassVar[str] = "future_salt"
 	valid_since: _int
 	valid_until: _int
@@ -309,7 +309,7 @@ class FutureSalt(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class FutureSalts(Structure, TypedStructure):
+class FutureSalts(Structure, TypedStructure[_FutureSalts]):
 	CONS: typing.ClassVar[str] = "future_salts"
 	req_msg_id: _long
 	now: _int
@@ -317,13 +317,13 @@ class FutureSalts(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class GetFutureSalts(Structure, TypedStructure):
+class GetFutureSalts(Structure, TypedStructure[_FutureSalts]):
 	CONS: typing.ClassVar[str] = "get_future_salts"
 	num: _int
 
 
 @dataclasses.dataclass
-class HttpWait(Structure, TypedStructure):
+class HttpWait(Structure, TypedStructure[_HttpWait]):
 	CONS: typing.ClassVar[str] = "http_wait"
 	max_delay: _int
 	wait_after: _int
@@ -331,7 +331,7 @@ class HttpWait(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class MessageFromClient(Structure, TypedStructure):
+class MessageFromClient(Structure, TypedStructure[_MessageFromClient]):
 	CONS: typing.ClassVar[str] = "message_from_client"
 	msg_id: _ulong
 	seqno: _uint
@@ -339,14 +339,14 @@ class MessageFromClient(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class MessageFromServer(Structure, TypedStructure):
+class MessageFromServer(Structure, TypedStructure[_MessageFromServer]):
 	CONS: typing.ClassVar[str] = "message_from_server"
 	msg_id: _ulong
 	seqno: _uint
 
 
 @dataclasses.dataclass
-class MessageInnerData(Structure, TypedStructure):
+class MessageInnerData(Structure, TypedStructure[_DataToEncrypt]):
 	CONS: typing.ClassVar[str] = "message_inner_data"
 	salt: _long
 	session_id: _ulong
@@ -354,7 +354,7 @@ class MessageInnerData(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class MessageInnerDataFromServer(Structure, TypedStructure):
+class MessageInnerDataFromServer(Structure, TypedStructure[_DataToDecrypt]):
 	CONS: typing.ClassVar[str] = "message_inner_data_from_server"
 	salt: _long
 	session_id: _ulong
@@ -362,13 +362,13 @@ class MessageInnerDataFromServer(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class MsgContainer(Structure, TypedStructure):
+class MsgContainer(Structure, TypedStructure[_MessageContainer]):
 	CONS: typing.ClassVar[str] = "msg_container"
 	messages: typing.List[_MessageFromClient]
 
 
 @dataclasses.dataclass
-class MsgDetailedInfo(Structure, TypedStructure):
+class MsgDetailedInfo(Structure, TypedStructure[_MsgDetailedInfo]):
 	CONS: typing.ClassVar[str] = "msg_detailed_info"
 	msg_id: _long
 	answer_msg_id: _long
@@ -377,7 +377,7 @@ class MsgDetailedInfo(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class MsgNewDetailedInfo(Structure, TypedStructure):
+class MsgNewDetailedInfo(Structure, TypedStructure[_MsgDetailedInfo]):
 	CONS: typing.ClassVar[str] = "msg_new_detailed_info"
 	answer_msg_id: _long
 	bytes: _int
@@ -385,39 +385,39 @@ class MsgNewDetailedInfo(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class MsgResendReq(Structure, TypedStructure):
+class MsgResendReq(Structure, TypedStructure[_MsgResendReq]):
 	CONS: typing.ClassVar[str] = "msg_resend_req"
 	msg_ids: typing.List[_long]
 
 
 @dataclasses.dataclass
-class MsgsAck(Structure, TypedStructure):
+class MsgsAck(Structure, TypedStructure[_MsgsAck]):
 	CONS: typing.ClassVar[str] = "msgs_ack"
 	msg_ids: typing.List[_long]
 
 
 @dataclasses.dataclass
-class MsgsAllInfo(Structure, TypedStructure):
+class MsgsAllInfo(Structure, TypedStructure[_MsgsAllInfo]):
 	CONS: typing.ClassVar[str] = "msgs_all_info"
 	msg_ids: typing.List[_long]
 	info: _string
 
 
 @dataclasses.dataclass
-class MsgsStateInfo(Structure, TypedStructure):
+class MsgsStateInfo(Structure, TypedStructure[_MsgsStateInfo]):
 	CONS: typing.ClassVar[str] = "msgs_state_info"
 	req_msg_id: _long
 	info: _string
 
 
 @dataclasses.dataclass
-class MsgsStateReq(Structure, TypedStructure):
+class MsgsStateReq(Structure, TypedStructure[_MsgsStateReq]):
 	CONS: typing.ClassVar[str] = "msgs_state_req"
 	msg_ids: typing.List[_long]
 
 
 @dataclasses.dataclass
-class NewSessionCreated(Structure, TypedStructure):
+class NewSessionCreated(Structure, TypedStructure[_NewSession]):
 	CONS: typing.ClassVar[str] = "new_session_created"
 	first_msg_id: _long
 	unique_id: _long
@@ -425,7 +425,7 @@ class NewSessionCreated(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class PQInnerData(Structure, TypedStructure):
+class PQInnerData(Structure, TypedStructure[_PQInnerData]):
 	CONS: typing.ClassVar[str] = "p_q_inner_data"
 	pq: _string
 	p: _string
@@ -436,7 +436,7 @@ class PQInnerData(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class PQInnerDataDc(Structure, TypedStructure):
+class PQInnerDataDc(Structure, TypedStructure[_PQInnerData]):
 	CONS: typing.ClassVar[str] = "p_q_inner_data_dc"
 	pq: _string
 	p: _string
@@ -448,7 +448,7 @@ class PQInnerDataDc(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class PQInnerDataTemp(Structure, TypedStructure):
+class PQInnerDataTemp(Structure, TypedStructure[_PQInnerData]):
 	CONS: typing.ClassVar[str] = "p_q_inner_data_temp"
 	pq: _string
 	p: _string
@@ -460,7 +460,7 @@ class PQInnerDataTemp(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class PQInnerDataTempDc(Structure, TypedStructure):
+class PQInnerDataTempDc(Structure, TypedStructure[_PQInnerData]):
 	CONS: typing.ClassVar[str] = "p_q_inner_data_temp_dc"
 	pq: _string
 	p: _string
@@ -473,27 +473,27 @@ class PQInnerDataTempDc(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class Ping(Structure, TypedStructure):
+class Ping(Structure, TypedStructure[_Pong]):
 	CONS: typing.ClassVar[str] = "ping"
 	ping_id: _long
 
 
 @dataclasses.dataclass
-class PingDelayDisconnect(Structure, TypedStructure):
+class PingDelayDisconnect(Structure, TypedStructure[_Pong]):
 	CONS: typing.ClassVar[str] = "ping_delay_disconnect"
 	ping_id: _long
 	disconnect_delay: _int
 
 
 @dataclasses.dataclass
-class Pong(Structure, TypedStructure):
+class Pong(Structure, TypedStructure[_Pong]):
 	CONS: typing.ClassVar[str] = "pong"
 	msg_id: _long
 	ping_id: _long
 
 
 @dataclasses.dataclass
-class ReqDHParams(Structure, TypedStructure):
+class ReqDHParams(Structure, TypedStructure[_ServerDHParams]):
 	CONS: typing.ClassVar[str] = "req_DH_params"
 	nonce: _int128
 	server_nonce: _int128
@@ -504,19 +504,19 @@ class ReqDHParams(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class ReqPq(Structure, TypedStructure):
+class ReqPq(Structure, TypedStructure[_ResPQ]):
 	CONS: typing.ClassVar[str] = "req_pq"
 	nonce: _int128
 
 
 @dataclasses.dataclass
-class ReqPqMulti(Structure, TypedStructure):
+class ReqPqMulti(Structure, TypedStructure[_ResPQ]):
 	CONS: typing.ClassVar[str] = "req_pq_multi"
 	nonce: _int128
 
 
 @dataclasses.dataclass
-class ResPQ(Structure, TypedStructure):
+class ResPQ(Structure, TypedStructure[_ResPQ]):
 	CONS: typing.ClassVar[str] = "resPQ"
 	nonce: _int128
 	server_nonce: _int128
@@ -525,7 +525,7 @@ class ResPQ(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class RpcAnswerDropped(Structure, TypedStructure):
+class RpcAnswerDropped(Structure, TypedStructure[_RpcDropAnswer]):
 	CONS: typing.ClassVar[str] = "rpc_answer_dropped"
 	msg_id: _long
 	seq_no: _int
@@ -533,37 +533,37 @@ class RpcAnswerDropped(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class RpcAnswerDroppedRunning(Structure, TypedStructure):
+class RpcAnswerDroppedRunning(Structure, TypedStructure[_RpcDropAnswer]):
 	CONS: typing.ClassVar[str] = "rpc_answer_dropped_running"
 
 
 @dataclasses.dataclass
-class RpcAnswerUnknown(Structure, TypedStructure):
+class RpcAnswerUnknown(Structure, TypedStructure[_RpcDropAnswer]):
 	CONS: typing.ClassVar[str] = "rpc_answer_unknown"
 
 
 @dataclasses.dataclass
-class RpcDropAnswer(Structure, TypedStructure):
+class RpcDropAnswer(Structure, TypedStructure[_RpcDropAnswer]):
 	CONS: typing.ClassVar[str] = "rpc_drop_answer"
 	req_msg_id: _long
 
 
 @dataclasses.dataclass
-class RpcError(Structure, TypedStructure):
+class RpcError(Structure, TypedStructure[_RpcError]):
 	CONS: typing.ClassVar[str] = "rpc_error"
 	error_code: _int
 	error_message: _string
 
 
 @dataclasses.dataclass
-class RpcResult(Structure, TypedStructure):
+class RpcResult(Structure, TypedStructure[_RpcResult]):
 	CONS: typing.ClassVar[str] = "rpc_result"
 	req_msg_id: _long
 	result: _rawobject
 
 
 @dataclasses.dataclass
-class ServerDHInnerData(Structure, TypedStructure):
+class ServerDHInnerData(Structure, TypedStructure[_ServerDHInnerData]):
 	CONS: typing.ClassVar[str] = "server_DH_inner_data"
 	nonce: _int128
 	server_nonce: _int128
@@ -574,7 +574,7 @@ class ServerDHInnerData(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class ServerDHParamsFail(Structure, TypedStructure):
+class ServerDHParamsFail(Structure, TypedStructure[_ServerDHParams]):
 	CONS: typing.ClassVar[str] = "server_DH_params_fail"
 	nonce: _int128
 	server_nonce: _int128
@@ -582,7 +582,7 @@ class ServerDHParamsFail(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class ServerDHParamsOk(Structure, TypedStructure):
+class ServerDHParamsOk(Structure, TypedStructure[_ServerDHParams]):
 	CONS: typing.ClassVar[str] = "server_DH_params_ok"
 	nonce: _int128
 	server_nonce: _int128
@@ -590,7 +590,7 @@ class ServerDHParamsOk(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class SetClientDHParams(Structure, TypedStructure):
+class SetClientDHParams(Structure, TypedStructure[_SetClientDHParamsAnswer]):
 	CONS: typing.ClassVar[str] = "set_client_DH_params"
 	nonce: _int128
 	server_nonce: _int128
@@ -598,7 +598,7 @@ class SetClientDHParams(Structure, TypedStructure):
 
 
 @dataclasses.dataclass
-class UnencryptedMessage(Structure, TypedStructure):
+class UnencryptedMessage(Structure, TypedStructure[_DataToSend]):
 	CONS: typing.ClassVar[str] = "unencrypted_message"
 	auth_key_id: _long
 	msg_id: _ulong

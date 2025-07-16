@@ -56,7 +56,7 @@ class PendingRequest:
             self,
             *,
             response: asyncio.Future[StructureValue],
-            message: TlBodyData | TypedStructure,
+            message: TlBodyData | TypedStructure[typing.Any],
             seq_no_func: SeqNoGenerator,
             allow_container: bool,
             expect_answer: bool,

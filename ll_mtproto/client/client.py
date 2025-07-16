@@ -33,7 +33,7 @@ from ll_mtproto.network.dh.mtproto_key_creator_dispatcher import initialize_key_
 from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event, SignalingMessage
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
-from ll_mtproto.tl.structure import Structure, StructureValue, TypedStructure
+from ll_mtproto.tl.structure import Structure, StructureValue, TypedStructure, TypedStructureObjectType
 from ll_mtproto.tl.tl import TlBodyData, NativeByteReader, Value, extract_cons_from_tl_body, extract_cons_from_tl_body_opt
 from ll_mtproto.tl.tl_utils import TypedSchemaConstructor, flat_value_buffer
 from ll_mtproto.tl.tls_system import RpcError, DestroySessionOk, DestroySessionNone, FutureSalts, RpcResult, BadServerSalt, BadMsgNotification, \
@@ -217,7 +217,7 @@ class Client:
 
     async def rpc_call_container(
             self,
-            payloads: list[TlBodyData | TypedStructure],
+            payloads: list[TlBodyData] | list[TypedStructure[typing.Any]],
             force_init_connection: bool = False,
             serialized_payloads: list[Value] | None = None
     ) -> list[StructureValue | BaseException]:
@@ -265,12 +265,30 @@ class Client:
 
         return [request.get_value() for request in pending_requests]
 
+    @typing.overload
     async def rpc_call(
             self,
-            payload: TlBodyData | TypedStructure,
+            payload: TlBodyData,
             force_init_connection: bool = False,
             serialized_payload: Value | None = None
     ) -> StructureValue:
+        ...
+
+    @typing.overload
+    async def rpc_call(
+            self,
+            payload: TypedStructure[TypedStructureObjectType],
+            force_init_connection: bool = False,
+            serialized_payload: Value | None = None
+    ) -> TypedStructureObjectType:
+        ...
+
+    async def rpc_call(
+            self,
+            payload: TlBodyData | TypedStructure[TypedStructureObjectType],
+            force_init_connection: bool = False,
+            serialized_payload: Value | None = None
+    ) -> StructureValue | TypedStructureObjectType:
         if isinstance(payload, TypedStructure):
             payload = payload.as_tl_body_data()
 

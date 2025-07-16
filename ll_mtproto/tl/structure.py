@@ -17,11 +17,14 @@ import typing
 
 from ll_mtproto.tl.tl import TlBodyData, TlBodyDataValue, TlPrimitiveValue, extract_cons_from_tl_body
 
-__all__ = ("Structure", "TypedStructure", "StructureValue")
+__all__ = ("Structure", "TypedStructure", "TypedStructureObjectType", "StructureValue")
+
+
+TypedStructureObjectType = typing.TypeVar("TypedStructureObjectType")
 
 
 @dataclasses.dataclass
-class TypedStructure:
+class TypedStructure(typing.Generic[TypedStructureObjectType]):
     CONS: typing.ClassVar[str]
 
     def as_tl_body_data(self) -> TlBodyData:
