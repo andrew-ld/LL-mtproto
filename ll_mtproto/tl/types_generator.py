@@ -23,9 +23,12 @@ def from_snake_to_pascal_case(snake_case_text: str) -> str:
     return "".join(word[0].upper() + word[1:] for word in s)
 
 
-def parameter_to_python_type(p: Parameter | None) -> str:
+def parameter_to_python_type(p: Parameter | None, is_wrapper: bool) -> str:
     if p is None:
-        return "None"
+        if is_wrapper:
+            return "TypedStructureObjectType"
+        else:
+            return "None"
 
     inner_type = p
     vector_depth = 0
@@ -38,14 +41,18 @@ def parameter_to_python_type(p: Parameter | None) -> str:
         vector_depth += 1
 
     output_text = "typing.List[" * vector_depth
-    output_text += "_"
 
     if not inner_type.type:
         raise TypeError(f"Type {inner_type!r} type definition is not present")
 
     if inner_type.is_primitive:
-        output_text += inner_type.type
+        if inner_type.name == "_wrapped" and inner_type.type == "rawobject" and is_wrapper:
+            output_text += "TypedStructure[TypedStructureObjectType]"
+        else:
+            output_text += "_"
+            output_text += inner_type.type
     else:
+        output_text += "_"
         output_text += from_snake_to_pascal_case(inner_type.type)
 
     output_text += "]" * vector_depth
@@ -63,7 +70,7 @@ def generate_schema_types(schema_file: str, output_file: str) -> None:
 
 import typing
 import dataclasses
-from ll_mtproto.tl.structure import Structure, TypedStructure
+from ll_mtproto.tl.structure import Structure, TypedStructure, TypedStructureObjectType
 from ll_mtproto.tl.tl import Value
 
 _int128 = bytes
@@ -124,16 +131,21 @@ _int = int
         if cons_name in disallowed_cons:
             continue
 
-        ptype = parameter_to_python_type(cons.ptype_parameter)
+        ptype = parameter_to_python_type(cons.ptype_parameter, cons.is_function)
 
-        output_text += f"\n\n@dataclasses.dataclass\nclass {from_snake_to_pascal_case(cons_name)}(Structure, TypedStructure[{ptype}]):\n"
+        if cons.ptype_parameter is None:
+            class_generics = "[TypedStructureObjectType]"
+        else:
+            class_generics = ""
+
+        output_text += f"\n\n@dataclasses.dataclass\nclass {from_snake_to_pascal_case(cons_name)}{class_generics}(Structure, TypedStructure[{ptype}]):\n"
         output_text += f"\tCONS: typing.ClassVar[str] = \"{cons_name}\"\n"
 
         for p in cons.parameters:
             if p.is_flag:
                 continue
 
-            output_text += f"\t{p.name}: {parameter_to_python_type(p)}\n"
+            output_text += f"\t{p.name}: {parameter_to_python_type(p, cons.is_function)}\n"
 
     with open(output_file, "w") as output:
         output.write(output_text)

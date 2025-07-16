@@ -2,7 +2,7 @@
 
 import typing
 import dataclasses
-from ll_mtproto.tl.structure import Structure, TypedStructure
+from ll_mtproto.tl.structure import Structure, TypedStructure, TypedStructureObjectType
 from ll_mtproto.tl.tl import Value
 
 _int128 = bytes

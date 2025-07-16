@@ -24,7 +24,7 @@ TypedStructureObjectType = typing.TypeVar("TypedStructureObjectType")
 
 
 @dataclasses.dataclass
-class TypedStructure(typing.Generic[TypedStructureObjectType]):
+class TypedStructure[TypedStructureObjectType]:
     CONS: typing.ClassVar[str]
 
     def as_tl_body_data(self) -> TlBodyData:

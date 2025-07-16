@@ -20,10 +20,10 @@ from ll_mtproto.tl.tl import Schema, Constructor, Value
 
 __all__ = ("TypedSchemaConstructor", "flat_value_buffer")
 
-T = typing.TypeVar('T', bound=TypedStructure[typing.Any])
+T = typing.TypeVar('T')
 
 
-class TypedSchemaConstructor(typing.Generic[T]):
+class TypedSchemaConstructor[T: TypedStructure[typing.Any]]:
     __slots__ = (
         "cons",
     )
