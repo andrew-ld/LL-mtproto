@@ -47,7 +47,7 @@ def parameter_to_python_type(p: Parameter | None, is_wrapper: bool) -> str:
 
     if inner_type.is_primitive:
         if inner_type.name == "_wrapped" and inner_type.type == "rawobject" and is_wrapper:
-            output_text += "TypedStructure[TypedStructureObjectType] | TlBodyData"
+            output_text += "TypedStructure[TypedStructureObjectType] | TlBodyData | Value"
         else:
             output_text += "_"
             output_text += inner_type.type
