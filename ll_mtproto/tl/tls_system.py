@@ -3,7 +3,7 @@
 import typing
 import dataclasses
 from ll_mtproto.tl.structure import Structure, TypedStructure, TypedStructureObjectType
-from ll_mtproto.tl.tl import Value
+from ll_mtproto.tl.tl import Value, TlBodyData
 
 _int128 = bytes
 _string = str
