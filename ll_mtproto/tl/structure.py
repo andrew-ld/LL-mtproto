@@ -40,10 +40,9 @@ class TypedStructure[TypedStructureObjectType]:
 
 
 class StructureMeta(type):
-    @typing.no_type_check
     def __instancecheck__(cls, instance: "Structure") -> bool:
         if issubclass(cls, TypedStructure):
-            return bool(instance.constructor_name == cls.CONS)
+            return instance.constructor_name == cls.CONS
         return False
 
 
