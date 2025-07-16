@@ -45,6 +45,14 @@ message_inner_data_from_server salt:long session_id:ulong message:message_from_s
 authorization_inner_data data_hash:sha1 data:string = DataToEncrypt;
 rpc_result#f35c6d01 req_msg_id:long result:rawobject = RpcResult;
 gzip_packed#3072cfa1 data:gzip = Object;
+inputClientProxy#75588b3f address:string port:int = InputClientProxy;
+jsonObjectValue#c0de1bd9 key:string value:JSONValue = JSONObjectValue;
+jsonNull#3f6d7b68 = JSONValue;
+jsonBool#c7345e6a value:Bool = JSONValue;
+jsonNumber#2be0dfa4 value:double = JSONValue;
+jsonString#b71e767a value:string = JSONValue;
+jsonArray#f7444763 value:Vector<JSONValue> = JSONValue;
+jsonObject#99c1d49d value:Vector<JSONObjectValue> = JSONValue;
 
 ---functions---
 req_pq#60469778 nonce:int128 = ResPQ;
@@ -57,3 +65,6 @@ get_future_salts#b921bd04 num:int = FutureSalts;
 ping#7abe77ec ping_id:long = Pong;
 ping_delay_disconnect#f3427b8c ping_id:long disconnect_delay:int = Pong;
 destroy_session#e7512126 session_id:ulong = DestroySessionRes;
+initConnection#c1cd5ea9 {X:Type} flags:# api_id:int device_model:string system_version:string app_version:string system_lang_code:string lang_pack:string lang_code:string proxy:flags.0?InputClientProxy params:flags.1?JSONValue query:!X = X;
+invokeWithLayer#da9b0d0d {X:Type} layer:int query:!X = X;
+invokeWithoutUpdates#bf9459b7 {X:Type} query:!X = X;

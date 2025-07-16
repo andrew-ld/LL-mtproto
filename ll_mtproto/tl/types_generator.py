@@ -55,6 +55,9 @@ def parameter_to_python_type(p: Parameter | None, is_wrapper: bool) -> str:
         output_text += "_"
         output_text += from_snake_to_pascal_case(inner_type.type)
 
+    if p.parameter_flag is not None:
+        output_text += " | None"
+
     output_text += "]" * vector_depth
 
     return output_text

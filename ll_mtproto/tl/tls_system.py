@@ -43,6 +43,17 @@ __all__ = (
 	"FutureSalts",
 	"GetFutureSalts",
 	"HttpWait",
+	"InitConnection",
+	"InputClientProxy",
+	"InvokeWithLayer",
+	"InvokeWithoutUpdates",
+	"JsonArray",
+	"JsonBool",
+	"JsonNull",
+	"JsonNumber",
+	"JsonObject",
+	"JsonObjectValue",
+	"JsonString",
 	"MessageFromClient",
 	"MessageFromServer",
 	"MessageInnerData",
@@ -118,6 +129,20 @@ _FutureSalts = typing.Union[
 ]
 _HttpWait = typing.Union[
 	"HttpWait",
+]
+_InputClientProxy = typing.Union[
+	"InputClientProxy",
+]
+_JSONObjectValue = typing.Union[
+	"JsonObjectValue",
+]
+_JSONValue = typing.Union[
+	"JsonArray",
+	"JsonBool",
+	"JsonNull",
+	"JsonNumber",
+	"JsonObject",
+	"JsonString",
 ]
 _MessageContainer = typing.Union[
 	"MsgContainer",
@@ -328,6 +353,83 @@ class HttpWait(Structure, TypedStructure[_HttpWait]):
 	max_delay: _int
 	wait_after: _int
 	max_wait: _int
+
+
+@dataclasses.dataclass
+class InitConnection[TypedStructureObjectType](Structure, TypedStructure[TypedStructureObjectType]):
+	CONS: typing.ClassVar[str] = "initConnection"
+	api_id: _int
+	device_model: _string
+	system_version: _string
+	app_version: _string
+	system_lang_code: _string
+	lang_pack: _string
+	lang_code: _string
+	proxy: _InputClientProxy | None
+	params: _JSONValue | None
+	_wrapped: TypedStructure[TypedStructureObjectType] | TlBodyData | Value
+
+
+@dataclasses.dataclass
+class InputClientProxy(Structure, TypedStructure[_InputClientProxy]):
+	CONS: typing.ClassVar[str] = "inputClientProxy"
+	address: _string
+	port: _int
+
+
+@dataclasses.dataclass
+class InvokeWithLayer[TypedStructureObjectType](Structure, TypedStructure[TypedStructureObjectType]):
+	CONS: typing.ClassVar[str] = "invokeWithLayer"
+	layer: _int
+	_wrapped: TypedStructure[TypedStructureObjectType] | TlBodyData | Value
+
+
+@dataclasses.dataclass
+class InvokeWithoutUpdates[TypedStructureObjectType](Structure, TypedStructure[TypedStructureObjectType]):
+	CONS: typing.ClassVar[str] = "invokeWithoutUpdates"
+	_wrapped: TypedStructure[TypedStructureObjectType] | TlBodyData | Value
+
+
+@dataclasses.dataclass
+class JsonArray(Structure, TypedStructure[_JSONValue]):
+	CONS: typing.ClassVar[str] = "jsonArray"
+	value: typing.List[_JSONValue]
+
+
+@dataclasses.dataclass
+class JsonBool(Structure, TypedStructure[_JSONValue]):
+	CONS: typing.ClassVar[str] = "jsonBool"
+	value: _Bool
+
+
+@dataclasses.dataclass
+class JsonNull(Structure, TypedStructure[_JSONValue]):
+	CONS: typing.ClassVar[str] = "jsonNull"
+
+
+@dataclasses.dataclass
+class JsonNumber(Structure, TypedStructure[_JSONValue]):
+	CONS: typing.ClassVar[str] = "jsonNumber"
+	value: _double
+
+
+@dataclasses.dataclass
+class JsonObject(Structure, TypedStructure[_JSONValue]):
+	CONS: typing.ClassVar[str] = "jsonObject"
+	value: typing.List[_JSONObjectValue]
+
+
+@dataclasses.dataclass
+class JsonObjectValue(Structure, TypedStructure[_JSONObjectValue]):
+	CONS: typing.ClassVar[str] = "jsonObjectValue"
+	key: _string
+	value: _JSONValue
+
+
+@dataclasses.dataclass
+class JsonString(Structure, TypedStructure[_JSONValue]):
+	CONS: typing.ClassVar[str] = "jsonString"
+	value: _string
 
 
 @dataclasses.dataclass
