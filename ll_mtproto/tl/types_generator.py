@@ -21,6 +21,7 @@ from ll_mtproto.tl.structure import Structure, TypedStructure, TypedStructureObj
 from ll_mtproto.tl.tl import Schema, Parameter, Constructor, Value, TlBodyData
 
 DISALLOWED_CONSTRUCTORS = {"gzip_packed", "true", "boolTrue", "boolFalse", "null"}
+DISALLOWED_TYPES = {"Bool", "True", "Null"}
 
 
 def from_snake_to_pascal_case(snake_case_text: str) -> str:
@@ -108,7 +109,7 @@ def _generate_all_variable(constructors: typing.List[typing.Tuple[str, Construct
 def _generate_type_unions(types: typing.List[typing.Tuple[str, typing.List[Constructor]]]) -> str:
     output_lines = []
     for cons_type, cons_list in types:
-        if cons_type in ("Bool", "True", "Null"):
+        if cons_type in DISALLOWED_TYPES:
             continue
 
         valid_constructors = [c for c in cons_list if not c.is_function and not c.is_gzip_container]
