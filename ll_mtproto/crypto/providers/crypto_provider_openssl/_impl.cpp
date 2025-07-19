@@ -47,14 +47,6 @@
 #define COUNT_TRAILING_ZEROS(x) __builtin_ctzll(x)
 #endif
 
-#if defined(__GNUC__) || defined(__clang__)
-#define PREFETCH_READ_NTA(addr) __builtin_prefetch((addr), 0, 0)
-#define PREFETCH_WRITE_NTA(addr) __builtin_prefetch((addr), 1, 0)
-#else
-#define PREFETCH_READ_NTA(addr)
-#define PREFETCH_WRITE_NTA(addr)
-#endif
-
 namespace detail {
 #if defined(HAS_EMMINTRIN)
 struct alignas(16) SimdBlock128SSE2 {
