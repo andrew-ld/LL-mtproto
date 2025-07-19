@@ -14,11 +14,7 @@
 #include <cstring>
 #include <memory>
 #include <string>
-
-#if defined(__linux__)
-#include <sys/mman.h>
-#define HAS_MMAN
-#endif
+#include <utility>
 
 #if defined(_MSC_VER)
 #include <intrin.h>
@@ -459,81 +455,124 @@ public:
   }
 };
 
+struct IgeState {
+  SimdBlock128 encrypted_iv;
+  SimdBlock128 plaintext_iv;
+};
+
+template <bool IsEncrypt>
+static ALWAYS_INLINE std::pair<SimdBlock128, IgeState>
+process_aes_block_ssa(const Evp<IsEncrypt> &evp, const SimdBlock128 &in_block,
+                      const IgeState current_state, bool &success) {
+  if (!success) [[unlikely]] {
+    return {{}, current_state};
+  }
+
+  SimdBlock128 temp_block;
+  if constexpr (IsEncrypt) {
+    temp_block = in_block ^ current_state.encrypted_iv;
+  } else {
+    temp_block = in_block ^ current_state.plaintext_iv;
+  }
+
+  alignas(16) uint8_t out_buffer[16];
+  if (!evp.update(temp_block.raw(), out_buffer, 16)) [[unlikely]] {
+    success = false;
+    return {{}, current_state};
+  }
+
+  SimdBlock128 out_block(out_buffer);
+  if constexpr (IsEncrypt) {
+    out_block = out_block ^ current_state.plaintext_iv;
+  } else {
+    out_block = out_block ^ current_state.encrypted_iv;
+  }
+
+  IgeState next_state{};
+  if constexpr (IsEncrypt) {
+    next_state.plaintext_iv = in_block;
+    next_state.encrypted_iv = out_block;
+  } else {
+    next_state.encrypted_iv = in_block;
+    next_state.plaintext_iv = out_block;
+  }
+
+  return {out_block, next_state};
+}
+
+template <bool IsEncrypt>
+static std::pair<IgeState, bool>
+aes_ige_loop_impl(const Evp<IsEncrypt> &evp, IgeState current_state,
+                  const Slice from, const MutableSlice to) {
+  const uint8_t *in_ptr = from.ubegin();
+  uint8_t *out_ptr = to.ubegin();
+  const size_t num_blocks = from.size() / 16;
+  const uint8_t *const in_end = in_ptr + from.size();
+
+  const size_t unrolled_block_count = (num_blocks / 8) * 4;
+  const uint8_t *const unroll_end = from.ubegin() + unrolled_block_count * 16;
+
+  bool success = true;
+
+  while (in_ptr < unroll_end) {
+    const SimdBlock128 in_block1(in_ptr);
+    const SimdBlock128 in_block2(in_ptr + 16);
+    const SimdBlock128 in_block3(in_ptr + 32);
+    const SimdBlock128 in_block4(in_ptr + 48);
+
+    auto [out_block1, next_state1] = process_aes_block_ssa<IsEncrypt>(
+        evp, in_block1, current_state, success);
+    auto [out_block2, next_state2] =
+        process_aes_block_ssa<IsEncrypt>(evp, in_block2, next_state1, success);
+    auto [out_block3, next_state3] =
+        process_aes_block_ssa<IsEncrypt>(evp, in_block3, next_state2, success);
+    auto [out_block4, next_state4] =
+        process_aes_block_ssa<IsEncrypt>(evp, in_block4, next_state3, success);
+
+    out_block1.store(out_ptr);
+    out_block2.store(out_ptr + 16);
+    out_block3.store(out_ptr + 32);
+    out_block4.store(out_ptr + 48);
+
+    in_ptr += 64;
+    out_ptr += 64;
+    current_state = next_state4;
+  }
+
+  while (in_ptr < in_end) {
+    const SimdBlock128 in_block(in_ptr);
+    auto [out_block, next_state] =
+        process_aes_block_ssa<IsEncrypt>(evp, in_block, current_state, success);
+    out_block.store(out_ptr);
+
+    in_ptr += 16;
+    out_ptr += 16;
+    current_state = next_state;
+  }
+
+  return {current_state, success};
+}
+
 template <bool IsEncrypt>
 auto aes_ige_crypt_impl(const Slice key, const MutableSlice iv,
                         const Slice from, const MutableSlice to) -> bool {
-  // https://github.com/tdlib/td/blob/5d1fe744712fbc752840176135b39e82086f5578/tdutils/td/utils/crypto.cpp#L487
-  const uint8_t *in = from.ubegin();
-  uint8_t *out = to.ubegin();
-  const size_t len = from.size();
-  const size_t num_blocks = len / 16;
-
-  SimdBlock128 encrypted_iv(iv.ubegin());
-  SimdBlock128 plaintext_iv(iv.ubegin() + 16);
+  IgeState initial_state{SimdBlock128(iv.ubegin()),
+                         SimdBlock128(iv.ubegin() + 16)};
 
   const Evp<IsEncrypt> evp;
   if (!evp.init(key)) [[unlikely]]
     return false;
 
-  auto process_block = [&](const uint8_t *current_in,
-                           uint8_t *current_out) -> bool {
-    const SimdBlock128 in_block(current_in);
-    SimdBlock128 temp_block;
+  auto [final_state, success] =
+      aes_ige_loop_impl<IsEncrypt>(evp, initial_state, from, to);
 
-    if constexpr (IsEncrypt) {
-      temp_block = in_block ^ encrypted_iv;
-    } else {
-      temp_block = in_block ^ plaintext_iv;
-    }
-
-    if (!evp.update(temp_block.raw(), current_out, 16)) [[unlikely]]
-      return false;
-
-    SimdBlock128 out_block(current_out);
-    if constexpr (IsEncrypt) {
-      out_block = out_block ^ plaintext_iv;
-    } else {
-      out_block = out_block ^ encrypted_iv;
-    }
-    out_block.store(current_out);
-
-    if constexpr (IsEncrypt) {
-      plaintext_iv = in_block;
-      encrypted_iv = out_block;
-    } else {
-      encrypted_iv = in_block;
-      plaintext_iv = out_block;
-    }
-    return true;
-  };
-
-  size_t i = 0;
-
-  for (; i + 4 <= num_blocks; i += 4) {
-    const size_t offset = i << 4;
-    const size_t prefetch_offset = offset + 64;
-
-    PREFETCH_WRITE_NTA(out + prefetch_offset);
-    PREFETCH_READ_NTA(in + prefetch_offset);
-
-    if (!process_block(in + offset, out + offset)) [[unlikely]]
-      return false;
-    if (!process_block(in + offset + 16, out + offset + 16)) [[unlikely]]
-      return false;
-    if (!process_block(in + offset + 32, out + offset + 32)) [[unlikely]]
-      return false;
-    if (!process_block(in + offset + 48, out + offset + 48)) [[unlikely]]
-      return false;
+  if (!success) [[unlikely]] {
+    return false;
   }
 
-  for (; i < num_blocks; i++) {
-    const size_t offset = i << 4;
-    if (!process_block(in + offset, out + offset)) [[unlikely]]
-      return false;
-  }
+  final_state.encrypted_iv.store(iv.ubegin());
+  final_state.plaintext_iv.store(iv.ubegin() + 16);
 
-  encrypted_iv.store(iv.ubegin());
-  plaintext_iv.store(iv.ubegin() + 16);
   return true;
 }
 
@@ -647,11 +686,6 @@ static PyObject *py_crypt_aes_ige([[maybe_unused]] PyObject *self,
 
   alignas(16) uint8_t next_iv_buffer[32];
   memcpy(next_iv_buffer, iv.buf, iv.len);
-
-#if defined(HAS_MMAN)
-  madvise(data.buf, data.len, MADV_SEQUENTIAL | MADV_WILLNEED);
-  madvise(out_data_ptr, data.len, MADV_SEQUENTIAL | MADV_DONTNEED);
-#endif
 
   bool success;
   Py_BEGIN_ALLOW_THREADS;
