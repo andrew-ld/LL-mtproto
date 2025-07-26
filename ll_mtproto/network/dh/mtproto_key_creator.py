@@ -297,7 +297,7 @@ class MTProtoKeyCreator:
             raise RuntimeError("Diffie–Hellman exchange failed: nonce mismatch: `%r`", res_pq)
 
         if self._datacenter.public_rsa.fingerprint not in res_pq.server_public_key_fingerprints:
-            raise ValueError(f"Our certificate is not supported by the server: `%r`", res_pq)
+            raise ValueError("Our certificate is not supported by the server: `%r`", res_pq)
 
         server_nonce = res_pq.server_nonce
         pq = int.from_bytes(res_pq.pq, "big", signed=False)

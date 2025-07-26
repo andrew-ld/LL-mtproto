@@ -42,7 +42,7 @@ class AesIge:
 
     def decrypt(self, cipher: bytes) -> bytes:
         if len(cipher) % 16 != 0:
-            raise ValueError(f"Encrypted length must be divisible by 16 bytes")
+            raise ValueError("Encrypted length must be divisible by 16 bytes")
 
         plaintext, self._iv = self._crypto_provider.decrypt_aes_ige(cipher, self._key, self._iv)
         return plaintext

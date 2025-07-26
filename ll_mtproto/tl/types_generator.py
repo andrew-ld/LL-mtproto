@@ -13,12 +13,10 @@
 
 
 import argparse
-import dataclasses
 import operator
 import typing
 
-from ll_mtproto.tl.structure import Structure, TypedStructure, TypedStructureObjectType
-from ll_mtproto.tl.tl import Schema, Parameter, Constructor, Value, TlBodyData
+from ll_mtproto.tl.tl import Schema, Parameter, Constructor
 
 DISALLOWED_CONSTRUCTORS = {"gzip_packed", "true", "boolTrue", "boolFalse", "null"}
 DISALLOWED_TYPES = {"Bool", "True", "Null"}
