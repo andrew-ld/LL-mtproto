@@ -1017,10 +1017,10 @@ class Constructor:
                             data.append_serialized_tl(argument.to_bytes(8, "little", signed=False))
 
                         case "int128":
-                            data.append_serialized_tl(argument.to_bytes(16, "little", signed=False))
+                            data.append_serialized_tl(argument.to_bytes(16, "little", signed=True))
 
                         case "int256":
-                            data.append_serialized_tl(argument.to_bytes(32, "little", signed=False))
+                            data.append_serialized_tl(argument.to_bytes(32, "little", signed=True))
 
                         case "double":
                             data.append_serialized_tl(struct.pack(b"<d", float(argument)))
