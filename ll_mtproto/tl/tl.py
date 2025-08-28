@@ -1016,6 +1016,12 @@ class Constructor:
                         case "ulong":
                             data.append_serialized_tl(argument.to_bytes(8, "little", signed=False))
 
+                        case "int128":
+                            data.append_serialized_tl(argument.to_bytes(16, "little", signed=False))
+
+                        case "int256":
+                            data.append_serialized_tl(argument.to_bytes(32, "little", signed=False))
+
                         case "double":
                             data.append_serialized_tl(struct.pack(b"<d", float(argument)))
 
