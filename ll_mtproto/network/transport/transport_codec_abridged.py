@@ -16,6 +16,7 @@ import asyncio
 
 from ll_mtproto.network.transport.transport_codec_base import TransportCodecBase
 from ll_mtproto.network.transport.transport_codec_factory import TransportCodecFactory
+from ll_mtproto.network.transport_error import TransportError
 
 __all__ = ("TransportCodecAbridgedFactory", "TransportCodecAbridged")
 
@@ -29,15 +30,23 @@ class TransportCodecAbridged(TransportCodecBase):
         self._must_write_transport_type = True
 
     async def read_packet(self, reader: asyncio.StreamReader) -> bytes:
-        packet_data_length = ord(await reader.readexactly(1))
+        length = ord(await reader.readexactly(1))
 
-        if packet_data_length > 0x7F:
-            raise NotImplementedError(f"Wrong packet data length {packet_data_length:d}")
+        if length > 0x7F:
+            raise NotImplementedError(f"Wrong packet data length {length:d}")
 
-        if packet_data_length == 0x7F:
-            packet_data_length = int.from_bytes(await reader.readexactly(3), "little", signed=False)
+        if length == 0x7F:
+            length = int.from_bytes(await reader.readexactly(3), "little", signed=False)
 
-        return await reader.readexactly(packet_data_length * 4)
+        length *= 4
+        result = await reader.readexactly(length)
+
+        if length == 4:
+            error_code = int.from_bytes(result, "little", signed=True)
+            if error_code < 0:
+                raise TransportError(error_code)
+
+        return result
 
     async def write_packet(self, writer: asyncio.StreamWriter, data: bytes | bytearray) -> None:
         packet_header = bytearray()

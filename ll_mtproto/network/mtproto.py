@@ -25,6 +25,7 @@ from ll_mtproto.network.auth_key_not_found_exception import AuthKeyNotFoundExcep
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
+from ll_mtproto.network.transport_error import TransportError
 from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, sha1
 from ll_mtproto.tl.structure import Structure
 from ll_mtproto.tl.tl import TlBodyDataValue, Value, TlBodyData, NativeByteReader, extract_cons_from_tl_body
@@ -183,13 +184,12 @@ class MTProto:
         auth_key_part = auth_key_key[88 + 8:88 + 8 + 32]
 
         async with self._read_message_lock:
-            server_auth_key_id_bytes = await self._link.readn(8)
-
-            if server_auth_key_id_bytes == b"l\xfe\xff\xffl\xfe\xff\xff":
-                raise AuthKeyNotFoundException()
-
-            if server_auth_key_id_bytes == b'S\xfe\xff\xffS\xfe\xff\xff':
-                raise ValueError("Too many requests!")
+            try:
+                server_auth_key_id_bytes = await self._link.readn(8)
+            except TransportError as transport_error:
+                if transport_error.code == -404:
+                    raise AuthKeyNotFoundException() from transport_error
+                raise transport_error from transport_error
 
             server_auth_key_id = int.from_bytes(server_auth_key_id_bytes, "little", signed=True)
 

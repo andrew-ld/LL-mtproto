@@ -17,6 +17,7 @@ import struct
 
 from ll_mtproto.network.transport.transport_codec_base import TransportCodecBase
 from ll_mtproto.network.transport.transport_codec_factory import TransportCodecFactory
+from ll_mtproto.network.transport_error import TransportError
 
 __all__ = ("TransportCodecIntermediate", "TransportCodecIntermediateFactory")
 
@@ -30,8 +31,15 @@ class TransportCodecIntermediate(TransportCodecBase):
         self._must_write_transport_type = True
 
     async def read_packet(self, reader: asyncio.StreamReader) -> bytes:
-        packet_data_length = struct.unpack("<i", await reader.readexactly(4))
-        return await reader.readexactly(*packet_data_length)
+        length = int.from_bytes(await reader.readexactly(4), "little", signed=True)
+        result = await reader.readexactly(length)
+
+        if length == 4:
+            error_code = int.from_bytes(result, "little", signed=True)
+            if error_code < 0:
+                raise TransportError(error_code)
+
+        return result
 
     async def write_packet(self, writer: asyncio.StreamWriter, data: bytes | bytearray) -> None:
         packet_header = bytearray()
@@ -40,7 +48,7 @@ class TransportCodecIntermediate(TransportCodecBase):
             packet_header += b"\xee" * 4
             self._must_write_transport_type = False
 
-        packet_header += struct.pack("<i", len(data))
+        packet_header += len(data).to_bytes(4, "little", signed=True)
 
         writer.write(packet_header + data)
 
