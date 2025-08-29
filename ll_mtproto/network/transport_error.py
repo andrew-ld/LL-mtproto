@@ -14,8 +14,6 @@
 
 __all__ = ("TransportError",)
 
-from ll_mtproto.tl.tls_system import RpcError
-
 
 class TransportError(BaseException):
     __slots__ = ("code",)
