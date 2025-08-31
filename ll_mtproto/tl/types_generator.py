@@ -53,10 +53,11 @@ def parameter_to_python_type(p: Parameter | None, is_wrapper: bool) -> str:
     else:
         output_text += f"_{from_snake_to_pascal_case(inner_type.type)}"
 
+    output_text += "]" * vector_depth
+
     if p.parameter_flag is not None:
         output_text += " | None"
 
-    output_text += "]" * vector_depth
     return output_text
 
 
@@ -140,11 +141,14 @@ def _generate_constructor_classes(constructors: typing.List[typing.Tuple[str, Co
             f'\tCONS: typing.ClassVar[str] = "{cons_name}"',
         ]
 
-        for p in cons.parameters:
+        for p in sorted(cons.parameters, key=lambda x: x.parameter_flag is not None):
             if p.is_flag:
                 continue
             param_type = parameter_to_python_type(p, cons.is_function)
-            class_def.append(f"\t{p.name}: {param_type}")
+            if p.parameter_flag is None:
+                class_def.append(f"\t{p.name}: {param_type}")
+            else:
+                class_def.append(f"\t{p.name}: {param_type} = dataclasses.field(default=None)")
 
         output_lines.append("\n".join(class_def))
 

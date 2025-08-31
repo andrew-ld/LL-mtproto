@@ -365,9 +365,9 @@ class InitConnection[TypedStructureObjectType](Structure, TypedStructure[TypedSt
 	system_lang_code: _string
 	lang_pack: _string
 	lang_code: _string
-	proxy: _InputClientProxy | None
-	params: _JSONValue | None
 	_wrapped: TypedStructure[TypedStructureObjectType] | TlBodyData | Value
+	proxy: _InputClientProxy | None = dataclasses.field(default=None)
+	params: _JSONValue | None = dataclasses.field(default=None)
 
 
 @dataclasses.dataclass
