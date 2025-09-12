@@ -195,10 +195,8 @@ uint64_t fast_uint64() {
 #ifdef COUNT_TRAILING_ZEROS
 static uint64_t pq_gcd(uint64_t a, uint64_t b) {
   // https://en.wikipedia.org/wiki/Binary_GCD_algorithm
-  if (a == 0) [[unlikely]]
-    return b;
-  if (b == 0) [[unlikely]]
-    return a;
+  if (!a || !b) [[unlikely]]
+    return a | b;
 
   const unsigned long a_tz = COUNT_TRAILING_ZEROS(a);
   const unsigned long b_tz = COUNT_TRAILING_ZEROS(b);
