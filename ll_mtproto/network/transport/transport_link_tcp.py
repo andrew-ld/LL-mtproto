@@ -156,6 +156,8 @@ class TransportLinkTcp(TransportLinkBase):
                 await codec.write_packet(writer, data[:writable_len])
                 del data[:writable_len]
 
+        await writer.drain()
+
     def stop(self) -> None:
         if writer := self._writer:
             writer.close()
