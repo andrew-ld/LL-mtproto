@@ -147,6 +147,9 @@ class TransportLinkTcp(TransportLinkBase):
         return bytes(result)
 
     async def write(self, data: bytes | bytearray) -> None:
+        if not data:
+            return
+
         data = bytearray(data)
 
         _, writer, codec, _ = await self._reconnect_if_needed()
