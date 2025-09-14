@@ -18,6 +18,7 @@ import ipaddress
 import logging
 import socket
 import traceback
+import typing
 
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_address_resolver_base import TransportAddressResolverBase
@@ -150,16 +151,22 @@ class TransportLinkTcp(TransportLinkBase):
         if not data:
             return
 
-        data = bytearray(data)
-
         _, writer, codec, _ = await self._reconnect_if_needed()
 
-        async with self._write_lock:
-            while (writable_len := min(len(data), 0x7FFFFF)) > 0:
-                await codec.write_packet(writer, data[:writable_len])
-                del data[:writable_len]
+        MAX_PACKET_SIZE: typing.Final[int] = 0x7FFFFF
 
-        await writer.drain()
+        async with self._write_lock:
+            if len(data) < MAX_PACKET_SIZE:
+                await codec.write_packet(writer, data)
+            else:
+                data = bytearray(data) if isinstance(data, bytes) else data
+
+                while data:
+                    slice_size = min(len(data), 0x7FFFFF)
+                    await codec.write_packet(writer, data[:slice_size])
+                    del data[:slice_size]
+
+            await writer.drain()
 
     def stop(self) -> None:
         if writer := self._writer:
