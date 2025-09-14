@@ -159,7 +159,7 @@ class TransportLinkTcp(TransportLinkBase):
             if len(data) < MAX_PACKET_SIZE:
                 await codec.write_packet(writer, data)
             else:
-                data = bytearray(data) if isinstance(data, bytes) else data
+                data = bytearray(data)
 
                 while data:
                     slice_size = min(len(data), MAX_PACKET_SIZE)
