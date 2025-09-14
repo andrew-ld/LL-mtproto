@@ -162,7 +162,7 @@ class TransportLinkTcp(TransportLinkBase):
                 data = bytearray(data) if isinstance(data, bytes) else data
 
                 while data:
-                    slice_size = min(len(data), 0x7FFFFF)
+                    slice_size = min(len(data), MAX_PACKET_SIZE)
                     await codec.write_packet(writer, data[:slice_size])
                     del data[:slice_size]
 
