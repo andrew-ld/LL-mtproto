@@ -9,7 +9,7 @@
 #include <openssl/rand.h>
 
 #include <algorithm>
-#include <bits/unique_ptr.h>
+#include <memory>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -520,7 +520,7 @@ aes_ige_loop_impl(const Evp<IsEncrypt> &evp, IgeState current_state,
   const size_t num_blocks = from.size() / 16;
   const uint8_t *const in_end = in_ptr + from.size();
 
-  const size_t unrolled_block_count = (num_blocks / 8) * 4;
+  const size_t unrolled_block_count = (num_blocks / 4) * 4;
   const uint8_t *const unroll_end = from.ubegin() + unrolled_block_count * 16;
 
   bool success = true;
