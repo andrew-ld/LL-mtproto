@@ -266,11 +266,32 @@ uint64_t factorize_u64(const uint64_t pq) {
     while (k < r && g == 1) {
       ys = y;
       const uint64_t iterations = std::min(M, r - k);
-      for (uint64_t i = 0; i < iterations; i++) {
+
+      uint64_t i = 0;
+
+      for (; i + 3 < iterations; i += 4) {
+        y = pq_add_mul(c, y, y, pq);
+        const uint64_t d1 = x > y ? x - y : y - x;
+        y = pq_add_mul(c, y, y, pq);
+        const uint64_t d2 = x > y ? x - y : y - x;
+        y = pq_add_mul(c, y, y, pq);
+        const uint64_t d3 = x > y ? x - y : y - x;
+        y = pq_add_mul(c, y, y, pq);
+        const uint64_t d4 = x > y ? x - y : y - x;
+
+        const uint64_t m1 = pq_add_mul(0, d1, d2, pq);
+        const uint64_t m2 = pq_add_mul(0, d3, d4, pq);
+        const uint64_t diff_product = pq_add_mul(0, m1, m2, pq);
+
+        q = pq_add_mul(0, q, diff_product, pq);
+      }
+
+      for (; i < iterations; i++) {
         y = pq_add_mul(c, y, y, pq);
         const uint64_t diff = x > y ? x - y : y - x;
         q = pq_add_mul(0, q, diff, pq);
       }
+
       g = pq_gcd(q, pq);
       k += iterations;
     }
