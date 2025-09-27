@@ -9,7 +9,6 @@
 #include <openssl/rand.h>
 
 #include <algorithm>
-#include <memory>
 #include <cstdint>
 #include <cstring>
 #include <memory>
@@ -472,43 +471,38 @@ struct IgeState {
 };
 
 template <bool IsEncrypt>
-static ALWAYS_INLINE std::pair<SimdBlock128, IgeState>
-process_aes_block_ssa(const Evp<IsEncrypt> &evp, const SimdBlock128 &in_block,
-                      const IgeState current_state, bool &success) {
-  if (!success) [[unlikely]] {
-    return {{}, current_state};
-  }
-
+static ALWAYS_INLINE bool
+process_aes_block_in_place(const Evp<IsEncrypt> &evp,
+                           const SimdBlock128 &in_block, IgeState &state,
+                           SimdBlock128 &out_block) {
   SimdBlock128 temp_block;
   if constexpr (IsEncrypt) {
-    temp_block = in_block ^ current_state.encrypted_iv;
+    temp_block = in_block ^ state.encrypted_iv;
   } else {
-    temp_block = in_block ^ current_state.plaintext_iv;
+    temp_block = in_block ^ state.plaintext_iv;
   }
 
   alignas(16) uint8_t out_buffer[16];
   if (!evp.update(temp_block.raw(), out_buffer, 16)) [[unlikely]] {
-    success = false;
-    return {{}, current_state};
+    return false;
   }
 
-  SimdBlock128 out_block(out_buffer);
+  SimdBlock128 encrypted_block(out_buffer);
   if constexpr (IsEncrypt) {
-    out_block = out_block ^ current_state.plaintext_iv;
+    out_block = encrypted_block ^ state.plaintext_iv;
   } else {
-    out_block = out_block ^ current_state.encrypted_iv;
+    out_block = encrypted_block ^ state.encrypted_iv;
   }
 
-  IgeState next_state{};
   if constexpr (IsEncrypt) {
-    next_state.plaintext_iv = in_block;
-    next_state.encrypted_iv = out_block;
+    state.plaintext_iv = in_block;
+    state.encrypted_iv = out_block;
   } else {
-    next_state.encrypted_iv = in_block;
-    next_state.plaintext_iv = out_block;
+    state.encrypted_iv = in_block;
+    state.plaintext_iv = out_block;
   }
 
-  return {out_block, next_state};
+  return true;
 }
 
 template <bool IsEncrypt>
@@ -523,22 +517,28 @@ aes_ige_loop_impl(const Evp<IsEncrypt> &evp, IgeState current_state,
   const size_t unrolled_block_count = (num_blocks / 4) * 4;
   const uint8_t *const unroll_end = from.ubegin() + unrolled_block_count * 16;
 
-  bool success = true;
-
   while (in_ptr < unroll_end) {
     const SimdBlock128 in_block1(in_ptr);
     const SimdBlock128 in_block2(in_ptr + 16);
     const SimdBlock128 in_block3(in_ptr + 32);
     const SimdBlock128 in_block4(in_ptr + 48);
 
-    auto [out_block1, next_state1] = process_aes_block_ssa<IsEncrypt>(
-        evp, in_block1, current_state, success);
-    auto [out_block2, next_state2] =
-        process_aes_block_ssa<IsEncrypt>(evp, in_block2, next_state1, success);
-    auto [out_block3, next_state3] =
-        process_aes_block_ssa<IsEncrypt>(evp, in_block3, next_state2, success);
-    auto [out_block4, next_state4] =
-        process_aes_block_ssa<IsEncrypt>(evp, in_block4, next_state3, success);
+    SimdBlock128 out_block1{}, out_block2{}, out_block3{}, out_block4{};
+
+    bool success = true;
+
+    success &= process_aes_block_in_place<IsEncrypt>(evp, in_block1,
+                                                     current_state, out_block1);
+    success &= process_aes_block_in_place<IsEncrypt>(evp, in_block2,
+                                                     current_state, out_block2);
+    success &= process_aes_block_in_place<IsEncrypt>(evp, in_block3,
+                                                     current_state, out_block3);
+    success &= process_aes_block_in_place<IsEncrypt>(evp, in_block4,
+                                                     current_state, out_block4);
+
+    if (!success) [[unlikely]] {
+      return {current_state, false};
+    }
 
     out_block1.store(out_ptr);
     out_block2.store(out_ptr + 16);
@@ -547,21 +547,24 @@ aes_ige_loop_impl(const Evp<IsEncrypt> &evp, IgeState current_state,
 
     in_ptr += 64;
     out_ptr += 64;
-    current_state = next_state4;
   }
 
   while (in_ptr < in_end) {
     const SimdBlock128 in_block(in_ptr);
-    auto [out_block, next_state] =
-        process_aes_block_ssa<IsEncrypt>(evp, in_block, current_state, success);
+    SimdBlock128 out_block;
+
+    if (!process_aes_block_in_place<IsEncrypt>(evp, in_block, current_state,
+                                               out_block)) [[unlikely]] {
+      return {current_state, false};
+    }
+
     out_block.store(out_ptr);
 
     in_ptr += 16;
     out_ptr += 16;
-    current_state = next_state;
   }
 
-  return {current_state, success};
+  return {current_state, true};
 }
 
 template <bool IsEncrypt>
