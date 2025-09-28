@@ -127,7 +127,7 @@ def benchmark_provider(provider: CryptoProviderBase) -> None:
     random_data_decrypted, _ = provider.decrypt_aes_ige(random_data_encrypted, random_key, random_iv)
     assert random_data_decrypted == random_data
 
-    benchmark_factorize(iterations=10_000, provider=provider)
+    benchmark_factorize(iterations=40_000, provider=provider)
 
     test_cases = [
         (

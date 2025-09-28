@@ -204,16 +204,15 @@ static uint64_t pq_gcd(uint64_t a, uint64_t b) {
   a >>= a_tz;
   b >>= b_tz;
 
-  while (true) {
-    if (a > b) {
-      a -= b;
-      a >>= COUNT_TRAILING_ZEROS(a);
-    } else if (b > a) {
-      b -= a;
-      b >>= COUNT_TRAILING_ZEROS(b);
-    } else {
-      break;
-    }
+  while (a != b) {
+    const uint64_t mask = -static_cast<uint64_t>(a > b);
+    const uint64_t diff = a - b;
+
+    const uint64_t new_a = (diff & mask) | (a & ~mask);
+    const uint64_t new_b = ((-diff) & ~mask) | (b & mask);
+
+    a = new_a >> (COUNT_TRAILING_ZEROS(new_a) & mask);
+    b = new_b >> (COUNT_TRAILING_ZEROS(new_b) & ~mask);
   }
 
   return a << common_factor_pow2;
@@ -246,6 +245,12 @@ static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
 }
 #endif
 
+static uint64_t abs_diff_u64(const uint64_t x, const uint64_t y) {
+  const uint64_t diff = x - y;
+  const uint64_t mask = -static_cast<uint64_t>(y > x);
+  return (diff ^ mask) - mask;
+}
+
 uint64_t factorize_u64(const uint64_t pq) {
   // https://en.wikipedia.org/wiki/Pollard%27s_rho_algorithm
   // https://en.wikipedia.org/wiki/Cycle_detection#Floyd's_tortoise_and_hare
@@ -270,13 +275,13 @@ uint64_t factorize_u64(const uint64_t pq) {
 
       for (; i + 3 < iterations; i += 4) {
         y = pq_add_mul(c, y, y, pq);
-        const uint64_t d1 = x > y ? x - y : y - x;
+        const uint64_t d1 = abs_diff_u64(x, y);
         y = pq_add_mul(c, y, y, pq);
-        const uint64_t d2 = x > y ? x - y : y - x;
+        const uint64_t d2 = abs_diff_u64(x, y);
         y = pq_add_mul(c, y, y, pq);
-        const uint64_t d3 = x > y ? x - y : y - x;
+        const uint64_t d3 = abs_diff_u64(x, y);
         y = pq_add_mul(c, y, y, pq);
-        const uint64_t d4 = x > y ? x - y : y - x;
+        const uint64_t d4 = abs_diff_u64(x, y);
 
         const uint64_t m1 = pq_add_mul(0, d1, d2, pq);
         const uint64_t m2 = pq_add_mul(0, d3, d4, pq);
@@ -287,7 +292,7 @@ uint64_t factorize_u64(const uint64_t pq) {
 
       for (; i < iterations; i++) {
         y = pq_add_mul(c, y, y, pq);
-        const uint64_t diff = x > y ? x - y : y - x;
+        const uint64_t diff = abs_diff_u64(x, y);
         q = pq_add_mul(0, q, diff, pq);
       }
 
@@ -302,7 +307,7 @@ uint64_t factorize_u64(const uint64_t pq) {
     y = ys;
     while (g == 1) {
       y = pq_add_mul(c, y, y, pq);
-      g = pq_gcd(x > y ? x - y : y - x, pq);
+      g = pq_gcd(abs_diff_u64(x, y), pq);
     }
   }
 
