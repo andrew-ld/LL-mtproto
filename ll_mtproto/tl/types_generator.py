@@ -106,7 +106,7 @@ def _generate_all_variable(constructors: typing.List[typing.Tuple[str, Construct
 
 
 def _generate_type_unions(types: typing.List[typing.Tuple[str, typing.List[Constructor]]]) -> str:
-    output_lines = []
+    output_lines: list[str] = []
     for cons_type, cons_list in types:
         if cons_type in DISALLOWED_TYPES:
             continue
@@ -117,7 +117,7 @@ def _generate_type_unions(types: typing.List[typing.Tuple[str, typing.List[Const
         if not valid_constructors:
             continue
 
-        union_lines = [f"_{from_snake_to_pascal_case(cons_type)} = typing.Union["]
+        union_lines: list[str] = [f"_{from_snake_to_pascal_case(cons_type)} = typing.Union["]
         union_lines.extend(f'\n\t"{from_snake_to_pascal_case(cons.name)}",' for cons in valid_constructors)
         union_lines.append("\n]")
         output_lines.append("".join(union_lines))
@@ -126,7 +126,7 @@ def _generate_type_unions(types: typing.List[typing.Tuple[str, typing.List[Const
 
 
 def _generate_constructor_classes(constructors: typing.List[typing.Tuple[str, Constructor]]) -> str:
-    output_lines = []
+    output_lines: list[str] = []
     for cons_name, cons in constructors:
         if cons_name in DISALLOWED_CONSTRUCTORS:
             continue
@@ -134,7 +134,7 @@ def _generate_constructor_classes(constructors: typing.List[typing.Tuple[str, Co
         ptype = parameter_to_python_type(cons.ptype_parameter, cons.is_function)
         class_generics = "[TypedStructureObjectType]" if cons.ptype_parameter is None else ""
 
-        class_def = [
+        class_def: list[str] = [
             "\n",
             "@dataclasses.dataclass",
             f"class {from_snake_to_pascal_case(cons_name)}{class_generics}(Structure, TypedStructure[{ptype}]):",

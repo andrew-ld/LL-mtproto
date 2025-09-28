@@ -26,9 +26,9 @@ class CryptoProviderBase(abc.ABC):
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def decrypt_aes_ige(self, plaintext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
+    def decrypt_aes_ige(self, ciphertext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
         raise NotImplementedError()
 
     @abc.abstractmethod
-    def encrypt_aes_ige(self, ciphertext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
+    def encrypt_aes_ige(self, plaintext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
         raise NotImplementedError()

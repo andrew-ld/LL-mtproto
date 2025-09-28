@@ -53,5 +53,5 @@ class PwrTelegramErrorDescriptionResolver(BaseErrorDescriptionResolver):
         with urllib.request.urlopen(self._database_url) as response:
             self._database = typing.cast(dict[str, str], json.loads(response.read())["human_result"])
 
-    def resolve(self, _code: int, message: str) -> str | None:
+    def resolve(self, code: int, message: str) -> str | None:
         return self.current_database.get(self._normalize_error_message(message), None)

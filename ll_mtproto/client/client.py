@@ -710,7 +710,7 @@ class Client:
 
         self._datacenter.set_synchronized_time(body.now)
 
-        if valid_salt := next((salt for salt in body.salts if salt.valid_since <= body.now), None):
+        if (valid_salt := next((salt for salt in body.salts if salt.valid_since <= body.now), None)) is not None:
             self._used_session_key.server_salt = valid_salt.salt
 
             salt_expire = max((valid_salt.valid_until - body.now) - 1800, 10)
