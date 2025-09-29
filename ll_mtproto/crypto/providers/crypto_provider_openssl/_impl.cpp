@@ -272,7 +272,7 @@ uint64_t factorize_u64(const uint64_t pq) {
   const uint64_t c = Random::fast_uint64() % (pq - 1) + 1;
   uint64_t g = 1, r = 1, q = 1, x = 0, ys = 0;
 
-  static constexpr uint64_t M = 128;
+  static constexpr uint64_t M = 512;
 
   while (g == 1) {
     x = y;
