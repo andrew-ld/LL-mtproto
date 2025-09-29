@@ -135,6 +135,55 @@ struct alignas(16) SimdBlock128Fallback {
 
   ALWAYS_INLINE uint8_t *raw() { return reinterpret_cast<uint8_t *>(this); }
 };
+
+struct Montgomery {
+  const uint64_t n;
+  const uint64_t n_inv;
+  const uint64_t r2;
+
+  static uint64_t calc_n_inv(uint64_t val) {
+    uint64_t inv = 1;
+    inv *= (2 - val * inv);
+    inv *= (2 - val * inv);
+    inv *= (2 - val * inv);
+    inv *= (2 - val * inv);
+    inv *= (2 - val * inv);
+    inv *= (2 - val * inv);
+    return -inv;
+  }
+
+  explicit Montgomery(uint64_t n_val)
+      : n(n_val), n_inv(calc_n_inv(n_val)),
+        r2((-static_cast<__uint128_t>(n_val)) % n_val) {}
+
+  ALWAYS_INLINE uint64_t reduce(__uint128_t val) const {
+    const uint64_t m = static_cast<uint64_t>(val) * n_inv;
+    const uint64_t res = (val + static_cast<__uint128_t>(m) * n) >> 64;
+    return res - (n & -static_cast<uint64_t>(res >= n));
+  }
+
+  ALWAYS_INLINE uint64_t to_mont(uint64_t val) const {
+    return reduce(static_cast<__uint128_t>(val) * r2);
+  }
+
+  ALWAYS_INLINE uint64_t mul_add_mod(uint64_t a, uint64_t b, uint64_t c) const {
+#if defined(HAS_IMMINTRIN)
+    unsigned long long low, high;
+    low = _mulx_u64(a, b, &high);
+    const unsigned char carry = _addcarry_u64(0, low, c, &low);
+    _addcarry_u64(carry, high, 0, &high);
+    __uint128_t T = static_cast<__uint128_t>(high) << 64 | low;
+#else
+    __uint128_t T = static_cast<__uint128_t>(a) * b + c;
+#endif
+    return reduce(T);
+  }
+
+  ALWAYS_INLINE uint64_t sub_mod(uint64_t a, uint64_t b) const {
+    uint64_t diff = a - b;
+    return diff + (n & -static_cast<uint64_t>(a < b));
+  }
+};
 } // namespace detail
 
 #if defined(HAS_EMMINTRIN)
@@ -240,24 +289,6 @@ static uint64_t pq_gcd(uint64_t a, uint64_t b) {
 }
 #endif
 
-#if defined(HAS_IMMINTRIN)
-static uint64_t pq_add_mul(const uint64_t c, const uint64_t a, const uint64_t b,
-                           const uint64_t pq) {
-  unsigned long long low, high;
-  low = _mulx_u64(a, b, &high);
-  const unsigned char carry = _addcarry_u64(0, low, c, &low);
-  _addcarry_u64(carry, high, 0, &high);
-  const __uint128_t res = static_cast<__uint128_t>(high) << 64 | low;
-  return static_cast<uint64_t>(res % static_cast<__uint128_t>(pq));
-}
-#else
-static uint64_t pq_add_mul(uint64_t c, uint64_t a, uint64_t b, uint64_t pq) {
-  __uint128_t res = c;
-  res += static_cast<__uint128_t>(a) * b;
-  return static_cast<uint64_t>(res % pq);
-}
-#endif
-
 static uint64_t abs_diff_u64(const uint64_t x, const uint64_t y) {
   const uint64_t diff = x - y;
   const uint64_t mask = -static_cast<uint64_t>(y > x);
@@ -268,6 +299,10 @@ uint64_t factorize_u64(const uint64_t pq) {
   // https://en.wikipedia.org/wiki/Pollard%27s_rho_algorithm
   // https://en.wikipedia.org/wiki/Cycle_detection#Floyd's_tortoise_and_hare
   // https://maths-people.anu.edu.au/~brent/pd/rpb051i.pdf
+  // https://en.wikipedia.org/wiki/Montgomery_modular_multiplication
+
+  const detail::Montgomery mont(pq);
+
   uint64_t y = Random::fast_uint64() % (pq - 1) + 1;
   const uint64_t c = Random::fast_uint64() % (pq - 1) + 1;
   uint64_t g = 1, r = 1, q = 1, x = 0, ys = 0;
@@ -277,7 +312,7 @@ uint64_t factorize_u64(const uint64_t pq) {
   while (g == 1) {
     x = y;
     for (uint64_t i = 0; i < r; i++) {
-      y = pq_add_mul(c, y, y, pq);
+      y = mont.mul_add_mod(y, y, c);
     }
     uint64_t k = 0;
     while (k < r && g == 1) {
@@ -287,26 +322,26 @@ uint64_t factorize_u64(const uint64_t pq) {
       uint64_t i = 0;
 
       for (; i + 3 < iterations; i += 4) {
-        y = pq_add_mul(c, y, y, pq);
+        y = mont.mul_add_mod(y, y, c);
         const uint64_t d1 = abs_diff_u64(x, y);
-        y = pq_add_mul(c, y, y, pq);
+        y = mont.mul_add_mod(y, y, c);
         const uint64_t d2 = abs_diff_u64(x, y);
-        y = pq_add_mul(c, y, y, pq);
+        y = mont.mul_add_mod(y, y, c);
         const uint64_t d3 = abs_diff_u64(x, y);
-        y = pq_add_mul(c, y, y, pq);
+        y = mont.mul_add_mod(y, y, c);
         const uint64_t d4 = abs_diff_u64(x, y);
 
-        const uint64_t m1 = pq_add_mul(0, d1, d2, pq);
-        const uint64_t m2 = pq_add_mul(0, d3, d4, pq);
-        const uint64_t diff_product = pq_add_mul(0, m1, m2, pq);
+        const uint64_t m1 = mont.mul_add_mod(d1, d2, 0);
+        const uint64_t m2 = mont.mul_add_mod(d3, d4, 0);
+        const uint64_t diff_product = mont.mul_add_mod(m1, m2, 0);
 
-        q = pq_add_mul(0, q, diff_product, pq);
+        q = mont.mul_add_mod(q, diff_product, 0);
       }
 
       for (; i < iterations; i++) {
-        y = pq_add_mul(c, y, y, pq);
+        y = mont.mul_add_mod(y, y, c);
         const uint64_t diff = abs_diff_u64(x, y);
-        q = pq_add_mul(0, q, diff, pq);
+        q = mont.mul_add_mod(q, diff, 0);
       }
 
       g = pq_gcd(q, pq);
@@ -319,7 +354,7 @@ uint64_t factorize_u64(const uint64_t pq) {
     g = 1;
     y = ys;
     while (g == 1) {
-      y = pq_add_mul(c, y, y, pq);
+      y = mont.mul_add_mod(y, y, c);
       g = pq_gcd(abs_diff_u64(x, y), pq);
     }
   }
