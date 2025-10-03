@@ -69,8 +69,7 @@ class DynamicStructure(BaseStructure):
         return f"{self.constructor_name}({self._fields!r})"
 
     def __getattr__(self, name: str) -> StructureValue:
-        fields = object.__getattribute__(self, "_fields")
-        return DynamicStructure.from_obj(fields[name])
+        return DynamicStructure.from_obj(self._fields[name])
 
     def as_tl_body_data(self) -> TlBodyData:
         return self._fields
