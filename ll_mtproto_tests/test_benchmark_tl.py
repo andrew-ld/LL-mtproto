@@ -14,7 +14,7 @@ with open(tlobjpath, "rb") as cf:
     tlobj = typing.cast(DynamicStructure, DynamicStructure.from_obj(pickle.load(cf)))
 
 
-tlobjdict = tlobj.get_dict()
+tlobjdict = tlobj.as_tl_body_data()
 tlobjcons = tlobj.constructor_name
 tlschema = TelegramDatacenter.SCHEMA
 serialized = tlschema.serialize(True, tlobjcons, tlobjdict).get_flat_bytes()

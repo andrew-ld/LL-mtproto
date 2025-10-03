@@ -13,7 +13,7 @@ async def get_updates(client: Client):
         update = await client.get_update()
 
         if update:
-            print("received", update.update.get_dict())
+            print("received", update.update.as_tl_body_data())
 
 
 async def test(api_id: int, api_hash: str, bot_token: str):
