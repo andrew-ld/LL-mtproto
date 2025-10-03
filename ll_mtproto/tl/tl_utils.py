@@ -15,7 +15,7 @@
 import typing
 
 from ll_mtproto.tl.bytereader import SyncByteReader
-from ll_mtproto.tl.structure import TypedStructure, Structure
+from ll_mtproto.tl.structure import TypedStructure, DynamicStructure
 from ll_mtproto.tl.tl import Schema, Constructor, Value
 
 __all__ = ("TypedSchemaConstructor", "flat_value_buffer")
@@ -34,10 +34,10 @@ class TypedSchemaConstructor[T: TypedStructure[typing.Any]]:
         self.cons = schema.constructors[cls.CONS]
 
     def deserialize_boxed_data(self, reader: SyncByteReader) -> T:
-        return typing.cast(T, Structure.from_tl_obj(self.cons.deserialize_boxed_data(reader)))
+        return typing.cast(T, DynamicStructure.from_tl_obj(self.cons.deserialize_boxed_data(reader)))
 
     def deserialize_bare_data(self, reader: SyncByteReader) -> T:
-        return typing.cast(T, Structure.from_tl_obj(self.cons.deserialize_bare_data(reader)))
+        return typing.cast(T, DynamicStructure.from_tl_obj(self.cons.deserialize_bare_data(reader)))
 
     def boxed_buffer_match(self, buffer: bytes | bytearray | Value) -> bool:
         return self.cons.boxed_buffer_match(buffer)

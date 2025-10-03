@@ -21,7 +21,7 @@ from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.dispatcher import Dispatcher, SignalingMessage
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl.byteutils import sha1
-from ll_mtproto.tl.structure import Structure
+from ll_mtproto.tl.structure import BaseStructure
 from ll_mtproto.tl.tl import NativeByteReader
 from ll_mtproto.tl.tl_utils import flat_value_buffer, TypedSchemaConstructor
 from ll_mtproto.tl.tls_system import RpcResult, RpcError, NewSessionCreated, MsgsAck
@@ -130,7 +130,7 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
         self._parent_dispatcher = parent_dispatcher
         self._datacenter = datacenter
 
-    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
+    async def process_telegram_message_body(self, body: BaseStructure, crypto_flag: bool) -> None:
         if not crypto_flag:
             raise TypeError(f"Expected an encrypted message, found `{body!r}`")
 

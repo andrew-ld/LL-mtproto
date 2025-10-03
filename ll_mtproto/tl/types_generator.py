@@ -73,7 +73,7 @@ def _generate_file_header(schema_file: str) -> str:
 
 import typing
 import dataclasses
-from ll_mtproto.tl.structure import Structure, TypedStructure, TypedStructureObjectType
+from ll_mtproto.tl.structure import BaseStructure, TypedStructure, TypedStructureObjectType
 from ll_mtproto.tl.tl import Value, TlBodyData
 
 _int128 = bytes
@@ -81,8 +81,8 @@ _string = str
 _int256 = bytes
 _ulong = int
 _long = int
-_PaddedObject = Structure
-_PlainObject = Structure
+_PaddedObject = BaseStructure
+_PlainObject = BaseStructure
 _encrypted = bytes
 _rawobject = bytes | Value
 _sha1 = bytes
@@ -136,8 +136,8 @@ def _generate_constructor_classes(constructors: typing.List[typing.Tuple[str, Co
 
         class_def: list[str] = [
             "\n",
-            "@dataclasses.dataclass",
-            f"class {from_snake_to_pascal_case(cons_name)}{class_generics}(Structure, TypedStructure[{ptype}]):",
+            "@dataclasses.dataclass(eq=False)",
+            f"class {from_snake_to_pascal_case(cons_name)}{class_generics}(TypedStructure[{ptype}]):",
             f'\tCONS: typing.ClassVar[str] = "{cons_name}"',
         ]
 

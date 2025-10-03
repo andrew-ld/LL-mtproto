@@ -33,7 +33,7 @@ from ll_mtproto.network.dh.mtproto_key_creator_dispatcher import initialize_key_
 from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event, SignalingMessage
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
-from ll_mtproto.tl.structure import Structure, StructureValue, TypedStructure, TypedStructureObjectType
+from ll_mtproto.tl.structure import BaseStructure, StructureValue, TypedStructure, TypedStructureObjectType, DynamicStructure
 from ll_mtproto.tl.tl import TlBodyData, NativeByteReader, Value, extract_cons_from_tl_body, extract_cons_from_tl_body_opt
 from ll_mtproto.tl.tl_utils import TypedSchemaConstructor, flat_value_buffer
 from ll_mtproto.tl.tls_system import RpcError, DestroySessionOk, DestroySessionNone, FutureSalts, RpcResult, BadServerSalt, BadMsgNotification, \
@@ -51,7 +51,7 @@ class _ClientDispatcher(Dispatcher):
     def __init__(self, impl: "Client"):
         self._impl = impl
 
-    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
+    async def process_telegram_message_body(self, body: BaseStructure, crypto_flag: bool) -> None:
         if not crypto_flag:
             raise RuntimeError("process_telegram_message_body accepts only encrypted messages")
         await self._impl._process_telegram_message_body(body)
@@ -109,7 +109,7 @@ class Client:
     _pending_pong: asyncio.TimerHandle | None
     _datacenter: DatacenterInfo
     _pending_ping: asyncio.TimerHandle | asyncio.Task[None] | None
-    _updates_queue: asyncio.Queue[Structure | None]
+    _updates_queue: asyncio.Queue[BaseStructure | None]
     _no_updates: bool
     _pending_future_salt: asyncio.TimerHandle | asyncio.Task[None] | None
     _connection_info: ConnectionInfo
@@ -208,7 +208,7 @@ class Client:
 
         return client
 
-    async def get_update(self) -> Structure | None:
+    async def get_update(self) -> BaseStructure | None:
         if self._no_updates:
             raise RuntimeError("the updates queue is always empty if no_updates has been set to true.")
 
@@ -663,7 +663,7 @@ class Client:
         else:
             await self._start_mtproto_loop()
 
-    async def _process_telegram_message_body(self, body: Structure) -> None:
+    async def _process_telegram_message_body(self, body: BaseStructure) -> None:
         match body:
             case RpcResult():
                 await self._process_rpc_result(body)
@@ -730,7 +730,7 @@ class Client:
     async def _process_new_session_created(self, body: NewSessionCreated) -> None:
         self._used_session_key.server_salt = body.server_salt
 
-    async def _process_updates(self, body: Structure) -> None:
+    async def _process_updates(self, body: BaseStructure) -> None:
         if self._no_updates:
             return
 
@@ -884,13 +884,13 @@ class Client:
 
         try:
             if response_constructor is not None:
-                result = Structure.from_obj(await self._in_thread(lambda: response_constructor.deserialize_boxed_data(body_result_reader)))
+                result = DynamicStructure.from_obj(await self._in_thread(lambda: response_constructor.deserialize_boxed_data(body_result_reader)))
 
             elif response_parameter is not None:
-                result = Structure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_parameter(body_result_reader, response_parameter)))
+                result = DynamicStructure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_parameter(body_result_reader, response_parameter)))
 
             else:
-                result = Structure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(body_result_reader)))
+                result = DynamicStructure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(body_result_reader)))
         finally:
             del body_result_reader
 

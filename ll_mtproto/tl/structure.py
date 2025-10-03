@@ -14,84 +14,102 @@
 
 import dataclasses
 import typing
+import abc
 
 from ll_mtproto.tl.tl import TlBodyData, TlBodyDataValue, TlPrimitiveValue, extract_cons_from_tl_body
 
-__all__ = ("Structure", "TypedStructure", "TypedStructureObjectType", "StructureValue")
+__all__ = ("StructureMeta", "BaseStructure", "DynamicStructure", "TypedStructure", "TypedStructureObjectType", "StructureValue")
 
 
 TypedStructureObjectType = typing.TypeVar("TypedStructureObjectType")
 
-
-@dataclasses.dataclass
-class TypedStructure[TypedStructureObjectType]:
-    CONS: typing.ClassVar[str]
-
-    def as_tl_body_data(self) -> TlBodyData:
-        data: TlBodyData = {'_cons': self.CONS}
-
-        for key, value in vars(self).items():
-            if isinstance(value, TypedStructure):
-                data[key] = value.as_tl_body_data()
-            else:
-                data[key] = value
-
-        return data
-
-
-class StructureMeta(type):
-    @typing.no_type_check
-    def __instancecheck__(cls, instance: "Structure") -> bool:
-        if issubclass(cls, TypedStructure) and isinstance(instance, Structure):
-            return bool(instance.constructor_name == cls.CONS)
-        return False
-
-
 StructureValue = typing.Union[
     typing.Iterable["StructureValue"],
     TlPrimitiveValue,
-    "Structure"
+    "BaseStructure"
 ]
 
 
-class Structure(metaclass=StructureMeta):
-    __slots__ = ("constructor_name", "_fields")
+class StructureMeta(abc.ABCMeta):
+    @typing.no_type_check
+    def __instancecheck__(cls, instance: "BaseStructure") -> bool:
+        if hasattr(cls, 'CONS') and isinstance(instance, BaseStructure):
+            return bool(instance.constructor_name == cls.CONS)
+        return super().__instancecheck__(instance)
+
+
+class BaseStructure(abc.ABC, metaclass=StructureMeta):
+    __slots__ = ("constructor_name",)
 
     constructor_name: typing.Final[str]
-    _fields: TlBodyData
 
-    def __init__(self, constructor_name: str, fields: TlBodyData):
+    def __init__(self, constructor_name: str):
         self.constructor_name = constructor_name
-        self._fields = fields
 
     def __eq__(self, other: typing.Any) -> bool:
         if isinstance(other, str):
             return self.constructor_name == other
         return super().__eq__(other)
 
+    @abc.abstractmethod
+    def as_tl_body_data(self) -> TlBodyData:
+        raise NotImplementedError
+
+
+class DynamicStructure(BaseStructure):
+    __slots__ = ("_fields",)
+
+    _fields: TlBodyData
+
+    def __init__(self, constructor_name: str, fields: TlBodyData):
+        super().__init__(constructor_name)
+        self._fields = fields
+
     def __repr__(self) -> str:
-        return repr(self._fields)
+        return f"{self.constructor_name}({self._fields!r})"
 
     def __getattr__(self, name: str) -> StructureValue:
-        try:
-            return Structure.from_obj(self._fields[name])
-        except KeyError as parent_key_error:
-            raise KeyError(f"key `{name}` not found in `{self!r}`") from parent_key_error
+        fields = object.__getattribute__(self, "_fields")
+        return DynamicStructure.from_obj(fields[name])
 
     def get_dict(self) -> TlBodyData:
         return self._fields
 
+    def as_tl_body_data(self) -> TlBodyData:
+        return self._fields
+
     @staticmethod
-    def from_tl_obj(obj: TlBodyData) -> "Structure":
-        return Structure(constructor_name=extract_cons_from_tl_body(obj), fields=obj)
+    def from_tl_obj(obj: TlBodyData) -> "DynamicStructure":
+        return DynamicStructure(constructor_name=extract_cons_from_tl_body(obj), fields=obj)
 
     @staticmethod
     def from_obj(obj: TlBodyDataValue) -> StructureValue:
         if isinstance(obj, dict):
-            return Structure(extract_cons_from_tl_body(obj), obj)
-
+            return DynamicStructure.from_tl_obj(obj)
         elif isinstance(obj, (list, tuple)):
-            return [Structure.from_obj(x) for x in obj]
-
+            return [DynamicStructure.from_obj(x) for x in obj]
         else:
             return obj
+
+
+@dataclasses.dataclass(eq=False)
+class TypedStructure(BaseStructure, typing.Generic[TypedStructureObjectType]):
+    CONS: typing.ClassVar[str]
+
+    def __post_init__(self) -> None:
+        super().__init__(self.CONS)
+
+    def as_tl_body_data(self) -> TlBodyData:
+        data: TlBodyData = {'_cons': self.CONS}
+        for field in dataclasses.fields(self):
+            value = getattr(self, field.name)
+            if isinstance(value, TypedStructure):
+                data[field.name] = value.as_tl_body_data()
+            elif isinstance(value, (list, tuple)):
+                data[field.name] = [
+                    v.as_tl_body_data() if isinstance(v, TypedStructure) else v
+                    for v in value
+                ]
+            else:
+                data[field.name] = value
+        return data

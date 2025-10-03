@@ -18,7 +18,7 @@ import typing
 
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.transport.transport_address_resolver_base import TransportAddressResolverBase
-from ll_mtproto.tl.structure import Structure
+from ll_mtproto.tl.structure import BaseStructure
 
 __all__ = ("CachedTransportAddressResolver",)
 
@@ -41,7 +41,7 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
     def apply_telegram_config(
             self,
             datacenters: frozenset[DatacenterInfo],
-            config: Structure,
+            config: BaseStructure,
             allow_ipv6: bool = False
     ) -> None:
         supported_dc_options = config.dc_options

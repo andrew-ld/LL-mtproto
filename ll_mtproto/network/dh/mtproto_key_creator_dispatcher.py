@@ -20,7 +20,7 @@ from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.dh.mtproto_key_creator import MTProtoKeyCreator
 from ll_mtproto.network.dispatcher import Dispatcher
 from ll_mtproto.network.mtproto import MTProto
-from ll_mtproto.tl.structure import Structure
+from ll_mtproto.tl.structure import BaseStructure
 from ll_mtproto.tl.tls_system import UnencryptedMessage
 
 __all__ = ("initialize_key_creator_dispatcher", "KeyCreatorDispatcher")
@@ -36,13 +36,13 @@ class KeyCreatorDispatcher(Dispatcher):
         self._creator = creator
         self._mtproto = mtproto
 
-    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
+    async def process_telegram_message_body(self, body: BaseStructure, crypto_flag: bool) -> None:
         if crypto_flag:
             raise TypeError(f"Expected an plaintext message, found `{body!r}`")
 
         await self._creator.process_telegram_message_body(body)
 
-    async def process_telegram_signaling_message(self, signaling: Structure, crypto_flag: bool) -> None:
+    async def process_telegram_signaling_message(self, signaling: BaseStructure, crypto_flag: bool) -> None:
         if crypto_flag:
             raise TypeError(f"Expected an plaintext signaling, found `{signaling!r}`")
 

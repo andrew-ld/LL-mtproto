@@ -4,14 +4,14 @@ import timeit
 import typing
 
 from ll_mtproto import TelegramDatacenter
-from ll_mtproto.tl.structure import Structure
+from ll_mtproto.tl.structure import DynamicStructure
 from ll_mtproto.tl.tl import NativeByteReader
 
 tlobjpath = sys.argv[-1]
 
 
 with open(tlobjpath, "rb") as cf:
-    tlobj = typing.cast(Structure, Structure.from_obj(pickle.load(cf)))
+    tlobj = typing.cast(DynamicStructure, DynamicStructure.from_obj(pickle.load(cf)))
 
 
 tlobjdict = tlobj.get_dict()

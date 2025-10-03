@@ -24,7 +24,7 @@ from ll_mtproto.math import primes
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl.byteutils import to_bytes, sha1, xor, SyncByteReaderProxy
-from ll_mtproto.tl.structure import Structure
+from ll_mtproto.tl.structure import BaseStructure, DynamicStructure
 from ll_mtproto.tl.tl import NativeByteReader
 from ll_mtproto.tl.tls_system import DhGenOk, ServerDHParamsOk, ServerDHInnerData, ResPQ
 
@@ -128,7 +128,7 @@ class MTProtoKeyCreator:
         self._exchange_state = _KeyExchangeStateWaitingResPq()
         self._result = result
 
-    async def process_telegram_message_body(self, body: Structure) -> None:
+    async def process_telegram_message_body(self, body: BaseStructure) -> None:
         match (state := self._exchange_state):
             case _KeyExchangeStateWaitingResPq():
                 await self._process_res_pq(body)
@@ -148,7 +148,7 @@ class MTProtoKeyCreator:
         if isinstance(self._exchange_state, _KeyExchangeStateCompleted):
             self._result.set_result(self._exchange_state.key)
 
-    async def _process_dh_gen_ok(self, params3: Structure, state: _KeyExchangeStateWaitingDhGenOk) -> None:
+    async def _process_dh_gen_ok(self, params3: BaseStructure, state: _KeyExchangeStateWaitingDhGenOk) -> None:
         if not isinstance(params3, DhGenOk):
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params3)
 
@@ -165,7 +165,7 @@ class MTProtoKeyCreator:
 
         self._exchange_state = _KeyExchangeStateCompleted(key=state.key)
 
-    async def _process_dh_params(self, params: Structure, state: _KeyExchangeStateWaitingDhParams) -> None:
+    async def _process_dh_params(self, params: BaseStructure, state: _KeyExchangeStateWaitingDhParams) -> None:
         if not isinstance(params, ServerDHParamsOk):
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", params)
 
@@ -195,7 +195,7 @@ class MTProtoKeyCreator:
         answer_reader_sha1 = hashlib.sha1()
         answer_reader_with_hash = SyncByteReaderProxy(answer_reader, answer_reader_sha1.update)
 
-        params2 = Structure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(answer_reader_with_hash)))
+        params2 = DynamicStructure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(answer_reader_with_hash)))
         answer_hash_computed = await self._in_thread(answer_reader_sha1.digest)
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):
@@ -289,7 +289,7 @@ class MTProtoKeyCreator:
             new_nonce=state.new_nonce
         )
 
-    async def _process_res_pq(self, res_pq: Structure) -> None:
+    async def _process_res_pq(self, res_pq: BaseStructure) -> None:
         if not isinstance(res_pq, ResPQ):
             raise RuntimeError("Diffie–Hellman exchange failed: `%r`", res_pq)
 

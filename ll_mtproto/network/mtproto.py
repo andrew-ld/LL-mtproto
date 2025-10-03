@@ -27,7 +27,7 @@ from ll_mtproto.network.transport.transport_link_base import TransportLinkBase
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.network.transport_error import TransportError
 from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, sha1
-from ll_mtproto.tl.structure import Structure
+from ll_mtproto.tl.structure import DynamicStructure, BaseStructure
 from ll_mtproto.tl.tl import TlBodyDataValue, Value, TlBodyData, NativeByteReader, extract_cons_from_tl_body
 from ll_mtproto.tl.tl_utils import TypedSchemaConstructor
 from ll_mtproto.tl.tls_system import MessageInnerDataFromServer, UnencryptedMessage, MessageFromServer
@@ -114,7 +114,7 @@ class MTProto:
 
         return message_id
 
-    async def read_unencrypted_message(self) -> tuple[UnencryptedMessage, Structure]:
+    async def read_unencrypted_message(self) -> tuple[UnencryptedMessage, BaseStructure]:
         async with self._read_message_lock:
             server_auth_key_id = await self._link.readn(8)
 
@@ -178,7 +178,7 @@ class MTProto:
 
         await self._link.write(full_message.get_flat_bytes())
 
-    async def read_encrypted(self, key: Key | DhGenKey) -> tuple[MessageFromServer, Structure]:
+    async def read_encrypted(self, key: Key | DhGenKey) -> tuple[MessageFromServer, BaseStructure]:
         auth_key_key, auth_key_id, session = key.get_or_assert_empty()
 
         auth_key_part = auth_key_key[88 + 8:88 + 8 + 32]
@@ -237,7 +237,7 @@ class MTProto:
             message_body_reader = NativeByteReader(message_body_envelope)
 
             try:
-                message_body = Structure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(message_body_reader)))
+                message_body = DynamicStructure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(message_body_reader)))
             finally:
                 del message_body_reader
 

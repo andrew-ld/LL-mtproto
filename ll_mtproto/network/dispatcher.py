@@ -17,7 +17,7 @@ import logging
 
 from ll_mtproto.crypto.auth_key import DhGenKey, Key
 from ll_mtproto.network.mtproto import MTProto
-from ll_mtproto.tl.structure import Structure
+from ll_mtproto.tl.structure import BaseStructure
 from ll_mtproto.tl.tls_system import MsgContainer, MessageFromServer, MessageFromClient, UnencryptedMessage
 
 __all__ = ("Dispatcher", "dispatch_event", "SignalingMessage")
@@ -27,7 +27,7 @@ SignalingMessage = MessageFromClient | MessageFromServer | UnencryptedMessage
 
 class Dispatcher(abc.ABC):
     @abc.abstractmethod
-    async def process_telegram_message_body(self, body: Structure, crypto_flag: bool) -> None:
+    async def process_telegram_message_body(self, body: BaseStructure, crypto_flag: bool) -> None:
         raise NotImplementedError
 
     @abc.abstractmethod
@@ -35,7 +35,7 @@ class Dispatcher(abc.ABC):
         raise NotImplementedError
 
 
-async def _process_telegram_message(dispatcher: Dispatcher, signaling: SignalingMessage, body: Structure, crypto_flag: bool) -> None:
+async def _process_telegram_message(dispatcher: Dispatcher, signaling: SignalingMessage, body: BaseStructure, crypto_flag: bool) -> None:
     await dispatcher.process_telegram_signaling_message(signaling, crypto_flag)
 
     if isinstance(body, MsgContainer):
@@ -46,7 +46,7 @@ async def _process_telegram_message(dispatcher: Dispatcher, signaling: Signaling
         await dispatcher.process_telegram_message_body(body, crypto_flag)
 
 
-async def _process_inbound_message(dispatcher: Dispatcher, signaling: SignalingMessage, body: Structure, crypto_flag: bool) -> None:
+async def _process_inbound_message(dispatcher: Dispatcher, signaling: SignalingMessage, body: BaseStructure, crypto_flag: bool) -> None:
     logging.debug("received message (%s) %d from mtproto", body.constructor_name, signaling.msg_id)
     await _process_telegram_message(dispatcher, signaling, body, crypto_flag)
 
