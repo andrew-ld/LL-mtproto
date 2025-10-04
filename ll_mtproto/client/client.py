@@ -99,7 +99,8 @@ class Client:
         "_in_thread",
         "_transport_link_factory",
         "_blocking_executor",
-        "_default_timeout_seconds"
+        "_default_timeout_seconds",
+        "_on_server_side_error_retries"
     )
 
     _mtproto: MTProto
@@ -128,6 +129,7 @@ class Client:
     _in_thread: InThread
     _transport_link_factory: TransportLinkFactory
     _default_timeout_seconds: int
+    _on_server_side_error_retries: int
 
     def __init__(
             self,
@@ -140,7 +142,8 @@ class Client:
             no_updates: bool = True,
             use_perfect_forward_secrecy: bool = False,
             error_description_resolver: BaseErrorDescriptionResolver | None = None,
-            default_timeout_seconds: int = 120
+            default_timeout_seconds: int = 120,
+            on_server_side_error_retries: int = 5,
     ):
         self._datacenter = datacenter
         self._connection_info = connection_info
@@ -151,6 +154,7 @@ class Client:
         self._transport_link_factory = transport_link_factory
         self._blocking_executor = blocking_executor
         self._default_timeout_seconds = default_timeout_seconds
+        self._on_server_side_error_retries = on_server_side_error_retries
 
         self._in_thread = _ClientInThreadImpl(blocking_executor)
         self._rpc_error_constructor = TypedSchemaConstructor(datacenter.schema, RpcError)
@@ -926,7 +930,7 @@ class Client:
                 else:
                     self._finalize_response_throw_rpc_error(result.error_message, result.error_code, pending_request)
 
-            elif pending_request.retries >= 5:
+            elif pending_request.retries >= self._on_server_side_error_retries:
                 self._finalize_response_throw_rpc_error(result.error_message, result.error_code, pending_request)
 
             elif result.error_message == "CONNECTION_NOT_INITED":
