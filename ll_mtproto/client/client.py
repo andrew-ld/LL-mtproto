@@ -98,7 +98,8 @@ class Client:
         "_error_description_resolver",
         "_in_thread",
         "_transport_link_factory",
-        "_blocking_executor"
+        "_blocking_executor",
+        "_default_timeout_seconds"
     )
 
     _mtproto: MTProto
@@ -126,6 +127,7 @@ class Client:
     _error_description_resolver: BaseErrorDescriptionResolver | None
     _in_thread: InThread
     _transport_link_factory: TransportLinkFactory
+    _default_timeout_seconds: int
 
     def __init__(
             self,
@@ -137,7 +139,8 @@ class Client:
             crypto_provider: CryptoProviderBase,
             no_updates: bool = True,
             use_perfect_forward_secrecy: bool = False,
-            error_description_resolver: BaseErrorDescriptionResolver | None = None
+            error_description_resolver: BaseErrorDescriptionResolver | None = None,
+            default_timeout_seconds: int = 120
     ):
         self._datacenter = datacenter
         self._connection_info = connection_info
@@ -147,6 +150,7 @@ class Client:
         self._error_description_resolver = error_description_resolver
         self._transport_link_factory = transport_link_factory
         self._blocking_executor = blocking_executor
+        self._default_timeout_seconds = default_timeout_seconds
 
         self._in_thread = _ClientInThreadImpl(blocking_executor)
         self._rpc_error_constructor = TypedSchemaConstructor(datacenter.schema, RpcError)
@@ -219,10 +223,14 @@ class Client:
             self,
             payloads: list[TlBodyData] | list[TypedStructure[typing.Any]],
             force_init_connection: bool = False,
-            serialized_payloads: list[Value] | None = None
+            serialized_payloads: list[Value] | None = None,
+            timeout_seconds: int | None = None
     ) -> list[StructureValue | BaseException]:
         if not payloads:
             return []
+
+        if timeout_seconds is None:
+            timeout_seconds = self._default_timeout_seconds
 
         payloads_as_body_data: list[TlBodyData] = list(
             p.as_tl_body_data() if isinstance(p, TypedStructure) else p
@@ -252,10 +260,11 @@ class Client:
                 allow_container=True,
                 expect_answer=True,
                 force_init_connection=force_init_connection,
-                serialized_payload=serialized_payload
+                serialized_payload=serialized_payload,
+                timeout_seconds=timeout_seconds
             )
 
-            pending_request.cleaner = self._loop.call_later(120, lambda: self._finalize_request_and_cleanup(pending_request))
+            pending_request.cleaner = self._loop.call_later(timeout_seconds, lambda: self._finalize_request_and_cleanup(pending_request))
             pending_requests.append(pending_request)
 
         await self._start_mtproto_loop_if_needed()
@@ -270,7 +279,8 @@ class Client:
             self,
             payload: TlBodyData,
             force_init_connection: bool = False,
-            serialized_payload: Value | None = None
+            serialized_payload: Value | None = None,
+            timeout_seconds: int | None = None,
     ) -> StructureValue:
         ...
 
@@ -279,7 +289,8 @@ class Client:
             self,
             payload: TypedStructure[TypedStructureObjectType],
             force_init_connection: bool = False,
-            serialized_payload: Value | None = None
+            serialized_payload: Value | None = None,
+            timeout_seconds: int | None = None,
     ) -> TypedStructureObjectType:
         ...
 
@@ -287,10 +298,14 @@ class Client:
             self,
             payload: TlBodyData | TypedStructure[TypedStructureObjectType],
             force_init_connection: bool = False,
-            serialized_payload: Value | None = None
+            serialized_payload: Value | None = None,
+            timeout_seconds: int | None = None,
     ) -> StructureValue | TypedStructureObjectType:
         if isinstance(payload, TypedStructure):
             payload = payload.as_tl_body_data()
+
+        if timeout_seconds is None:
+            timeout_seconds = self._default_timeout_seconds
 
         if serialized_payload is None:
             serialized_payload = await self._in_thread(lambda: self._datacenter.schema.boxed(payload))
@@ -308,10 +323,11 @@ class Client:
             allow_container=True,
             expect_answer=True,
             force_init_connection=force_init_connection,
-            serialized_payload=serialized_payload
+            serialized_payload=serialized_payload,
+            timeout_seconds=timeout_seconds
         )
 
-        pending_request.cleaner = self._loop.call_later(120, lambda: self._finalize_request_and_cleanup(pending_request))
+        pending_request.cleaner = self._loop.call_later(timeout_seconds, lambda: self._finalize_request_and_cleanup(pending_request))
 
         await self._start_mtproto_loop_if_needed()
         await self._rpc_call(pending_request)
@@ -545,7 +561,13 @@ class Client:
 
         if message.expect_answer:
             self._pending_requests[message_id] = message
-            message.cleaner = self._loop.call_later(120, self._cancel_pending_request, message_id)
+
+            timeout_seconds = message.timeout_seconds
+
+            if timeout_seconds is None:
+                timeout_seconds = self._default_timeout_seconds
+
+            message.cleaner = self._loop.call_later(timeout_seconds, self._cancel_pending_request, message_id)
 
         return payload, message_id
 
