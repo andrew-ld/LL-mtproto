@@ -136,6 +136,7 @@ def _generate_constructor_classes(constructors: typing.List[typing.Tuple[str, Co
 
         class_def: list[str] = [
             "\n",
+            "@typing.final",
             "@dataclasses.dataclass(eq=False)",
             f"class {from_snake_to_pascal_case(cons_name)}{class_generics}(TypedStructure[{ptype}]):",
             f'\tCONS: typing.ClassVar[str] = "{cons_name}"',
