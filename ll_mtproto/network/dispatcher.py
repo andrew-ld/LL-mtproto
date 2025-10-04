@@ -55,8 +55,8 @@ async def dispatch_event(dispatcher: Dispatcher, mtproto: MTProto, encryption_ke
     signaling: SignalingMessage
 
     if encryption_key is not None:
-        signaling, body = await mtproto.read_encrypted(encryption_key)
+        (signaling, body), is_encrypted = await mtproto.read_encrypted(encryption_key), True
     else:
-        signaling, body = await mtproto.read_unencrypted_message()
+        (signaling, body), is_encrypted = await mtproto.read_unencrypted_message(), False
 
-    await _process_inbound_message(dispatcher, signaling, body, encryption_key is not None)
+    await _process_inbound_message(dispatcher, signaling, body, is_encrypted)
