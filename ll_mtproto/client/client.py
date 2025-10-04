@@ -221,7 +221,7 @@ class Client:
 
     async def rpc_call_container(
             self,
-            payloads: list[TlBodyData] | list[TypedStructure[typing.Any]],
+            payloads: list[TlBodyData | BaseStructure] | list[TypedStructure[typing.Any]],
             force_init_connection: bool = False,
             serialized_payloads: list[Value] | None = None,
             timeout_seconds: int | None = None
@@ -233,7 +233,7 @@ class Client:
             timeout_seconds = self._default_timeout_seconds
 
         payloads_as_body_data: list[TlBodyData] = list(
-            p.as_tl_body_data() if isinstance(p, TypedStructure) else p
+            p.as_tl_body_data() if isinstance(p, BaseStructure) else p
             for p in payloads
         )
 
@@ -296,12 +296,12 @@ class Client:
 
     async def rpc_call(
             self,
-            payload: TlBodyData | TypedStructure[TypedStructureObjectType],
+            payload: TlBodyData | TypedStructure[TypedStructureObjectType] | BaseStructure,
             force_init_connection: bool = False,
             serialized_payload: Value | None = None,
             timeout_seconds: int | None = None,
     ) -> StructureValue | TypedStructureObjectType:
-        if isinstance(payload, TypedStructure):
+        if isinstance(payload, BaseStructure):
             payload = payload.as_tl_body_data()
 
         if timeout_seconds is None:
