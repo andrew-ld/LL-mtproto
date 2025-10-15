@@ -305,9 +305,8 @@ uint64_t factorize_u64(const uint64_t pq) {
 
   uint64_t y = Random::fast_uint64() % (pq - 1) + 1;
   const uint64_t c = Random::fast_uint64() % (pq - 1) + 1;
-  uint64_t g = 1, r = 1, q = 1, x = 0, ys = 0;
-
   static constexpr uint64_t M = 512;
+  uint64_t g = 1, r = M, q = 1, x = 0, ys = 0;
 
   while (g == 1) {
     x = y;
@@ -317,11 +316,8 @@ uint64_t factorize_u64(const uint64_t pq) {
     uint64_t k = 0;
     while (k < r && g == 1) {
       ys = y;
-      const uint64_t iterations = std::min(M, r - k);
 
-      uint64_t i = 0;
-
-      for (; i + 3 < iterations; i += 4) {
+      for (uint64_t i = 0; i < M; i += 4) {
         y = mont.mul_add_mod(y, y, c);
         const uint64_t d1 = abs_diff_u64(x, y);
         y = mont.mul_add_mod(y, y, c);
@@ -338,14 +334,8 @@ uint64_t factorize_u64(const uint64_t pq) {
         q = mont.mul_add_mod(q, diff_product, 0);
       }
 
-      for (; i < iterations; i++) {
-        y = mont.mul_add_mod(y, y, c);
-        const uint64_t diff = abs_diff_u64(x, y);
-        q = mont.mul_add_mod(q, diff, 0);
-      }
-
       g = pq_gcd(q, pq);
-      k += iterations;
+      k += M;
     }
     r *= 2;
   }
