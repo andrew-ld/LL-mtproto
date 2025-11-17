@@ -1,3 +1,5 @@
+import os.path
+import pickle
 import traceback
 import argparse
 import asyncio
@@ -13,14 +15,25 @@ BATCH_SIZE = 4
 CHUNK_SIZE = 512 * 1024
 
 
-async def test(api_id: int, api_hash: str, bot_token: str):
+async def test_download(api_id: int, api_hash: str, bot_token: str, session_name: str):
     connection_info = ConnectionInfo.generate_from_os_info(api_id)
-    auth_key = AuthKey()
     datacenter_info = TelegramDatacenter.VESTA
     address_resolver = CachedTransportAddressResolver()
     transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediateFactory(), address_resolver)
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
     crypto_provider = CryptoProviderOpenSSL()
+
+    if os.path.exists(session_name):
+        with open(session_name, "rb") as session_rb_fd:
+            auth_key = pickle.load(session_rb_fd)
+    else:
+        auth_key = AuthKey()
+
+    def _auth_key_content_change_callback():
+        with open(session_name, "wb") as session_wb_fd:
+            pickle.dump(auth_key, session_wb_fd)
+
+    auth_key.set_content_change_callback(_auth_key_content_change_callback)
 
     session = Client(
         datacenter_info,
@@ -170,7 +183,8 @@ if __name__ == "__main__" or __name__ == "uwsgi_file_test":
     _parser.add_argument("--api-id", type=int, required=True)
     _parser.add_argument("--api-hash", type=str, required=True)
     _parser.add_argument("--bot-token", type=str, required=True)
+    _parser.add_argument("--session-name", type=str, required=False, default="media_download_test")
 
     _parsed_arguments = _parser.parse_args()
 
-    asyncio.run(test(_parsed_arguments.api_id, _parsed_arguments.api_hash, _parsed_arguments.bot_token))
+    asyncio.run(test_download(_parsed_arguments.api_id, _parsed_arguments.api_hash, _parsed_arguments.bot_token, _parsed_arguments.session_name))
