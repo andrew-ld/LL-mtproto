@@ -145,7 +145,7 @@ async def test_download(api_id: int, api_hash: str, bot_token: str, session_name
         downloaded_bytes_in_batch = 0
         failed_requests = 0
 
-        for req, res in zip(requests_batch, results):
+        for req, res in zip(requests_batch.copy(), results):
             if isinstance(res, RpcErrorException):
                 failed_requests += 1
             else:
