@@ -8,43 +8,19 @@ from ll_mtproto import *
 from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 
 
-async def get_updates(client: Client):
-    while True:
-        update = await client.get_update()
-
-        if update:
-            print("received", update.update.as_tl_body_data())
+MEDIA_SESSION_POOL_SIZE = 10
+BATCH_SIZE = 4
+CHUNK_SIZE = 512 * 1024
 
 
 async def test(api_id: int, api_hash: str, bot_token: str):
-    logging.getLogger().setLevel(level=logging.DEBUG)
-
     connection_info = ConnectionInfo.generate_from_os_info(api_id)
-
     auth_key = AuthKey()
-
-    def on_auth_key_updated():
-        print("auth key updated:", auth_key)
-
-    auth_key.set_content_change_callback(on_auth_key_updated)
-
     datacenter_info = TelegramDatacenter.VESTA
-
     address_resolver = CachedTransportAddressResolver()
-
     transport_link_factory = TransportLinkTcpFactory(TransportCodecIntermediateFactory(), address_resolver)
-
     blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=3)
-
     crypto_provider = CryptoProviderOpenSSL()
-
-    error_description_resolver = PwrTelegramErrorDescriptionResolver()
-
-    try:
-        error_description_resolver.synchronous_fetch_database()
-    except:
-        traceback.print_exc()
-        error_description_resolver = None
 
     session = Client(
         datacenter_info,
@@ -54,16 +30,11 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         blocking_executor,
         crypto_provider,
         use_perfect_forward_secrecy=True,
-        no_updates=False,
-        error_description_resolver=error_description_resolver
+        no_updates=True,
     )
 
-    get_updates_task = asyncio.get_event_loop().create_task(get_updates(session))
-
     configuration = await session.rpc_call({"_cons": "help.getConfig"})
-
     address_resolver.apply_telegram_config(TelegramDatacenter.ALL_DATACENTERS, configuration)
-
     session.disconnect()
 
     await session.rpc_call({
@@ -79,24 +50,6 @@ async def test(api_id: int, api_hash: str, bot_token: str):
         "username": "eqf3wefwe"
     })
 
-    # I deliberately break the auth_key status to see if the client can restore it
-    session._used_session_key.session.seqno = 0
-    session._used_session_key.server_salt = 0
-    await session.rpc_call({"_cons": "help.getConfig"})
-
-    # I deliberately break the auth_key status to see if the client can restore it
-    session._used_session_key.session.seqno = 6969
-    session._used_session_key.server_salt = -1
-    await session.rpc_call({"_cons": "help.getConfig"})
-
-    # I deliberately write a non-serializable message to check if the error is propagated correctly
-    try:
-        await session.rpc_call({"_cons": "lol"})
-    except:
-        print("ok serialization error received")
-    else:
-        raise asyncio.InvalidStateError("error not received")
-
     messages = await session.rpc_call({
         "_cons": "channels.getMessages",
         "channel": {
@@ -108,47 +61,97 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     })
 
     media = messages.messages[0].media.document
-    media_auth_key = AuthKey(persistent_key=auth_key.persistent_key)
 
-    def on_media_auth_key_updated():
-        print("media auth key updated:", media_auth_key)
+    media_sessions = []
 
-    media_auth_key.set_content_change_callback(on_media_auth_key_updated)
+    print(f"Creating a pool of {MEDIA_SESSION_POOL_SIZE} media sessions...")
 
-    media_session = Client(
-        TelegramDatacenter.VESTA_MEDIA,
-        media_auth_key,
-        connection_info,
-        transport_link_factory,
-        blocking_executor,
-        crypto_provider,
-        use_perfect_forward_secrecy=True,
-        no_updates=True
-    )
+    for i in range(MEDIA_SESSION_POOL_SIZE):
+        media_auth_key = AuthKey(persistent_key=auth_key.persistent_key)
 
-    get_file_request = {
-        "_cons": "upload.getFile",
-        "offset": 0,
-        "limit": 1024 * 1024,
-        "location": {
-            "_cons": "inputDocumentFileLocation",
-            "id": media.id,
-            "access_hash": media.access_hash,
-            "file_reference": media.file_reference,
-            "thumb_size": ""
-        }
-    }
+        media_session = Client(
+            TelegramDatacenter.VESTA_MEDIA,
+            media_auth_key,
+            connection_info,
+            transport_link_factory,
+            blocking_executor,
+            crypto_provider,
+            use_perfect_forward_secrecy=True,
+            no_updates=True
+        )
+        media_sessions.append(media_session)
 
-    while get_file_request["offset"] < media.size:
-        await media_session.rpc_call(get_file_request)
-        get_file_request["offset"] += get_file_request["limit"]
+    for i, s in enumerate(media_sessions):
+        print("Initializing session", i)
+        configuration = await s.rpc_call({"_cons": "help.getConfig"})
+        address_resolver.apply_telegram_config(TelegramDatacenter.ALL_DATACENTERS, configuration)
+    print("All media sessions initialized and ready.")
 
-    media_session.disconnect()
-    get_updates_task.cancel()
+    current_offset = 0
+    session_index = 0
+
+    print(f"Starting file download... (Total size: {media.size} bytes)")
+
+    requests_batch = []
+
+    while current_offset < media.size:
+        while len(requests_batch) < BATCH_SIZE:
+            if current_offset >= media.size:
+                break
+
+            get_file_request = {
+                "_cons": "upload.getFile",
+                "offset": current_offset,
+                "limit": CHUNK_SIZE,
+                "location": {
+                    "_cons": "inputDocumentFileLocation",
+                    "id": media.id,
+                    "access_hash": media.access_hash,
+                    "file_reference": media.file_reference,
+                    "thumb_size": ""
+                }
+            }
+            requests_batch.append(get_file_request)
+            current_offset += CHUNK_SIZE
+
+        if not requests_batch:
+            break
+
+        active_media_session = media_sessions[session_index % MEDIA_SESSION_POOL_SIZE]
+        session_index += 1
+
+        print(
+            f"Sending batch of {len(requests_batch)} requests (up to offset {min(current_offset, media.size)}) "
+            f"using media session {session_index % MEDIA_SESSION_POOL_SIZE}..."
+        )
+
+        results = await active_media_session.rpc_call_container(requests_batch)
+        downloaded_bytes_in_batch = 0
+        failed_requests = 0
+
+        for req, res in zip(requests_batch, results):
+            if isinstance(res, RpcErrorException):
+                failed_requests += 1
+            else:
+                downloaded_bytes_in_batch += len(res.bytes)
+                requests_batch.remove(req)
+
+        print(f"Downloaded a batch of {downloaded_bytes_in_batch} bytes, Failed {failed_requests} requests.")
+
+    print("File download complete.")
+
+    print("Disconnecting all sessions...")
+    for media_session in media_sessions:
+        media_session.disconnect()
+
     session.disconnect()
+
+    print("Done.")
 
 
 if __name__ == "__main__" or __name__ == "uwsgi_file_test":
+    logging.getLogger().setLevel(level=logging.ERROR)
+
     _parser = argparse.ArgumentParser()
     _parser.add_argument("--api-id", type=int, required=True)
     _parser.add_argument("--api-hash", type=str, required=True)
