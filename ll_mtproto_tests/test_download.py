@@ -3,12 +3,12 @@ import argparse
 import asyncio
 import concurrent.futures
 import logging
+import time
 
 from ll_mtproto import *
 from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 
-
-MEDIA_SESSION_POOL_SIZE = 10
+MEDIA_SESSION_POOL_SIZE = 4
 BATCH_SIZE = 4
 CHUNK_SIZE = 512 * 1024
 
@@ -90,9 +90,12 @@ async def test(api_id: int, api_hash: str, bot_token: str):
     current_offset = 0
     session_index = 0
 
-    print(f"Starting file download... (Total size: {media.size} bytes)")
+    print(f"Starting file download... (Total size: {media.size / (1024 * 1024):.2f} MB)")
 
     requests_batch = []
+
+    start_time = time.time()
+    total_downloaded_bytes = 0
 
     while current_offset < media.size:
         while len(requests_batch) < BATCH_SIZE:
@@ -136,7 +139,18 @@ async def test(api_id: int, api_hash: str, bot_token: str):
                 downloaded_bytes_in_batch += len(res.bytes)
                 requests_batch.remove(req)
 
-        print(f"Downloaded a batch of {downloaded_bytes_in_batch} bytes, Failed {failed_requests} requests.")
+        total_downloaded_bytes += downloaded_bytes_in_batch
+        elapsed_time = time.time() - start_time
+        speed = total_downloaded_bytes / elapsed_time
+        speed_in_mbps = speed / (1024 * 1024)
+        progress_percent = (total_downloaded_bytes * 100) / media.size
+
+        print(
+            f"Downloaded {downloaded_bytes_in_batch / (1024 * 1024):.2f} MB in this batch. "
+            f"Progress: {progress_percent:.1f}%. "
+            f"Average speed: {speed_in_mbps:.2f} MB/s. "
+            f"Failed requests: {failed_requests}."
+        )
 
     print("File download complete.")
 
