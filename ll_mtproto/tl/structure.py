@@ -68,6 +68,9 @@ class DynamicStructure(BaseStructure):
     def __repr__(self) -> str:
         return f"{self.constructor_name}({self._fields!r})"
 
+    def __getitem__(self, item) -> StructureValue:
+        return DynamicStructure.from_obj(self._fields[item])
+
     def __getattr__(self, name: str) -> StructureValue:
         return DynamicStructure.from_obj(self._fields[name])
 
