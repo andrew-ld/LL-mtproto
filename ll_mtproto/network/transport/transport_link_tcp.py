@@ -41,7 +41,8 @@ class TransportLinkTcp(TransportLinkBase):
         "_read_buffer",
         "_transport_codec_factory",
         "_transport_codec",
-        "_resolver"
+        "_resolver",
+        "_closed"
     )
 
     _loop: asyncio.AbstractEventLoop
@@ -54,6 +55,7 @@ class TransportLinkTcp(TransportLinkBase):
     _transport_codec: TransportCodecBase | None
     _transport_codec_factory: TransportCodecFactory
     _resolver: TransportAddressResolverBase
+    _closed: bool
 
     def __init__(
             self,
@@ -75,18 +77,19 @@ class TransportLinkTcp(TransportLinkBase):
         self._reader = None
         self._writer = None
         self._transport_codec = None
+        self._closed = False
 
-    async def _reconnect_if_needed(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, TransportCodecBase, bytearray]:
+    async def _connect_if_needed(self) -> tuple[asyncio.StreamReader, asyncio.StreamWriter, TransportCodecBase, bytearray]:
+        if self._closed:
+            raise asyncio.InvalidStateError("Transport link is closed")
+
         async with self._connect_lock:
             reader, writer, transport_codec, read_buffer = self._reader, self._writer, self._transport_codec, self._read_buffer
 
-            if reader is None or writer is None or transport_codec is None:
-                if writer is not None:
-                    try:
-                        writer.close()
-                    except:
-                        logging.warning("usable to close leaked writer: %s", traceback.format_exc())
+            if writer and writer.is_closing():
+                raise ConnectionResetError("Transport link writer is closed")
 
+            if reader is None or writer is None or transport_codec is None:
                 transport_codec = self._transport_codec_factory.new_codec()
                 address, port = await self._resolver.get_address(self._datacenter)
 
@@ -124,7 +127,7 @@ class TransportLinkTcp(TransportLinkBase):
             return reader, writer, transport_codec, read_buffer
 
     async def read(self) -> bytes:
-        reader, _, codec, read_buffer = await self._reconnect_if_needed()
+        reader, _, codec, read_buffer = await self._connect_if_needed()
 
         if read_buffer:
             result = bytes(read_buffer)
@@ -138,7 +141,7 @@ class TransportLinkTcp(TransportLinkBase):
         self._read_buffer.clear()
 
     async def readn(self, n: int) -> bytes:
-        reader, _, codec, read_buffer = await self._reconnect_if_needed()
+        reader, _, codec, read_buffer = await self._connect_if_needed()
 
         while len(read_buffer) < n:
             read_buffer += bytearray(await codec.read_packet(reader))
@@ -151,7 +154,7 @@ class TransportLinkTcp(TransportLinkBase):
         if not data:
             return
 
-        _, writer, codec, _ = await self._reconnect_if_needed()
+        _, writer, codec, _ = await self._connect_if_needed()
 
         MAX_PACKET_SIZE: typing.Final[int] = 0x7FFFFF
 
@@ -168,14 +171,10 @@ class TransportLinkTcp(TransportLinkBase):
 
             await writer.drain()
 
-    def stop(self) -> None:
+    def close(self) -> None:
+        self._closed = True
         if writer := self._writer:
             writer.close()
-
-        self._writer = None
-        self._reader = None
-        self._transport_codec = None
-        self._read_buffer.clear()
 
 
 class TransportLinkTcpFactory(TransportLinkFactory):

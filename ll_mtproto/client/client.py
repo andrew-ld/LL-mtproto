@@ -34,7 +34,7 @@ from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event, SignalingM
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl.structure import BaseStructure, StructureValue, TypedStructure, TypedStructureObjectType, DynamicStructure
-from ll_mtproto.tl.tl import TlBodyData, NativeByteReader, Value, extract_cons_from_tl_body, extract_cons_from_tl_body_opt
+from ll_mtproto.tl.tl import TlBodyData, NativeByteReader, Value, extract_cons_from_tl_body, extract_cons_from_tl_body_opt, TlBodyDataValue
 from ll_mtproto.tl.tl_utils import TypedSchemaConstructor, flat_value_buffer
 from ll_mtproto.tl.tls_system import RpcError, DestroySessionOk, DestroySessionNone, FutureSalts, RpcResult, BadServerSalt, BadMsgNotification, \
     NewSessionCreated, Pong, MessageFromServer, MessageFromClient, UnencryptedMessage, MsgsAck
@@ -103,7 +103,7 @@ class Client:
         "_on_server_side_error_retries"
     )
 
-    _mtproto: MTProto
+    _mtproto: MTProto | None
     _loop: asyncio.AbstractEventLoop
     _msgids_to_ack: list[int]
     _mtproto_loop_task: asyncio.Task[None] | None
@@ -175,7 +175,7 @@ class Client:
         self._write_queue = asyncio.Queue()
         self._dispatcher = _ClientDispatcher(self)
 
-        self._mtproto = MTProto(datacenter, transport_link_factory, self._in_thread, crypto_provider)
+        self._mtproto = None
 
         self._used_session_key = auth_key.temporary_key if use_perfect_forward_secrecy else auth_key.persistent_key
         self._used_persistent_key = auth_key.persistent_key
@@ -472,21 +472,21 @@ class Client:
 
         self._cleanup_container_request_from_request(request)
 
-    async def _start_auth_key_exchange_for_key(self, key: Key, is_temp_key: bool) -> None:
+    async def _start_auth_key_exchange_for_key(self, key: Key, is_temp_key: bool, mtproto: MTProto) -> None:
         dispatcher, result = await initialize_key_creator_dispatcher(
             is_temp_key,
-            self._mtproto,
+            mtproto,
             self._in_thread,
             self._datacenter,
             self._crypto_provider
         )
 
         while not result.done():
-            await dispatch_event(dispatcher, self._mtproto, None)
+            await dispatch_event(dispatcher, mtproto, None)
 
         key.import_dh_gen_key(result.result())
 
-    async def _start_auth_key_bind_for_keys(self, persistent: Key, temp: Key) -> None:
+    async def _start_auth_key_bind_for_keys(self, persistent: Key, temp: Key, mtproto: MTProto) -> None:
         expire_at = temp.expire_at
 
         if expire_at is None:
@@ -497,16 +497,16 @@ class Client:
             temp,
             self._in_thread,
             self._datacenter,
-            self._mtproto,
+            mtproto,
             self._crypto_provider,
             self._dispatcher,
             expire_at
         )
 
         while not result.done():
-            await dispatch_event(dispatcher, self._mtproto, temp)
+            await dispatch_event(dispatcher, mtproto, temp)
 
-    async def _start_auth_key_exchange_if_needed(self) -> None:
+    async def _start_auth_key_exchange_if_needed(self, mtproto: MTProto) -> None:
         self._ensure_mtproto_loop()
 
         async with self._auth_key_lock:
@@ -514,7 +514,7 @@ class Client:
             persistent_key = self._used_persistent_key
 
             if persistent_key.is_empty():
-                await self._start_auth_key_exchange_for_key(persistent_key, False)
+                await self._start_auth_key_exchange_for_key(persistent_key, False, mtproto)
                 persistent_key.flush_changes()
 
             if self._use_perfect_forward_secrecy:
@@ -523,14 +523,14 @@ class Client:
                     used_key.flush_changes()
 
                 if used_key.is_empty():
-                    await self._start_auth_key_exchange_for_key(used_key, True)
-                    await self._start_auth_key_bind_for_keys(persistent_key, used_key)
+                    await self._start_auth_key_exchange_for_key(used_key, True, mtproto)
+                    await self._start_auth_key_bind_for_keys(persistent_key, used_key, mtproto)
                     used_key.flush_changes()
 
             elif used_key is not persistent_key:
                 raise RuntimeError(f"used key ({id(used_key)}) is not equal to persistent key {id(persistent_key)} and pfs is disabled")
 
-    async def _prepare_outbound_message(self, message: PendingRequest) -> tuple[Value, int]:
+    async def _prepare_outbound_message(self, message: PendingRequest, mtproto: MTProto) -> tuple[Value, int]:
         message.retries += 1
 
         if message.response.done():
@@ -559,7 +559,7 @@ class Client:
         if init_connection_required:
             request_body = self._wrap_into_init_connection(request_body)
 
-        payload, message_id = await self._in_thread(lambda: self._mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
+        payload, message_id = await self._in_thread(lambda: mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
 
         message.last_message_id = message_id
 
@@ -575,13 +575,13 @@ class Client:
 
         return payload, message_id
 
-    async def _process_outbound_message(self, message: PendingRequest) -> None:
-        payload, message_id = await self._prepare_outbound_message(message)
+    async def _process_outbound_message(self, message: PendingRequest, mtproto: MTProto) -> None:
+        payload, message_id = await self._prepare_outbound_message(message, mtproto)
         message.container_message_id = None
         logging.debug("writing message %d (%s)", message_id, extract_cons_from_tl_body_opt(message.request))
-        await self._mtproto.write_encrypted(payload, self._used_session_key)
+        await mtproto.write_encrypted(payload, self._used_session_key)
 
-    async def _process_outbound_container_message(self, message: PendingContainerRequest) -> None:
+    async def _process_outbound_container_message(self, message: PendingContainerRequest, mtproto: MTProto) -> None:
         if last_message_id := message.last_message_id:
             self._pending_requests.pop(last_message_id, None)
 
@@ -593,10 +593,10 @@ class Client:
         payloads: list[Value] = []
 
         for request in pending_requests:
-            payload, _ = await self._prepare_outbound_message(request)
+            payload, _ = await self._prepare_outbound_message(request, mtproto)
             payloads.append(payload)
 
-        container_body, container_message_id = self._mtproto.prepare_message_for_write(
+        container_body, container_message_id = mtproto.prepare_message_for_write(
             seq_no=self._used_session_key.get_next_even_seqno(),
             body=dict(
                 _cons="msg_container",
@@ -613,30 +613,35 @@ class Client:
 
         logging.debug("writing container message %d", container_message_id)
 
-        await self._mtproto.write_encrypted(container_body, self._used_session_key)
+        await mtproto.write_encrypted(container_body, self._used_session_key)
 
-    async def _mtproto_write_loop(self) -> None:
+    async def _mtproto_write_loop(self, mtproto: MTProto) -> None:
         while True:
             request = await self._write_queue.get()
 
             match request:
                 case PendingRequest():
-                    await self._process_outbound_message(request)
+                    await self._process_outbound_message(request, mtproto)
 
                 case PendingContainerRequest():
-                    await self._process_outbound_container_message(request)
+                    await self._process_outbound_container_message(request, mtproto)
 
                 case _:
                     raise TypeError(fr"Unexpected object in write queue `{request!r}`")
 
-    async def _mtproto_read_loop(self) -> None:
+    async def _mtproto_read_loop(self, mtproto: MTProto) -> None:
         while True:
-            await dispatch_event(self._dispatcher, self._mtproto, self._used_session_key)
+            await dispatch_event(self._dispatcher, mtproto, self._used_session_key)
             await self._flush_msgids_to_ack()
 
     async def _mtproto_loop(self) -> None:
+        if mtproto := self._mtproto:
+            mtproto.close()
+
+        mtproto = self._mtproto = MTProto(self._datacenter, self._transport_link_factory, self._in_thread, self._crypto_provider)
+
         try:
-            await self._start_auth_key_exchange_if_needed()
+            await self._start_auth_key_exchange_if_needed(mtproto)
         except (KeyboardInterrupt, asyncio.CancelledError, GeneratorExit):
             raise
         except:
@@ -647,8 +652,8 @@ class Client:
         self._used_session_key.generate_new_unique_session_id()
         self._used_session_key.flush_changes()
 
-        read_task = self._loop.create_task(self._mtproto_read_loop())
-        write_task = self._loop.create_task(self._mtproto_write_loop())
+        read_task = self._loop.create_task(self._mtproto_read_loop(mtproto))
+        write_task = self._loop.create_task(self._mtproto_write_loop(mtproto))
 
         for unused_session in self._used_session_key.unused_sessions:
             await self._create_destroy_session_request(unused_session)
@@ -908,17 +913,22 @@ class Client:
 
         body_result_reader = NativeByteReader(flat_value_buffer(body.result))
 
+        result_body: TlBodyDataValue
+
         try:
             if response_constructor is not None:
-                result = DynamicStructure.from_obj(await self._in_thread(lambda: response_constructor.deserialize_boxed_data(body_result_reader)))
+                result_body = await self._in_thread(lambda: response_constructor.deserialize_boxed_data(body_result_reader))
 
             elif response_parameter is not None:
-                result = DynamicStructure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_parameter(body_result_reader, response_parameter)))
+                result_body = await self._in_thread(lambda: self._datacenter.schema.read_by_parameter(body_result_reader, response_parameter))
 
             else:
-                result = DynamicStructure.from_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(body_result_reader)))
+                result_body = await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(body_result_reader))
         finally:
             del body_result_reader
+
+        result = DynamicStructure.from_obj(result_body)
+        del result_body
 
         if isinstance(result, RpcError):
             if result.error_message == "AUTH_KEY_PERM_EMPTY":
@@ -977,8 +987,8 @@ class Client:
 
         self._pending_ping = None
 
-        if mtproto_link := self._mtproto:
-            mtproto_link.stop()
+        if mtproto := self._mtproto:
+            mtproto.close()
 
         if mtproto_loop := self._mtproto_loop_task:
             mtproto_loop.cancel()

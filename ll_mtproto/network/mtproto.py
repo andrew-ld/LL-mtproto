@@ -258,7 +258,5 @@ class MTProto:
 
         return boxed_message, boxed_message_id
 
-    def stop(self) -> None:
-        self._link.stop()
-        self._last_message_id = 0
-        logging.debug("disconnected from Telegram")
+    def close(self) -> None:
+        self._link.close()

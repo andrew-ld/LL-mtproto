@@ -35,5 +35,5 @@ class TransportLinkBase(abc.ABC):
         raise NotImplementedError
 
     @abc.abstractmethod
-    def stop(self) -> None:
+    def close(self) -> None:
         raise NotImplementedError
