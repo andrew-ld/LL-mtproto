@@ -67,10 +67,10 @@ struct alignas(16) SimdBlock128SSE2 {
   SimdBlock128SSE2() = default;
 
   ALWAYS_INLINE explicit SimdBlock128SSE2(const void *p)
-      : value(_mm_load_si128(static_cast<const __m128i *>(p))) {}
+      : value(_mm_loadu_si128(static_cast<const __m128i *>(p))) {}
 
   ALWAYS_INLINE void store(void *p) const {
-    _mm_store_si128(static_cast<__m128i *>(p), value);
+    _mm_storeu_si128(static_cast<__m128i *>(p), value);
   }
 
   ALWAYS_INLINE SimdBlock128SSE2
