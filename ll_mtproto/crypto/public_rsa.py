@@ -54,13 +54,16 @@ class PublicRSA:
         if not isinstance(e, bytes):
             raise SyntaxError(f"Error parsing public key data, the E field is not a buffer `{e!r}`")
 
+        n_int = int.from_bytes(n, "big", signed=False)
+        n_clean_bytes = n_int.to_bytes(256, "big")
+
         self.fingerprint = int.from_bytes(
-            hashlib.sha1(pack_binary_string(n[1:]) + pack_binary_string(e)).digest()[-8:],
+            hashlib.sha1(pack_binary_string(n_clean_bytes) + pack_binary_string(e)).digest()[-8:],
             "little",
             signed=True,
         )
 
-        self.n = int.from_bytes(n, "big", signed=False)
+        self.n = n_int
         self.e = int.from_bytes(e, "big")
 
     @staticmethod
@@ -72,10 +75,8 @@ class PublicRSA:
 
         if field_type == 0x30:
             sequence = []
-
             while reader:
                 sequence.append(PublicRSA._read_asn1(reader))
-
             return sequence
 
         elif field_type == 0x02:
@@ -88,7 +89,7 @@ class PublicRSA:
         padding_length = max(0, 255 - len(data))
         m = int.from_bytes(data + crypto_provider.secure_random(padding_length), "big")
         x = pow(m, self.e, self.n)
-        return to_bytes(x)
+        return x.to_bytes(256, "big")
 
     def rsa_pad(self, data: bytes, crypto_provider: CryptoProviderBase) -> bytes:
         if len(data) > 144:
