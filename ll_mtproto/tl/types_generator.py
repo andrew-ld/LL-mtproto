@@ -71,6 +71,8 @@ def _load_schema(schema_file: str) -> Schema:
 def _generate_file_header(schema_file: str) -> str:
     return f"""#  Auto-generated code from types_generator.py using {schema_file}
 
+# noinspection All
+
 import typing
 import dataclasses
 from ll_mtproto.tl.structure import BaseStructure, TypedStructure, TypedStructureObjectType

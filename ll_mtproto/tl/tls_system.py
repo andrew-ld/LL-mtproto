@@ -1,5 +1,7 @@
 #  Auto-generated code from types_generator.py using ll_mtproto/resources/tl/system.tl
 
+# noinspection All
+
 import typing
 import dataclasses
 from ll_mtproto.tl.structure import BaseStructure, TypedStructure, TypedStructureObjectType
