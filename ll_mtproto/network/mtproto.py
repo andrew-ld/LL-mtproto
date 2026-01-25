@@ -63,7 +63,7 @@ class MTProto:
     @staticmethod
     def prepare_key_v1_write(auth_key: bytes, msg_key: bytes, crypto_provider: CryptoProviderBase) -> AesIge:
         sha1_a = sha1(msg_key, auth_key[:32])
-        sha1_b = sha1(auth_key[32:48], msg_key + auth_key[48:64])
+        sha1_b = sha1(auth_key[32:48], msg_key, auth_key[48:64])
         sha1_c = sha1(auth_key[64:96], msg_key)
         sha1_d = sha1(msg_key, auth_key[96:128])
 
