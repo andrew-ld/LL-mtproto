@@ -52,8 +52,10 @@ class MTProto:
     def prepare_key_v2(auth_key: bytes, msg_key: bytes, read: bool, crypto_provider: CryptoProviderBase) -> AesIge:
         x = 0 if read else 8
 
-        sha256a = sha256(msg_key, auth_key[x: x + 36])
-        sha256b = sha256(auth_key[x + 40:x + 76], msg_key)
+        auth_key_memoryview = memoryview(auth_key)
+
+        sha256a = sha256(msg_key, auth_key_memoryview[x: x + 36])
+        sha256b = sha256(auth_key_memoryview[x + 40:x + 76], msg_key)
 
         aes_key = sha256a[:8] + sha256b[8:24] + sha256a[24:32]
         aes_iv = sha256b[:8] + sha256a[8:24] + sha256b[24:32]
@@ -62,10 +64,12 @@ class MTProto:
 
     @staticmethod
     def prepare_key_v1_write(auth_key: bytes, msg_key: bytes, crypto_provider: CryptoProviderBase) -> AesIge:
-        sha1_a = sha1(msg_key, auth_key[:32])
-        sha1_b = sha1(auth_key[32:48], msg_key, auth_key[48:64])
-        sha1_c = sha1(auth_key[64:96], msg_key)
-        sha1_d = sha1(msg_key, auth_key[96:128])
+        auth_key_memoryview = memoryview(auth_key)
+
+        sha1_a = sha1(msg_key, auth_key_memoryview[:32])
+        sha1_b = sha1(auth_key_memoryview[32:48], msg_key, auth_key_memoryview[48:64])
+        sha1_c = sha1(auth_key_memoryview[64:96], msg_key)
+        sha1_d = sha1(msg_key, auth_key_memoryview[96:128])
 
         aes_key = sha1_a[:8] + sha1_b[8:20] + sha1_c[4:16]
         aes_iv = sha1_a[8:20] + sha1_b[:8] + sha1_c[16:20] + sha1_d[:8]

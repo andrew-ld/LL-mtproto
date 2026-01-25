@@ -38,17 +38,17 @@ def xor(a: bytes, b: bytes) -> bytes:
     return bytes(ca ^ cb for ca, cb in zip(a, b))
 
 
-def perform_hash(hash_state: _hashlib.HASH, values: typing.Iterable[bytes]) -> bytes:
+def perform_hash(hash_state: _hashlib.HASH, values: typing.Iterable[bytes | memoryview]) -> bytes:
     for value in values:
         hash_state.update(value)
     return hash_state.digest()
 
 
-def sha1(*values: bytes) -> bytes:
+def sha1(*values: bytes | memoryview) -> bytes:
     return perform_hash(hashlib.sha1(), values)
 
 
-def sha256(*values: bytes) -> bytes:
+def sha256(*values: bytes | memoryview) -> bytes:
     return perform_hash(hashlib.sha256(), values)
 
 
