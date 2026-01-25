@@ -158,7 +158,7 @@ class MTProtoKeyCreator:
         if not hmac.compare_digest(params3.server_nonce, state.server_nonce):
             raise RuntimeError("Diffie–Hellman exchange failed: server nonce mismatch: `%r`", params3)
 
-        new_nonce_hash1 = (await self._in_thread(lambda: sha1(state.new_nonce + b"\1" + sha1(state.key.auth_key)[0:8])))[4:20]
+        new_nonce_hash1 = (await self._in_thread(lambda: sha1(state.new_nonce, b"\1", sha1(state.key.auth_key)[0:8])))[4:20]
 
         if not hmac.compare_digest(params3.new_nonce_hash1, new_nonce_hash1):
             raise RuntimeError("Diffie–Hellman exchange failed: new nonce hash1 mismatch: `%r`", params3)
@@ -176,10 +176,10 @@ class MTProtoKeyCreator:
             raise RuntimeError("Diffie–Hellman exchange failed: params server nonce mismatch")
 
         tmp_aes_key_1, tmp_aes_key_2, tmp_aes_iv_1, tmp_aes_iv_2 = await asyncio.gather(
-            self._in_thread(lambda: sha1(state.new_nonce + state.server_nonce)),
-            self._in_thread(lambda: sha1(state.server_nonce + state.new_nonce)),
-            self._in_thread(lambda: sha1(state.server_nonce + state.new_nonce)),
-            self._in_thread(lambda: sha1(state.new_nonce + state.new_nonce))
+            self._in_thread(lambda: sha1(state.new_nonce, state.server_nonce)),
+            self._in_thread(lambda: sha1(state.server_nonce, state.new_nonce)),
+            self._in_thread(lambda: sha1(state.server_nonce, state.new_nonce)),
+            self._in_thread(lambda: sha1(state.new_nonce, state.new_nonce))
         )
 
         tmp_aes_key = tmp_aes_key_1 + tmp_aes_key_2[:12]

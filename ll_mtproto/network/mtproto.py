@@ -52,8 +52,8 @@ class MTProto:
     def prepare_key_v2(auth_key: bytes, msg_key: bytes, read: bool, crypto_provider: CryptoProviderBase) -> AesIge:
         x = 0 if read else 8
 
-        sha256a = sha256(msg_key + auth_key[x: x + 36])
-        sha256b = sha256(auth_key[x + 40:x + 76] + msg_key)
+        sha256a = sha256(msg_key, auth_key[x: x + 36])
+        sha256b = sha256(auth_key[x + 40:x + 76], msg_key)
 
         aes_key = sha256a[:8] + sha256b[8:24] + sha256a[24:32]
         aes_iv = sha256b[:8] + sha256a[8:24] + sha256b[24:32]
@@ -62,10 +62,10 @@ class MTProto:
 
     @staticmethod
     def prepare_key_v1_write(auth_key: bytes, msg_key: bytes, crypto_provider: CryptoProviderBase) -> AesIge:
-        sha1_a = sha1(msg_key + auth_key[:32])
-        sha1_b = sha1(auth_key[32:48] + msg_key + auth_key[48:64])
-        sha1_c = sha1(auth_key[64:96] + msg_key)
-        sha1_d = sha1(msg_key + auth_key[96:128])
+        sha1_a = sha1(msg_key, auth_key[:32])
+        sha1_b = sha1(auth_key[32:48], msg_key + auth_key[48:64])
+        sha1_c = sha1(auth_key[64:96], msg_key)
+        sha1_d = sha1(msg_key, auth_key[96:128])
 
         aes_key = sha1_a[:8] + sha1_b[8:20] + sha1_c[4:16]
         aes_iv = sha1_a[8:20] + sha1_b[:8] + sha1_c[16:20] + sha1_d[:8]
@@ -165,7 +165,7 @@ class MTProto:
         message_inner_data_envelope = await self._in_thread(message_inner_data.get_flat_bytes)
 
         padding = await self._in_thread(lambda: self._crypto_provider.secure_random((-(len(message_inner_data_envelope) + 12) % 16 + 12)))
-        msg_key = (await self._in_thread(lambda: sha256(auth_key_key[88:88 + 32] + message_inner_data_envelope + padding)))[8:24]
+        msg_key = (await self._in_thread(lambda: sha256(auth_key_key[88:88 + 32], message_inner_data_envelope, padding)))[8:24]
         aes = await self._in_thread(lambda: self.prepare_key_v2(auth_key_key, msg_key, True, self._crypto_provider))
         encrypted_message = await self._in_thread(lambda: aes.encrypt(message_inner_data_envelope + padding))
 

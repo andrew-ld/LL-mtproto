@@ -20,7 +20,7 @@ import typing
 from ll_mtproto.crypto.aes_ige import AesIge
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
 from ll_mtproto.tl.bytereader import SyncByteReader
-from ll_mtproto.tl.byteutils import to_bytes, xor, sha256
+from ll_mtproto.tl.byteutils import xor, sha256
 from ll_mtproto.tl.tl import pack_binary_string, NativeByteReader
 
 __all__ = ("PublicRSA",)
@@ -102,7 +102,7 @@ class PublicRSA:
             temp_key = crypto_provider.secure_random(32)
             temp_key_aes = AesIge(temp_key, b"\0" * 32, crypto_provider)
 
-            data_with_hash = data_pad_reversed + sha256(temp_key + data_with_padding)
+            data_with_hash = data_pad_reversed + sha256(temp_key, data_with_padding)
             encrypted_data_with_hash = temp_key_aes.encrypt(data_with_hash)
 
             temp_key_xor = xor(temp_key, sha256(encrypted_data_with_hash))

@@ -16,6 +16,7 @@ import functools
 import hashlib
 import typing
 import zlib
+import _hashlib
 
 from ll_mtproto.in_thread import InThread
 from ll_mtproto.tl.bytereader import SyncByteReader, ByteConsumer, ByteReader
@@ -37,14 +38,18 @@ def xor(a: bytes, b: bytes) -> bytes:
     return bytes(ca ^ cb for ca, cb in zip(a, b))
 
 
-@functools.lru_cache()
-def sha1(b: bytes) -> bytes:
-    return bytes(hashlib.sha1(b).digest())
+def perform_hash(hash_state: _hashlib.HASH, values: typing.Iterable[bytes]) -> bytes:
+    for value in values:
+        hash_state.update(value)
+    return hash_state.digest()
 
 
-@functools.lru_cache()
-def sha256(b: bytes) -> bytes:
-    return bytes(hashlib.sha256(b).digest())
+def sha1(*values: bytes) -> bytes:
+    return perform_hash(hashlib.sha1(), values)
+
+
+def sha256(*values: bytes) -> bytes:
+    return perform_hash(hashlib.sha256(), values)
 
 
 @functools.lru_cache()
