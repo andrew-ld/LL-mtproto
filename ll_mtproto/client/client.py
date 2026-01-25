@@ -39,7 +39,7 @@ from ll_mtproto.tl.tl_utils import TypedSchemaConstructor, flat_value_buffer
 from ll_mtproto.tl.tls_system import RpcError, DestroySessionOk, DestroySessionNone, FutureSalts, RpcResult, BadServerSalt, BadMsgNotification, \
     NewSessionCreated, Pong, MessageFromServer, MessageFromClient, UnencryptedMessage, MsgsAck
 
-__all__ = ("Client",)
+__all__ = ("Client", "ClientInThread")
 
 
 # noinspection PyProtectedMember
@@ -62,7 +62,7 @@ class _ClientDispatcher(Dispatcher):
         self._impl._process_telegram_signaling_message(signaling)
 
 
-class _ClientInThreadImpl(InThread):
+class ClientInThread(InThread):
     __slots__ = ("_blocking_executor",)
 
     def __init__(self, blocking_executor: concurrent.futures.Executor):
@@ -156,7 +156,7 @@ class Client:
         self._default_timeout_seconds = default_timeout_seconds
         self._on_server_side_error_retries = on_server_side_error_retries
 
-        self._in_thread = _ClientInThreadImpl(blocking_executor)
+        self._in_thread = ClientInThread(blocking_executor)
         self._rpc_error_constructor = TypedSchemaConstructor(datacenter.schema, RpcError)
 
         self._loop = asyncio.get_running_loop()

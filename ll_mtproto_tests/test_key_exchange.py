@@ -4,7 +4,7 @@ import logging
 import typing
 
 from ll_mtproto import TelegramDatacenter, TelegramTestDatacenter
-from ll_mtproto.client.client import Client
+from ll_mtproto.client.client import Client, ClientInThread
 from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.crypto.auth_key import AuthKey
 from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
@@ -20,13 +20,10 @@ blocking_executor = concurrent.futures.ThreadPoolExecutor(max_workers=8)
 crypto_provider = CryptoProviderOpenSSL()
 resolver = CachedTransportAddressResolver()
 link = TransportLinkTcpFactory(TransportCodecAbridgedFactory(), resolver)
+in_thread = ClientInThread(blocking_executor)
 
 
-async def in_thread(*args: typing.Any, **kwargs: typing.Any) -> typing.Any:
-    return await asyncio.get_running_loop().run_in_executor(blocking_executor, *args, **kwargs)
-
-
-async def test_cluster(cluster: TelegramTestDatacenter | TelegramDatacenter):
+async def test_cluster(cluster: typing.Type[TelegramTestDatacenter | TelegramDatacenter]):
     tasks = []
 
     async def configure_resolver():
