@@ -1,17 +1,17 @@
-import os.path
-import pickle
-import traceback
 import argparse
 import asyncio
 import concurrent.futures
 import logging
+import os.path
+import pickle
 import time
 
 from ll_mtproto import *
 from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 
-MEDIA_SESSION_POOL_SIZE = 4
-BATCH_SIZE = 4
+
+MEDIA_SESSION_POOL_SIZE = 8
+BATCH_SIZE = 6
 CHUNK_SIZE = 512 * 1024
 
 
@@ -60,7 +60,7 @@ async def test_download(api_id: int, api_hash: str, bot_token: str, session_name
 
     peer = await session.rpc_call({
         "_cons": "contacts.resolveUsername",
-        "username": "big_habesha"
+        "username": "dc_speed_test"
     })
 
     messages = await session.rpc_call({
@@ -70,7 +70,7 @@ async def test_download(api_id: int, api_hash: str, bot_token: str, session_name
             "channel_id": peer.peer.channel_id,
             "access_hash": peer.chats[0].access_hash
         },
-        "id": [{"_cons": "inputMessageID", "id": 328}]
+        "id": [{"_cons": "inputMessageID", "id": 71}]
     })
 
     media = messages.messages[0].media.document
