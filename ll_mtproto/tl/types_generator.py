@@ -161,49 +161,29 @@ def _generate_constructor_classes(constructors: typing.List[typing.Tuple[str, Co
     return "\n".join(output_lines)
 
 
-def _generate_types_class(constructors: typing.List[typing.Tuple[str, Constructor]]) -> str:
+def _generate_container_class(class_name: str, is_function: bool, constructors: typing.List[typing.Tuple[str, Constructor]]) -> str:
     output_lines: list[str] = [
         "\n",
         "@typing.final",
-        "class Functions(abc.ABC):",
-        "\t__slots__ = tuple()"
+        f"class {class_name}(abc.ABC):",
+        "\t__slots__: tuple[str, ...] = tuple()"
     ]
-    has_types = False
+    has_items = False
     for cons_name, cons in constructors:
         if cons_name in DISALLOWED_CONSTRUCTORS:
             continue
-        if cons.is_function:
+        if cons.is_function != is_function:
             continue
 
-        class_name = from_snake_to_pascal_case(cons_name)
-        output_lines.append(f"\t{class_name}: typing.ClassVar[typing.Type[{class_name}]] = {class_name}")
-        has_types = True
-
-    if not has_types:
-        output_lines.append("\tpass")
-
-    return "\n".join(output_lines)
-
-
-def _generate_functions_class(constructors: typing.List[typing.Tuple[str, Constructor]]) -> str:
-    output_lines: list[str] = [
-        "\n",
-        "@typing.final",
-        "class Functions(abc.ABC):",
-        "\t__slots__ = tuple()"
-    ]
-    has_functions = False
-    for cons_name, cons in constructors:
-        if cons_name in DISALLOWED_CONSTRUCTORS:
-            continue
-        if not cons.is_function:
+        has_wrapper = next((True for p in cons.parameters if p.name == "_wrapped"), False)
+        if has_wrapper:
             continue
 
-        class_name = from_snake_to_pascal_case(cons_name)
-        output_lines.append(f"\t{class_name}: typing.ClassVar[typing.Type[{class_name}]] = {class_name}")
-        has_functions = True
+        cons_class_name = from_snake_to_pascal_case(cons_name)
+        output_lines.append(f"\t{cons_class_name}: typing.ClassVar[typing.Type[{cons_class_name}]] = {cons_class_name}")
+        has_items = True
 
-    if not has_functions:
+    if not has_items:
         output_lines.append("\tpass")
 
     return "\n".join(output_lines)
@@ -222,8 +202,8 @@ def generate_schema_types(schema_file: str, output_file: str) -> None:
         _generate_all_variable(constructors),
         _generate_type_unions(types),
         _generate_constructor_classes(constructors),
-        _generate_types_class(constructors),
-        _generate_functions_class(constructors),
+        _generate_container_class("Types", False, constructors),
+        _generate_container_class("Functions", True, constructors),
     ]
 
     output_text = "\n".join(filter(None, parts)) + "\n"

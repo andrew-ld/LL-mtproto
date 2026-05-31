@@ -779,8 +779,8 @@ class UnencryptedMessage(TypedStructure[_DataToSend]):
 
 
 @typing.final
-class Functions(abc.ABC):
-	__slots__ = tuple()
+class Types(abc.ABC):
+	__slots__: tuple[str, ...] = tuple()
 	AuthorizationInnerData: typing.ClassVar[typing.Type[AuthorizationInnerData]] = AuthorizationInnerData
 	BadMsgNotification: typing.ClassVar[typing.Type[BadMsgNotification]] = BadMsgNotification
 	BadServerSalt: typing.ClassVar[typing.Type[BadServerSalt]] = BadServerSalt
@@ -838,13 +838,10 @@ class Functions(abc.ABC):
 
 @typing.final
 class Functions(abc.ABC):
-	__slots__ = tuple()
+	__slots__: tuple[str, ...] = tuple()
 	DestroyAuthKey: typing.ClassVar[typing.Type[DestroyAuthKey]] = DestroyAuthKey
 	DestroySession: typing.ClassVar[typing.Type[DestroySession]] = DestroySession
 	GetFutureSalts: typing.ClassVar[typing.Type[GetFutureSalts]] = GetFutureSalts
-	InitConnection: typing.ClassVar[typing.Type[InitConnection]] = InitConnection
-	InvokeWithLayer: typing.ClassVar[typing.Type[InvokeWithLayer]] = InvokeWithLayer
-	InvokeWithoutUpdates: typing.ClassVar[typing.Type[InvokeWithoutUpdates]] = InvokeWithoutUpdates
 	Ping: typing.ClassVar[typing.Type[Ping]] = Ping
 	PingDelayDisconnect: typing.ClassVar[typing.Type[PingDelayDisconnect]] = PingDelayDisconnect
 	ReqDHParams: typing.ClassVar[typing.Type[ReqDHParams]] = ReqDHParams
