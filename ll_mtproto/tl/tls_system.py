@@ -91,6 +91,8 @@ __all__ = (
 	"ServerDHParamsOk",
 	"SetClientDHParams",
 	"UnencryptedMessage",
+	"Types",
+	"Functions",
 )
 
 _BadMsgNotification = typing.Union[
@@ -773,3 +775,77 @@ class UnencryptedMessage(TypedStructure[_DataToSend]):
 	auth_key_id: _long
 	msg_id: _ulong
 	body: _PaddedObject
+
+
+@typing.final
+class Types:
+	AuthorizationInnerData: typing.ClassVar[typing.Type[AuthorizationInnerData]] = AuthorizationInnerData
+	BadMsgNotification: typing.ClassVar[typing.Type[BadMsgNotification]] = BadMsgNotification
+	BadServerSalt: typing.ClassVar[typing.Type[BadServerSalt]] = BadServerSalt
+	BindAuthKeyInner: typing.ClassVar[typing.Type[BindAuthKeyInner]] = BindAuthKeyInner
+	ClientDHInnerData: typing.ClassVar[typing.Type[ClientDHInnerData]] = ClientDHInnerData
+	DestroyAuthKeyFail: typing.ClassVar[typing.Type[DestroyAuthKeyFail]] = DestroyAuthKeyFail
+	DestroyAuthKeyNone: typing.ClassVar[typing.Type[DestroyAuthKeyNone]] = DestroyAuthKeyNone
+	DestroyAuthKeyOk: typing.ClassVar[typing.Type[DestroyAuthKeyOk]] = DestroyAuthKeyOk
+	DestroySessionNone: typing.ClassVar[typing.Type[DestroySessionNone]] = DestroySessionNone
+	DestroySessionOk: typing.ClassVar[typing.Type[DestroySessionOk]] = DestroySessionOk
+	DhGenFail: typing.ClassVar[typing.Type[DhGenFail]] = DhGenFail
+	DhGenOk: typing.ClassVar[typing.Type[DhGenOk]] = DhGenOk
+	DhGenRetry: typing.ClassVar[typing.Type[DhGenRetry]] = DhGenRetry
+	EncryptedMessage: typing.ClassVar[typing.Type[EncryptedMessage]] = EncryptedMessage
+	FutureSalt: typing.ClassVar[typing.Type[FutureSalt]] = FutureSalt
+	FutureSalts: typing.ClassVar[typing.Type[FutureSalts]] = FutureSalts
+	HttpWait: typing.ClassVar[typing.Type[HttpWait]] = HttpWait
+	InputClientProxy: typing.ClassVar[typing.Type[InputClientProxy]] = InputClientProxy
+	JsonArray: typing.ClassVar[typing.Type[JsonArray]] = JsonArray
+	JsonBool: typing.ClassVar[typing.Type[JsonBool]] = JsonBool
+	JsonNull: typing.ClassVar[typing.Type[JsonNull]] = JsonNull
+	JsonNumber: typing.ClassVar[typing.Type[JsonNumber]] = JsonNumber
+	JsonObject: typing.ClassVar[typing.Type[JsonObject]] = JsonObject
+	JsonObjectValue: typing.ClassVar[typing.Type[JsonObjectValue]] = JsonObjectValue
+	JsonString: typing.ClassVar[typing.Type[JsonString]] = JsonString
+	MessageFromClient: typing.ClassVar[typing.Type[MessageFromClient]] = MessageFromClient
+	MessageFromServer: typing.ClassVar[typing.Type[MessageFromServer]] = MessageFromServer
+	MessageInnerData: typing.ClassVar[typing.Type[MessageInnerData]] = MessageInnerData
+	MessageInnerDataFromServer: typing.ClassVar[typing.Type[MessageInnerDataFromServer]] = MessageInnerDataFromServer
+	MsgContainer: typing.ClassVar[typing.Type[MsgContainer]] = MsgContainer
+	MsgDetailedInfo: typing.ClassVar[typing.Type[MsgDetailedInfo]] = MsgDetailedInfo
+	MsgNewDetailedInfo: typing.ClassVar[typing.Type[MsgNewDetailedInfo]] = MsgNewDetailedInfo
+	MsgResendReq: typing.ClassVar[typing.Type[MsgResendReq]] = MsgResendReq
+	MsgsAck: typing.ClassVar[typing.Type[MsgsAck]] = MsgsAck
+	MsgsAllInfo: typing.ClassVar[typing.Type[MsgsAllInfo]] = MsgsAllInfo
+	MsgsStateInfo: typing.ClassVar[typing.Type[MsgsStateInfo]] = MsgsStateInfo
+	MsgsStateReq: typing.ClassVar[typing.Type[MsgsStateReq]] = MsgsStateReq
+	NewSessionCreated: typing.ClassVar[typing.Type[NewSessionCreated]] = NewSessionCreated
+	PQInnerData: typing.ClassVar[typing.Type[PQInnerData]] = PQInnerData
+	PQInnerDataDc: typing.ClassVar[typing.Type[PQInnerDataDc]] = PQInnerDataDc
+	PQInnerDataTemp: typing.ClassVar[typing.Type[PQInnerDataTemp]] = PQInnerDataTemp
+	PQInnerDataTempDc: typing.ClassVar[typing.Type[PQInnerDataTempDc]] = PQInnerDataTempDc
+	Pong: typing.ClassVar[typing.Type[Pong]] = Pong
+	ResPQ: typing.ClassVar[typing.Type[ResPQ]] = ResPQ
+	RpcAnswerDropped: typing.ClassVar[typing.Type[RpcAnswerDropped]] = RpcAnswerDropped
+	RpcAnswerDroppedRunning: typing.ClassVar[typing.Type[RpcAnswerDroppedRunning]] = RpcAnswerDroppedRunning
+	RpcAnswerUnknown: typing.ClassVar[typing.Type[RpcAnswerUnknown]] = RpcAnswerUnknown
+	RpcError: typing.ClassVar[typing.Type[RpcError]] = RpcError
+	RpcResult: typing.ClassVar[typing.Type[RpcResult]] = RpcResult
+	ServerDHInnerData: typing.ClassVar[typing.Type[ServerDHInnerData]] = ServerDHInnerData
+	ServerDHParamsFail: typing.ClassVar[typing.Type[ServerDHParamsFail]] = ServerDHParamsFail
+	ServerDHParamsOk: typing.ClassVar[typing.Type[ServerDHParamsOk]] = ServerDHParamsOk
+	UnencryptedMessage: typing.ClassVar[typing.Type[UnencryptedMessage]] = UnencryptedMessage
+
+
+@typing.final
+class Functions:
+	DestroyAuthKey: typing.ClassVar[typing.Type[DestroyAuthKey]] = DestroyAuthKey
+	DestroySession: typing.ClassVar[typing.Type[DestroySession]] = DestroySession
+	GetFutureSalts: typing.ClassVar[typing.Type[GetFutureSalts]] = GetFutureSalts
+	InitConnection: typing.ClassVar[typing.Type[InitConnection]] = InitConnection
+	InvokeWithLayer: typing.ClassVar[typing.Type[InvokeWithLayer]] = InvokeWithLayer
+	InvokeWithoutUpdates: typing.ClassVar[typing.Type[InvokeWithoutUpdates]] = InvokeWithoutUpdates
+	Ping: typing.ClassVar[typing.Type[Ping]] = Ping
+	PingDelayDisconnect: typing.ClassVar[typing.Type[PingDelayDisconnect]] = PingDelayDisconnect
+	ReqDHParams: typing.ClassVar[typing.Type[ReqDHParams]] = ReqDHParams
+	ReqPq: typing.ClassVar[typing.Type[ReqPq]] = ReqPq
+	ReqPqMulti: typing.ClassVar[typing.Type[ReqPqMulti]] = ReqPqMulti
+	RpcDropAnswer: typing.ClassVar[typing.Type[RpcDropAnswer]] = RpcDropAnswer
+	SetClientDHParams: typing.ClassVar[typing.Type[SetClientDHParams]] = SetClientDHParams

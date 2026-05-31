@@ -103,6 +103,8 @@ def _generate_all_variable(constructors: typing.List[typing.Tuple[str, Construct
         if cons_name in DISALLOWED_CONSTRUCTORS:
             continue
         lines.append(f'\t"{from_snake_to_pascal_case(cons_name)}",')
+    lines.append('\t"Types",')
+    lines.append('\t"Functions",')
     lines.append(")\n")
     return "\n".join(lines)
 
@@ -158,6 +160,52 @@ def _generate_constructor_classes(constructors: typing.List[typing.Tuple[str, Co
     return "\n".join(output_lines)
 
 
+def _generate_types_class(constructors: typing.List[typing.Tuple[str, Constructor]]) -> str:
+    output_lines: list[str] = [
+        "\n",
+        "@typing.final",
+        "class Types:"
+    ]
+    has_types = False
+    for cons_name, cons in constructors:
+        if cons_name in DISALLOWED_CONSTRUCTORS:
+            continue
+        if cons.is_function:
+            continue
+
+        class_name = from_snake_to_pascal_case(cons_name)
+        output_lines.append(f"\t{class_name}: typing.ClassVar[typing.Type[{class_name}]] = {class_name}")
+        has_types = True
+
+    if not has_types:
+        output_lines.append("\tpass")
+
+    return "\n".join(output_lines)
+
+
+def _generate_functions_class(constructors: typing.List[typing.Tuple[str, Constructor]]) -> str:
+    output_lines: list[str] = [
+        "\n",
+        "@typing.final",
+        "class Functions:"
+    ]
+    has_functions = False
+    for cons_name, cons in constructors:
+        if cons_name in DISALLOWED_CONSTRUCTORS:
+            continue
+        if not cons.is_function:
+            continue
+
+        class_name = from_snake_to_pascal_case(cons_name)
+        output_lines.append(f"\t{class_name}: typing.ClassVar[typing.Type[{class_name}]] = {class_name}")
+        has_functions = True
+
+    if not has_functions:
+        output_lines.append("\tpass")
+
+    return "\n".join(output_lines)
+
+
 def generate_schema_types(schema_file: str, output_file: str) -> None:
     schema = _load_schema(schema_file)
 
@@ -171,6 +219,8 @@ def generate_schema_types(schema_file: str, output_file: str) -> None:
         _generate_all_variable(constructors),
         _generate_type_unions(types),
         _generate_constructor_classes(constructors),
+        _generate_types_class(constructors),
+        _generate_functions_class(constructors),
     ]
 
     output_text = "\n".join(filter(None, parts)) + "\n"
