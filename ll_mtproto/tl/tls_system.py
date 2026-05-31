@@ -2,6 +2,7 @@
 
 # noinspection All
 
+import abc
 import typing
 import dataclasses
 from ll_mtproto.tl.structure import BaseStructure, TypedStructure, TypedStructureObjectType
@@ -778,7 +779,8 @@ class UnencryptedMessage(TypedStructure[_DataToSend]):
 
 
 @typing.final
-class Types:
+class Functions(abc.ABC):
+	__slots__ = tuple()
 	AuthorizationInnerData: typing.ClassVar[typing.Type[AuthorizationInnerData]] = AuthorizationInnerData
 	BadMsgNotification: typing.ClassVar[typing.Type[BadMsgNotification]] = BadMsgNotification
 	BadServerSalt: typing.ClassVar[typing.Type[BadServerSalt]] = BadServerSalt
@@ -835,7 +837,8 @@ class Types:
 
 
 @typing.final
-class Functions:
+class Functions(abc.ABC):
+	__slots__ = tuple()
 	DestroyAuthKey: typing.ClassVar[typing.Type[DestroyAuthKey]] = DestroyAuthKey
 	DestroySession: typing.ClassVar[typing.Type[DestroySession]] = DestroySession
 	GetFutureSalts: typing.ClassVar[typing.Type[GetFutureSalts]] = GetFutureSalts

@@ -73,6 +73,7 @@ def _generate_file_header(schema_file: str) -> str:
 
 # noinspection All
 
+import abc
 import typing
 import dataclasses
 from ll_mtproto.tl.structure import BaseStructure, TypedStructure, TypedStructureObjectType
@@ -164,7 +165,8 @@ def _generate_types_class(constructors: typing.List[typing.Tuple[str, Constructo
     output_lines: list[str] = [
         "\n",
         "@typing.final",
-        "class Types:"
+        "class Functions(abc.ABC):",
+        "\t__slots__ = tuple()"
     ]
     has_types = False
     for cons_name, cons in constructors:
@@ -187,7 +189,8 @@ def _generate_functions_class(constructors: typing.List[typing.Tuple[str, Constr
     output_lines: list[str] = [
         "\n",
         "@typing.final",
-        "class Functions:"
+        "class Functions(abc.ABC):",
+        "\t__slots__ = tuple()"
     ]
     has_functions = False
     for cons_name, cons in constructors:
