@@ -382,7 +382,8 @@ class Schema:
             parameters=tuple(parameters),
             flags=set(p.flag_index for p in parameters if p.is_flag and p.flag_index is not None) or None,
             is_function=is_function,
-            ptype_parameter=ptype_parameter
+            ptype_parameter=ptype_parameter,
+            line=line
         )
 
         if (cons_name := cons.name) is not None:
@@ -856,7 +857,8 @@ class Constructor:
         "deserialization_optimized_parameters",
         "flags_check_table",
         "deserialization_default_dict",
-        "is_gzip_container"
+        "is_gzip_container",
+        "line"
     )
 
     schema: typing.Final[Schema]
@@ -871,6 +873,7 @@ class Constructor:
     flags_check_table: typing.Final[tuple[tuple[int, int, frozenset[str], int], ...]]
     deserialization_default_dict: typing.Final["TlBodyData"]
     is_gzip_container: typing.Final[bool]
+    line: typing.Final[str]
 
     def __init__(
             self,
@@ -881,8 +884,10 @@ class Constructor:
             parameters: tuple[Parameter, ...],
             flags: set[int] | None,
             is_function: bool,
-            ptype_parameter: Parameter | None
+            ptype_parameter: Parameter | None,
+            line: str
     ):
+        self.line = line
         self.schema = schema
         self.name = name
         self.number = number
@@ -973,7 +978,7 @@ class Constructor:
         return tuple(output)
 
     def __repr__(self) -> str:
-        return f"{self.name} {''.join(repr(p) for p in self.parameters)}= {self.ptype};"
+        return self.line
 
     def _serialize_argument(self, data: Value, parameter: Parameter, argument: typing.Union["TlBodyDataValue", "Value"]) -> None:
         if isinstance(argument, str):
