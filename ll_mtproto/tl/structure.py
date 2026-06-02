@@ -109,6 +109,8 @@ class TypedStructure(BaseStructure, typing.Generic[TypedStructureObjectType]):
                     v.as_tl_body_data() if isinstance(v, TypedStructure) else v
                     for v in value
                 ]
+            elif isinstance(value, DynamicStructure):
+                data[field.name] = value.as_tl_body_data()
             else:
                 data[field.name] = value
         return data
