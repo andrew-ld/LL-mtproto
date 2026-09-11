@@ -47,6 +47,8 @@ async def main():
     session._used_session_key.server_salt = -1
     print(await session.rpc_call_container([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
 
+    print(await session.rpc_call_container([{"_cons": "help.getConfig"}] * 1024, ordered_server_side_processing=True))
+
     session.disconnect()
 
 
