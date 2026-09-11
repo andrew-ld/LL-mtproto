@@ -229,7 +229,7 @@ class Client:
             force_init_connection: bool = False,
             serialized_payloads: list[Value] | None = None,
             timeout_seconds: int | None = None,
-            ordered_server_side_processing: bool | None = None,
+            ordered_server_side_processing: bool | None = None,  # guaranteed only on first delivery
     ) -> list[StructureValue | BaseException]:
         if not payloads:
             return []
