@@ -959,6 +959,8 @@ class Client:
         del result_body
 
         if isinstance(result, RpcError):
+            error_code = abs(result.error_code)
+
             if result.error_message == "AUTH_KEY_PERM_EMPTY":
                 if self._use_perfect_forward_secrecy:
                     self._used_session_key.clear_key()
@@ -966,10 +968,10 @@ class Client:
                     self.disconnect()
 
                 else:
-                    self._finalize_response_throw_rpc_error(result.error_message, result.error_code, pending_request)
+                    self._finalize_response_throw_rpc_error(result.error_message, error_code, pending_request)
 
             elif pending_request.retries >= self._on_server_side_error_retries:
-                self._finalize_response_throw_rpc_error(result.error_message, result.error_code, pending_request)
+                self._finalize_response_throw_rpc_error(result.error_message, error_code, pending_request)
 
             elif result.error_message == "CONNECTION_NOT_INITED":
                 self._init_connection_required = True
@@ -977,12 +979,12 @@ class Client:
                     pending_request.force_init_connection = True
                 await self._rpc_call(pending_request)
 
-            elif 500 <= result.error_code < 600:
+            elif 500 <= error_code < 600:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
                 await self._rpc_call(pending_request)
 
             else:
-                self._finalize_response_throw_rpc_error(result.error_message, result.error_code, pending_request)
+                self._finalize_response_throw_rpc_error(result.error_message, error_code, pending_request)
         else:
             if pending_request.init_connection_wrapped:
                 self._init_connection_required = False
