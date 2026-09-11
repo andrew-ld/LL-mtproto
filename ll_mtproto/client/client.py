@@ -228,13 +228,17 @@ class Client:
             payloads: list[TlBodyData | BaseStructure] | list[TypedStructure[typing.Any]],
             force_init_connection: bool = False,
             serialized_payloads: list[Value] | None = None,
-            timeout_seconds: int | None = None
+            timeout_seconds: int | None = None,
+            ordered_server_side_processing: bool | None = None,
     ) -> list[StructureValue | BaseException]:
         if not payloads:
             return []
 
         if timeout_seconds is None:
             timeout_seconds = self._default_timeout_seconds
+
+        if ordered_server_side_processing is None:
+            ordered_server_side_processing = False
 
         payloads_as_body_data: list[TlBodyData] = list(
             p.as_tl_body_data() if isinstance(p, BaseStructure) else p
@@ -272,7 +276,7 @@ class Client:
             pending_requests.append(pending_request)
 
         await self._start_mtproto_loop_if_needed()
-        await self._rpc_call(PendingContainerRequest(pending_requests))
+        await self._rpc_call(PendingContainerRequest(pending_requests, ordered_processing=ordered_server_side_processing))
 
         await asyncio.wait((request.response for request in pending_requests), return_when=asyncio.ALL_COMPLETED)
 
@@ -341,6 +345,15 @@ class Client:
     async def _rpc_call(self, request: PendingRequest | PendingContainerRequest) -> None:
         self._ensure_mtproto_loop()
         await self._write_queue.put(request)
+
+    @staticmethod
+    def _wrap_into_invoke_after_msg_ids(message: TlBodyData | Value, invoke_after_msg_ids: list[int]) -> TlBodyData:
+        if len(invoke_after_msg_ids) == 1:
+            message = dict(_cons="invokeAfterMsg", _wrapped=message, msg_id=invoke_after_msg_ids[0])
+        else:
+            message = dict(_cons="invokeAfterMsgs", _wrapped=message, msg_ids=invoke_after_msg_ids)
+
+        return message
 
     def _wrap_into_init_connection(self, message: TlBodyData | Value) -> TlBodyData:
         layer = self._datacenter.schema.layer
@@ -530,11 +543,15 @@ class Client:
             elif used_key is not persistent_key:
                 raise RuntimeError(f"used key ({id(used_key)}) is not equal to persistent key {id(persistent_key)} and pfs is disabled")
 
-    async def _prepare_outbound_message(self, message: PendingRequest, mtproto: MTProto) -> tuple[Value, int]:
+    async def _prepare_outbound_message(self, message: PendingRequest, mtproto: MTProto, invoke_after_msg_ids: list[int] | None = None) -> tuple[Value, int]:
         message.retries += 1
+
 
         if message.response.done():
             raise RuntimeError(f"Message `{message!r}` already completed")
+
+        if not message.allow_container and invoke_after_msg_ids:
+            raise TypeError(f"Message `{message!r}` allow_container=false but invoke_after_msg_ids is set")
 
         if last_message_id := message.last_message_id:
             self._pending_requests.pop(last_message_id, None)
@@ -559,6 +576,9 @@ class Client:
         if init_connection_required:
             request_body = self._wrap_into_init_connection(request_body)
 
+        if invoke_after_msg_ids:
+            request_body = self._wrap_into_invoke_after_msg_ids(request_body, invoke_after_msg_ids)
+
         payload, message_id = await self._in_thread(lambda: mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
 
         message.last_message_id = message_id
@@ -581,20 +601,28 @@ class Client:
         logging.debug("writing message %d (%s)", message_id, extract_cons_from_tl_body_opt(message.request))
         await mtproto.write_encrypted(payload, self._used_session_key)
 
-    async def _process_outbound_container_message(self, message: PendingContainerRequest, mtproto: MTProto) -> None:
-        if last_message_id := message.last_message_id:
+    async def _process_outbound_container_message(self, container: PendingContainerRequest, mtproto: MTProto) -> None:
+        if last_message_id := container.last_message_id:
             self._pending_requests.pop(last_message_id, None)
 
-        pending_requests = [request for request in message.requests if not request.response.done()]
+        pending_requests = [request for request in container.requests if not request.response.done()]
 
         if not pending_requests:
             return
 
         payloads: list[Value] = []
+        payload_last_msg_id: int | None = None
 
         for request in pending_requests:
-            payload, _ = await self._prepare_outbound_message(request, mtproto)
+            invoke_after_msg_ids = None
+
+            if container.ordered_processing and payload_last_msg_id is not None:
+                invoke_after_msg_ids = [payload_last_msg_id]
+
+            payload, msg_id = await self._prepare_outbound_message(request, mtproto, invoke_after_msg_ids=invoke_after_msg_ids)
+
             payloads.append(payload)
+            payload_last_msg_id = msg_id
 
         container_body, container_message_id = mtproto.prepare_message_for_write(
             seq_no=self._used_session_key.get_next_even_seqno(),
@@ -607,9 +635,9 @@ class Client:
         for request in pending_requests:
             request.container_message_id = container_message_id
 
-        message.last_message_id = container_message_id
+        container.last_message_id = container_message_id
 
-        self._pending_requests[container_message_id] = message
+        self._pending_requests[container_message_id] = container
 
         logging.debug("writing container message %d", container_message_id)
 

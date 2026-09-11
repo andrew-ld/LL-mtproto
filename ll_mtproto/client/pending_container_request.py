@@ -15,10 +15,11 @@ from ll_mtproto.client.pending_request import PendingRequest
 
 
 class PendingContainerRequest:
-    __slots__ = ("requests", "last_message_id")
+    __slots__ = ("requests", "last_message_id", "ordered_processing")
 
     requests: list[PendingRequest]
     last_message_id: int | None
+    ordered_processing: bool
 
     @staticmethod
     def _validate_request(request: PendingRequest) -> None:
@@ -28,11 +29,12 @@ class PendingContainerRequest:
         if not request.expect_answer:
             raise TypeError(f"Pending request `{request!r}` dont expect an answer.")
 
-    def __init__(self, requests: list[PendingRequest], last_message_id: int | None = None) -> None:
+    def __init__(self, requests: list[PendingRequest], ordered_processing: bool, last_message_id: int | None = None) -> None:
         for request in requests:
             self._validate_request(request)
         self.requests = requests
         self.last_message_id = last_message_id
+        self.ordered_processing = ordered_processing
 
     def finalize(self) -> None:
         for request in self.requests:
