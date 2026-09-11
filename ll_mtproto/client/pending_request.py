@@ -37,7 +37,8 @@ class PendingRequest:
         "init_connection_wrapped",
         "last_message_id",
         "container_message_id",
-        "timeout_seconds"
+        "timeout_seconds",
+        "invoke_after_requests"
     )
 
     response: asyncio.Future[StructureValue]
@@ -53,6 +54,7 @@ class PendingRequest:
     last_message_id: int | None
     container_message_id: int | None
     timeout_seconds: int | None
+    invoke_after_requests: list[PendingRequest] | None
 
     def __init__(
             self,
@@ -66,7 +68,8 @@ class PendingRequest:
             serialized_payload: Value | None = None,
             previous_message_id: int | None = None,
             container_message_id: int | None = None,
-            timeout_seconds: int | None = None
+            timeout_seconds: int | None = None,
+            invoke_after_requests: list[PendingRequest] | None = None,
     ):
         self.response = response
         self.cleaner = None
@@ -80,6 +83,7 @@ class PendingRequest:
         self.last_message_id = previous_message_id
         self.container_message_id = container_message_id
         self.timeout_seconds = timeout_seconds
+        self.invoke_after_requests = invoke_after_requests
 
         if isinstance(message, TypedStructure):
             self.request = message.as_tl_body_data()
