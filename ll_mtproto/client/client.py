@@ -132,7 +132,7 @@ class Client:
     _transport_link_factory: TransportLinkFactory
     _default_timeout_seconds: int
     _on_server_side_error_retries: int
-    _write_queue_wakeup_delay_seconds: int | None
+    _write_queue_wakeup_delay_seconds: int | float | None
 
     def __init__(
             self,
@@ -147,7 +147,7 @@ class Client:
             error_description_resolver: BaseErrorDescriptionResolver | None = None,
             default_timeout_seconds: int = 120,
             on_server_side_error_retries: int = 5,
-            write_queue_wakeup_delay_seconds: int | None = 0.05
+            write_queue_wakeup_delay_seconds: int | float | None = 0.05
     ):
         self._datacenter = datacenter
         self._connection_info = connection_info
