@@ -682,16 +682,15 @@ class Client:
                     items.append(item)
 
             if msg_ids_to_ack:
-                items.append(
-                    PendingRequest(
-                        response=self._loop.create_future(),
-                        message=MsgsAck(msg_ids=list(msg_ids_to_ack)),
-                        seq_no_func=self._used_session_key.get_next_even_seqno,
-                        allow_container=False,
-                        expect_answer=False,
-                        serialized_payload=None,
-                    )
+                pending_ack_request = PendingRequest(
+                    response=self._loop.create_future(),
+                    message=MsgsAck(msg_ids=list(msg_ids_to_ack)),
+                    seq_no_func=self._used_session_key.get_next_even_seqno,
+                    allow_container=False,
+                    expect_answer=False,
+                    serialized_payload=None,
                 )
+                items.insert(0, pending_ack_request)
 
             batch: list[PendingRequest] = []
 
