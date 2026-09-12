@@ -757,6 +757,10 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
     def _unpack_boolean(buf: bytes) -> bool:
         return buf == _boolTrueConsNumber
 
+    @staticmethod
+    def _unpack_noop(buf: bytes) -> bytes:
+        return buf
+
     @classmethod
     def _generate_method(cls, parameter: Parameter) -> tuple[typing.Callable[[bytes], "TlBodyDataValue"], int]:
         match parameter.type:
@@ -776,13 +780,13 @@ class FixedSizePrimitiveFastPathDeserialization(AbstractSpecializedDeserializati
                 return cls._unpack_double, 8
 
             case "int128":
-                return operator.itemgetter(0), 16
+                return cls._unpack_noop, 16
 
             case "sha1":
-                return operator.itemgetter(0), 20
+                return cls._unpack_noop, 20
 
             case "int256":
-                return operator.itemgetter(0), 32
+                return cls._unpack_noop, 32
 
             case "Bool":
                 return cls._unpack_boolean, 4
