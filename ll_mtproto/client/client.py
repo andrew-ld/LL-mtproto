@@ -664,10 +664,13 @@ class Client:
         while True:
             if self._write_queue_wakeup_delay_seconds and self._write_queue.empty():
                 await asyncio.sleep(self._write_queue_wakeup_delay_seconds)
+            else:
+                await asyncio.sleep(0)
 
             raw_items = [await self._write_queue.get()]
             while not self._write_queue.empty():
                 raw_items.append(self._write_queue.get_nowait())
+                await asyncio.sleep(0)
 
             msg_ids_to_ack: set[int] = set()
             items: list[PendingRequest | PendingContainerRequest] = []
