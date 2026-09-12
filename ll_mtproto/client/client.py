@@ -21,6 +21,7 @@ import typing
 from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.client.error_description_resolver.base_error_description_resolver import BaseErrorDescriptionResolver
 from ll_mtproto.client.pending_container_request import PendingContainerRequest
+from ll_mtproto.client.pending_msgs_ack import PendingMsgsAck
 from ll_mtproto.client.pending_request import PendingRequest
 from ll_mtproto.client.rpc_error import RpcErrorException
 from ll_mtproto.crypto.auth_key import AuthKey, Key, AuthKeyUpdatedCallback
@@ -119,7 +120,7 @@ class Client:
     _auth_key_lock: asyncio.Lock
     _use_perfect_forward_secrecy: bool
     _blocking_executor: concurrent.futures.Executor
-    _write_queue: asyncio.Queue[PendingRequest | PendingContainerRequest]
+    _write_queue: asyncio.Queue[PendingRequest | PendingContainerRequest | PendingMsgsAck]
     _used_session_key: Key
     _used_persistent_key: Key
     _rpc_error_constructor: TypedSchemaConstructor[RpcError]
@@ -349,7 +350,7 @@ class Client:
 
         return await pending_request.response
 
-    async def _rpc_call(self, request: PendingRequest | PendingContainerRequest) -> None:
+    async def _rpc_call(self, request: PendingRequest | PendingContainerRequest | PendingMsgsAck) -> None:
         self._ensure_mtproto_loop()
         await self._write_queue.put(request)
 
@@ -647,19 +648,59 @@ class Client:
 
         await mtproto.write_encrypted(container_body, self._used_session_key)
 
+    async def _write_batched_requests(self, batched_requests: list[PendingRequest], mtproto: MTProto) -> None:
+        if len(batched_requests) == 1:
+            await self._process_outbound_message(batched_requests[0], mtproto)
+        else:
+            await self._process_outbound_container_message(PendingContainerRequest(batched_requests), mtproto)
+
     async def _mtproto_write_loop(self, mtproto: MTProto) -> None:
         while True:
-            request = await self._write_queue.get()
+            raw_items = [await self._write_queue.get()]
+            while not self._write_queue.empty():
+                raw_items.append(self._write_queue.get_nowait())
 
-            match request:
-                case PendingRequest():
-                    await self._process_outbound_message(request, mtproto)
+            msg_ids_to_ack: set[int] = set()
+            items: list[PendingRequest | PendingContainerRequest] = []
 
-                case PendingContainerRequest():
-                    await self._process_outbound_container_message(request, mtproto)
+            for item in raw_items:
+                if isinstance(item, PendingMsgsAck):
+                    msg_ids_to_ack.update(item.msg_ids)
+                else:
+                    items.append(item)
 
-                case _:
-                    raise TypeError(fr"Unexpected object in write queue `{request!r}`")
+            if msg_ids_to_ack:
+                items.append(
+                    PendingRequest(
+                        response=self._loop.create_future(),
+                        message=MsgsAck(msg_ids=list(msg_ids_to_ack)),
+                        seq_no_func=self._used_session_key.get_next_even_seqno,
+                        allow_container=False,
+                        expect_answer=False,
+                        serialized_payload=None,
+                    )
+                )
+
+            batch: list[PendingRequest] = []
+
+            for item in items:
+                if isinstance(item, PendingRequest) and item.allow_container:
+                    batch.append(item)
+                    continue
+
+                if batch:
+                    await self._write_batched_requests(batch, mtproto)
+                    batch = []
+
+                if isinstance(item, PendingRequest):
+                    await self._process_outbound_message(item, mtproto)
+                elif isinstance(item, PendingContainerRequest):
+                    await self._process_outbound_container_message(item, mtproto)
+                else:
+                    raise TypeError(f"Unexpected object in write queue `{item!r}`")
+
+            if batch:
+                await self._write_batched_requests(batch, mtproto)
 
     async def _mtproto_read_loop(self, mtproto: MTProto) -> None:
         while True:
@@ -829,17 +870,8 @@ class Client:
         if not self._msgids_to_ack or not self._used_session_key.session.stable_seqno:
             return
 
-        message: TlBodyData = dict(_cons="msgs_ack", msg_ids=self._msgids_to_ack.copy())
+        request = PendingMsgsAck(self._msgids_to_ack.copy())
         self._msgids_to_ack.clear()
-
-        request = PendingRequest(
-            response=self._loop.create_future(),
-            message=message,
-            seq_no_func=self._used_session_key.get_next_even_seqno,
-            allow_container=False,
-            expect_answer=False,
-            serialized_payload=None
-        )
 
         await self._rpc_call(request)
 
@@ -987,6 +1019,10 @@ class Client:
                 logging.debug("rpc_error with 5xx status `%r` for request %d", result, body.req_msg_id)
                 await self._rpc_call(pending_request)
 
+            elif result.error_message == "MSG_WAIT_TIMEOUT":
+                logging.debug("rpc_error with MSG_WAIT_TIMEOUT status `%r` for request %d", result, body.req_msg_id)
+                await self._rpc_call(pending_request)
+
             else:
                 self._finalize_response_throw_rpc_error(result.error_message, error_code, pending_request)
         else:
@@ -1028,7 +1064,10 @@ class Client:
             mtproto_loop.cancel()
 
         while not self._write_queue.empty():
-            self._write_queue.get_nowait().finalize()
+            item = self._write_queue.get_nowait()
+
+            if isinstance(item, (PendingRequest, PendingContainerRequest)):
+                item.finalize()
 
         self._mtproto_loop_task = None
 
