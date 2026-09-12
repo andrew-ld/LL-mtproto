@@ -649,6 +649,8 @@ class Client:
         await mtproto.write_encrypted(container_body, self._used_session_key)
 
     async def _write_batched_requests(self, batched_requests: list[PendingRequest], mtproto: MTProto) -> None:
+        if not batched_requests:
+            return
         if len(batched_requests) == 1:
             await self._process_outbound_message(batched_requests[0], mtproto)
         else:
