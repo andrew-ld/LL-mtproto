@@ -101,7 +101,8 @@ class Client:
         "_transport_link_factory",
         "_blocking_executor",
         "_default_timeout_seconds",
-        "_on_server_side_error_retries"
+        "_on_server_side_error_retries",
+        "_write_queue_wakeup_delay_seconds"
     )
 
     _mtproto: MTProto | None
@@ -131,6 +132,7 @@ class Client:
     _transport_link_factory: TransportLinkFactory
     _default_timeout_seconds: int
     _on_server_side_error_retries: int
+    _write_queue_wakeup_delay_seconds: int | None
 
     def __init__(
             self,
@@ -145,6 +147,7 @@ class Client:
             error_description_resolver: BaseErrorDescriptionResolver | None = None,
             default_timeout_seconds: int = 120,
             on_server_side_error_retries: int = 5,
+            write_queue_wakeup_delay_seconds: int | None = 0.05
     ):
         self._datacenter = datacenter
         self._connection_info = connection_info
@@ -156,6 +159,7 @@ class Client:
         self._blocking_executor = blocking_executor
         self._default_timeout_seconds = default_timeout_seconds
         self._on_server_side_error_retries = on_server_side_error_retries
+        self._write_queue_wakeup_delay_seconds = write_queue_wakeup_delay_seconds
 
         self._in_thread = ClientInThread(blocking_executor)
         self._rpc_error_constructor = TypedSchemaConstructor(datacenter.schema, RpcError)
@@ -658,6 +662,9 @@ class Client:
 
     async def _mtproto_write_loop(self, mtproto: MTProto) -> None:
         while True:
+            if self._write_queue_wakeup_delay_seconds and self._write_queue.empty():
+                await asyncio.sleep(self._write_queue_wakeup_delay_seconds)
+
             raw_items = [await self._write_queue.get()]
             while not self._write_queue.empty():
                 raw_items.append(self._write_queue.get_nowait())
