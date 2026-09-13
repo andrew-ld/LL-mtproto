@@ -17,10 +17,23 @@ import gzip
 import random
 import re
 import secrets
-import struct
 import sys
 import typing
 import zlib
+
+from librt.strings import (
+    BytesWriter,
+    read_f64_le,
+    read_i32_le,
+    read_i64_le,
+    write_f64_le,
+    write_i32_le,
+    write_i64_le,
+)
+from librt.vecs import vec
+
+if typing.TYPE_CHECKING:
+    from mypy_extensions import i64
 
 __all__ = (
     "Schema",
@@ -30,16 +43,11 @@ __all__ = (
     "TlBodyDataValue",
     "pack_binary_string",
     "ByteReader",
-    "Flags",
     "TlPrimitiveValue",
     "Value",
     "extract_cons_from_tl_body",
     "extract_cons_from_tl_body_opt"
 )
-
-_i64_unpack_from: typing.Final = struct.Struct(b"<q").unpack_from
-_u64_unpack_from: typing.Final = struct.Struct(b"<Q").unpack_from
-_f64_unpack_from: typing.Final = struct.Struct(b"<d").unpack_from
 
 _zlib_decompress: typing.Final = zlib.decompress
 _zlib_max_wbits: typing.Final = 16 + zlib.MAX_WBITS
@@ -47,8 +55,8 @@ _gzip_compress: typing.Final = gzip.compress
 _randbits: typing.Final = secrets.randbits
 _randbytes: typing.Final = random.randbytes
 
-# Above this high word a 64 bit value no longer fits mypyc unboxed integers.
-_MAX_UNBOXED_HIGH_WORD: typing.Final = 0x40000000
+_U32_RANGE: typing.Final = 0x100000000
+_U64_RANGE: typing.Final = 0x10000000000000000
 
 
 class ByteReader:
@@ -89,52 +97,37 @@ class ByteReader:
     def read_i32(self) -> int:
         offset = self.offset
         self.offset = offset + 4
-        b = self.buffer
-        value = b[offset] | (b[offset + 1] << 8) | (b[offset + 2] << 16) | (b[offset + 3] << 24)
-
-        if value >= 0x80000000:
-            value -= 0x100000000
-
-        return value
+        return read_i32_le(self.buffer, offset)
 
     def read_u32(self) -> int:
         offset = self.offset
         self.offset = offset + 4
-        b = self.buffer
+        value: int = read_i32_le(self.buffer, offset)
 
-        return b[offset] | (b[offset + 1] << 8) | (b[offset + 2] << 16) | (b[offset + 3] << 24)
+        if value < 0:
+            value += _U32_RANGE
+
+        return value
 
     def read_i64(self) -> int:
         offset = self.offset
         self.offset = offset + 8
-        b = self.buffer
-        hi = b[offset + 4] | (b[offset + 5] << 8) | (b[offset + 6] << 16) | (b[offset + 7] << 24)
-
-        if hi < _MAX_UNBOXED_HIGH_WORD:
-            lo = b[offset] | (b[offset + 1] << 8) | (b[offset + 2] << 16) | (b[offset + 3] << 24)
-            return lo | (hi << 32)
-
-        value: int = _i64_unpack_from(b, offset)[0]
-        return value
+        return read_i64_le(self.buffer, offset)
 
     def read_u64(self) -> int:
         offset = self.offset
         self.offset = offset + 8
-        b = self.buffer
-        hi = b[offset + 4] | (b[offset + 5] << 8) | (b[offset + 6] << 16) | (b[offset + 7] << 24)
+        value: int = read_i64_le(self.buffer, offset)
 
-        if hi < _MAX_UNBOXED_HIGH_WORD:
-            lo = b[offset] | (b[offset + 1] << 8) | (b[offset + 2] << 16) | (b[offset + 3] << 24)
-            return lo | (hi << 32)
+        if value < 0:
+            value += _U64_RANGE
 
-        value: int = _u64_unpack_from(b, offset)[0]
         return value
 
     def read_f64(self) -> float:
         offset = self.offset
         self.offset = offset + 8
-        value: float = _f64_unpack_from(self.buffer, offset)[0]
-        return value
+        return read_f64_le(self.buffer, offset)
 
     def read_binary_string_zlib(self) -> bytes:
         return _zlib_decompress(self.read_binary_string(), _zlib_max_wbits)
@@ -149,7 +142,11 @@ class ByteReader:
             raise RuntimeError("Length equal to 255 in string")
 
         elif str_len == 0xFE:
-            str_len = int.from_bytes(buffer[offset:offset + 3], "little", signed=False)
+            if offset + 4 <= len(buffer):
+                str_len = read_i32_le(buffer, offset) & 0xFFFFFF
+            else:
+                str_len = int.from_bytes(buffer[offset:offset + 3], "little", signed=False)
+
             offset += 3
             padding_len = (-str_len) % 4
 
@@ -168,39 +165,19 @@ def _compile_cons_number(definition: bytes) -> bytes:
 
 _bool_true_cons_number: typing.Final = _compile_cons_number(b"boolTrue = Bool")
 _bool_false_cons_number: typing.Final = _compile_cons_number(b"boolFalse = Bool")
-_bool_true_cons_number_int: typing.Final = int.from_bytes(_bool_true_cons_number, "little", signed=False)
+_bool_true_cons_number_int: typing.Final = read_i32_le(_bool_true_cons_number, 0)
 _vector_cons_number: typing.Final = _compile_cons_number(b"vector t:Type # [ t ] = Vector t")
-_vector_cons_number_int: typing.Final = int.from_bytes(_vector_cons_number, "little", signed=False)
+_vector_cons_number_int: typing.Final = read_i32_le(_vector_cons_number, 0)
 
-_pack_double: typing.Final = struct.Struct(b"<d").pack
 _zero_padding: typing.Final = (b"", b"\x00", b"\x00\x00", b"\x00\x00\x00")
 
 _NO_FLAG_SLOTS: typing.Final[list[tuple[int, int]]] = []
 
 
-def _pack_long_binary_string(data: bytes) -> bytes:
-    return len(data).to_bytes(4, "little", signed=False) + data
-
-
-def _pack_long_binary_string_padded(data: bytes) -> bytes:
-    padding_len = -len(data) & 15
-    padding_len += 16 * (_randbits(64) % 16)
-    padding = _randbytes(padding_len)
-    header = (len(data) + len(padding)).to_bytes(4, "little", signed=False)
-    return header + data + padding
-
-
 def pack_binary_string(data: bytes) -> bytes:
-    length = len(data)
-
-    if length < 254:
-        return length.to_bytes(1, "little", signed=False) + data + _zero_padding[(3 - length) % 4]
-
-    elif length <= 0xFFFFFF:
-        return b"\xfe" + length.to_bytes(3, "little", signed=False) + data + _zero_padding[(-length) % 4]
-
-    else:
-        raise OverflowError("String too long")
+    writer = BytesWriter()
+    _write_binary_string(writer, data)
+    return writer.getvalue()
 
 
 def _deserialize_true(_reader: ByteReader) -> "TlBodyDataValue":
@@ -208,7 +185,7 @@ def _deserialize_true(_reader: ByteReader) -> "TlBodyDataValue":
 
 
 def _deserialize_bool(reader: ByteReader) -> "TlBodyDataValue":
-    return reader.read_u32() == _bool_true_cons_number_int
+    return reader.read_i32() == _bool_true_cons_number_int
 
 
 def _deserialize_int(reader: ByteReader) -> "TlBodyDataValue":
@@ -272,140 +249,180 @@ _primitive_deserializers: typing.Final[dict[str, typing.Callable[[ByteReader], "
 }
 
 
-def _serialize_true(argument: "TlBodyDataValue") -> bytes:
+def _write_true(_writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if argument is True:
-        return b""
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `true`")
 
 
-def _serialize_bool(argument: "TlBodyDataValue") -> bytes:
+def _write_bool(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if argument is True:
-        return _bool_true_cons_number
+        writer.write(_bool_true_cons_number)
+        return
 
     if argument is False:
-        return _bool_false_cons_number
+        writer.write(_bool_false_cons_number)
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `Bool`")
 
 
-def _serialize_int(argument: "TlBodyDataValue") -> bytes:
+def _write_int(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, int) and not isinstance(argument, bool):
-        return argument.to_bytes(4, "little", signed=True)
+        write_i32_le(writer, argument)
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `int`")
 
 
-def _serialize_uint(argument: "TlBodyDataValue") -> bytes:
+def _write_uint(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, int) and not isinstance(argument, bool):
-        return argument.to_bytes(4, "little", signed=False)
+        writer.write(argument.to_bytes(4, "little", signed=False))
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `uint`")
 
 
-def _serialize_long(argument: "TlBodyDataValue") -> bytes:
+def _write_long(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, int) and not isinstance(argument, bool):
-        return argument.to_bytes(8, "little", signed=True)
+        write_i64_le(writer, argument)
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `long`")
 
 
-def _serialize_ulong(argument: "TlBodyDataValue") -> bytes:
+def _write_ulong(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, int) and not isinstance(argument, bool):
-        return argument.to_bytes(8, "little", signed=False)
+        writer.write(argument.to_bytes(8, "little", signed=False))
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `ulong`")
 
 
-def _serialize_double(argument: "TlBodyDataValue") -> bytes:
+def _write_double(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, bool):
         raise TypeError(f"Cannot serialize python {argument!r} as `double`")
 
     if isinstance(argument, int):
-        return _pack_double(float(argument))
+        write_f64_le(writer, float(argument))
+        return
 
     if isinstance(argument, float):
-        return _pack_double(argument)
+        write_f64_le(writer, argument)
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `double`")
 
 
-def _serialize_int128(argument: "TlBodyDataValue") -> bytes:
+def _write_int128(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, bool):
         raise TypeError(f"Cannot serialize python {argument!r} as `int128`")
 
     if isinstance(argument, int):
-        return argument.to_bytes(16, "little", signed=True)
+        writer.write(argument.to_bytes(16, "little", signed=True))
+        return
 
     if isinstance(argument, bytes):
         if len(argument) != 16:
             raise TypeError("int128 bytes must be 16 bytes long")
 
-        return argument
+        writer.write(argument)
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `int128`")
 
 
-def _serialize_sha1(argument: "TlBodyDataValue") -> bytes:
+def _write_sha1(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, bytes):
         if len(argument) != 20:
             raise TypeError("sha1 bytes must be 20 bytes long")
 
-        return argument
+        writer.write(argument)
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `sha1`")
 
 
-def _serialize_int256(argument: "TlBodyDataValue") -> bytes:
+def _write_int256(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, bool):
         raise TypeError(f"Cannot serialize python {argument!r} as `int256`")
 
     if isinstance(argument, int):
-        return argument.to_bytes(32, "little", signed=True)
+        writer.write(argument.to_bytes(32, "little", signed=True))
+        return
 
     if isinstance(argument, bytes):
         if len(argument) != 32:
             raise TypeError("int256 bytes must be 32 bytes long")
 
-        return argument
+        writer.write(argument)
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `int256`")
 
 
-def _serialize_binary_string(argument: "TlBodyDataValue") -> bytes:
+def _write_binary_string(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, bytes):
-        return pack_binary_string(argument)
+        length = len(argument)
+
+        if length < 254:
+            writer.append(length)
+            writer.write(argument)
+            writer.write(_zero_padding[(3 - length) % 4])
+            return
+
+        if length <= 0xFFFFFF:
+            writer.append(0xFE)
+            writer.write(length.to_bytes(3, "little", signed=False))
+            writer.write(argument)
+            writer.write(_zero_padding[(-length) % 4])
+            return
+
+        raise OverflowError("String too long")
 
     raise TypeError(f"Cannot serialize python {argument!r} as `string`/`bytes`")
 
 
-def _serialize_rawobject(argument: "TlBodyDataValue") -> bytes:
+def _write_rawobject(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, bytes):
-        return argument
+        writer.write(argument)
+        return
 
     if isinstance(argument, Value):
-        return argument.get_flat_bytes()
+        writer.write(argument.get_flat_bytes())
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `rawobject`")
 
 
-def _serialize_plain_object(argument: "TlBodyDataValue") -> bytes:
+def _write_plain_object(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, Value):
-        return _pack_long_binary_string(argument.get_flat_bytes())
+        data = argument.get_flat_bytes()
+        write_i32_le(writer, len(data))
+        writer.write(data)
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `PlainObject`")
 
 
-def _serialize_padded_object(argument: "TlBodyDataValue") -> bytes:
+def _write_padded_object(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, Value):
-        return _pack_long_binary_string_padded(argument.get_flat_bytes())
+        data = argument.get_flat_bytes()
+        padding_len = -len(data) & 15
+        padding_len += 16 * (_randbits(64) % 16)
+        write_i32_le(writer, len(data) + padding_len)
+        writer.write(data)
+        writer.write(_randbytes(padding_len))
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `PaddedObject`")
 
 
-def _serialize_gzip(argument: "TlBodyDataValue") -> bytes:
+def _write_gzip(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if isinstance(argument, Value):
-        return pack_binary_string(_gzip_compress(argument.get_flat_bytes()))
+        writer.write(pack_binary_string(_gzip_compress(argument.get_flat_bytes())))
+        return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `gzip`")
 
@@ -447,51 +464,66 @@ _serialize_kinds: typing.Final[dict[str, int]] = {
 }
 
 
-def _serialize_primitive(kind: int, argument: "TlBodyDataValue") -> bytes:
+def _write_primitive(writer: BytesWriter, kind: int, argument: "TlBodyDataValue") -> None:
     if kind == _KIND_INT:
-        return _serialize_int(argument)
+        _write_int(writer, argument)
+        return
 
     if kind == _KIND_LONG:
-        return _serialize_long(argument)
+        _write_long(writer, argument)
+        return
 
     if kind == _KIND_STRING:
-        return _serialize_binary_string(argument)
+        _write_binary_string(writer, argument)
+        return
 
     if kind == _KIND_TRUE:
-        return _serialize_true(argument)
+        _write_true(writer, argument)
+        return
 
     if kind == _KIND_UINT:
-        return _serialize_uint(argument)
+        _write_uint(writer, argument)
+        return
 
     if kind == _KIND_ULONG:
-        return _serialize_ulong(argument)
+        _write_ulong(writer, argument)
+        return
 
     if kind == _KIND_DOUBLE:
-        return _serialize_double(argument)
+        _write_double(writer, argument)
+        return
 
     if kind == _KIND_BOOL:
-        return _serialize_bool(argument)
+        _write_bool(writer, argument)
+        return
 
     if kind == _KIND_INT128:
-        return _serialize_int128(argument)
+        _write_int128(writer, argument)
+        return
 
     if kind == _KIND_INT256:
-        return _serialize_int256(argument)
+        _write_int256(writer, argument)
+        return
 
     if kind == _KIND_SHA1:
-        return _serialize_sha1(argument)
+        _write_sha1(writer, argument)
+        return
 
     if kind == _KIND_RAWOBJECT:
-        return _serialize_rawobject(argument)
+        _write_rawobject(writer, argument)
+        return
 
     if kind == _KIND_PLAIN_OBJECT:
-        return _serialize_plain_object(argument)
+        _write_plain_object(writer, argument)
+        return
 
     if kind == _KIND_PADDED_OBJECT:
-        return _serialize_padded_object(argument)
+        _write_padded_object(writer, argument)
+        return
 
     if kind == _KIND_GZIP:
-        return _serialize_gzip(argument)
+        _write_gzip(writer, argument)
+        return
 
     raise TypeError(f"Unknown primitive kind {kind} for {argument!r}")
 
@@ -556,100 +588,121 @@ _ptype_RE: typing.Final[re.Pattern[str]] = re.compile(
     r"^(?P<is_vector>Vector<(?P<vector_element_type>[a-zA-Z\d._]*)>$)?(?P<element_type>[a-zA-Z\d._]*$)?"
 )
 
-_CONS_TABLE_EMPTY: typing.Final[int] = -1
+# Keys are signed 32-bit values, so 2**32 can never collide with a real key.
+_IntKeyDict_EMPTY_SLOT: typing.Final[int] = 0x100000000
 
 
-class Schema:
-    __slots__ = (
-        "constructors",
-        "types",
-        "cons_numbers",
-        "layer",
-        "_cons_ids",
-        "_cons_keys",
-        "_cons_slots",
-        "_cons_mask",
-    )
+class IntKeyDict:
+    """Insert-only open addressing map from a signed 32-bit ``int`` to ``int``.
+    Keys are mixed with a cheap xorshift and probed in librt ``vec[i64]``
+    tables, so lookups stay on native integers instead of boxed ones.
+    """
 
-    constructors: typing.Final[dict[str, "Constructor"]]
-    types: typing.Final[dict[str, set["Constructor"]]]
-    cons_numbers: typing.Final[dict[int, "Constructor"]]
-    layer: int | None
-    _cons_ids: list["Constructor"]
-    _cons_keys: list[int]
-    _cons_slots: list[int]
-    _cons_mask: int
+    __slots__ = ("_keys", "_values", "_mask", "_size")
+
+    _keys: "vec[i64]"
+    _values: "vec[i64]"
+    _mask: int
+    _size: int
 
     def __init__(self) -> None:
-        self.constructors = dict()
-        self.types = dict()
-        self.cons_numbers = dict()
-        self.layer = None
-        self._cons_ids = []
-        self._cons_keys = [_CONS_TABLE_EMPTY] * 8
-        self._cons_slots = [0] * 8
-        self._cons_mask = 7
+        self._keys = vec[i64]([_IntKeyDict_EMPTY_SLOT] * 8)
+        self._values = vec[i64]([0] * 8)
+        self._mask = 7
+        self._size = 0
 
-    @staticmethod
-    def _place_cons_number(keys: list[int], slots: list[int], mask: int, number: int, cons_id: int) -> None:
-        index = (number ^ (number >> 16)) & mask
+    def __len__(self) -> int:
+        return self._size
 
-        while keys[index] != _CONS_TABLE_EMPTY:
-            if keys[index] == number:
-                slots[index] = cons_id
-                return
+    def get(self, key: int) -> "i64":
+        """Return the value stored for ``key``, or ``-1`` when it is absent."""
+        keys = self._keys
+        values = self._values
+        mask = self._mask
+        index = (key ^ (key >> 16)) & mask
+
+        while True:
+            stored = keys[index]
+
+            if stored == key:
+                return values[index]
+
+            if stored == _IntKeyDict_EMPTY_SLOT:
+                return -1
 
             index = (index + 1) & mask
 
-        keys[index] = number
-        slots[index] = cons_id
+    def __setitem__(self, key: int, value: int) -> None:
+        if (self._size + 1) * 2 > len(self._keys):
+            self._resize(self._size + 1)
 
-    def _index_cons_number(self, number: int, cons: "Constructor") -> None:
-        self.cons_numbers[number] = cons
-        cons_id = len(self._cons_ids)
-        self._cons_ids.append(cons)
+        if self._place(self._keys, self._values, self._mask, key, value):
+            self._size += 1
 
-        if (cons_id + 1) * 2 > len(self._cons_keys):
-            self._rebuild_cons_lookup(cons_id + 1)
-            return
+    @staticmethod
+    def _place(keys: "vec[i64]", values: "vec[i64]", mask: int, key: int, value: int) -> bool:
+        index = (key ^ (key >> 16)) & mask
 
-        self._place_cons_number(self._cons_keys, self._cons_slots, self._cons_mask, number, cons_id)
+        while keys[index] != _IntKeyDict_EMPTY_SLOT:
+            if keys[index] == key:
+                values[index] = value
+                return False
 
-    def _rebuild_cons_lookup(self, min_entries: int) -> None:
+            index = (index + 1) & mask
+
+        keys[index] = key
+        values[index] = value
+        return True
+
+    def _resize(self, min_entries: int) -> None:
         size = 8
 
         while size < min_entries * 2:
             size <<= 1
 
         mask = size - 1
-        keys = [_CONS_TABLE_EMPTY] * size
-        slots = [0] * size
+        keys = vec[i64]([_IntKeyDict_EMPTY_SLOT] * size)
+        values = vec[i64]([0] * size)
+        old_keys = self._keys
+        old_values = self._values
 
-        for cons_id, cons in enumerate(self._cons_ids):
-            number = cons.number_int
+        for index in range(len(old_keys)):
+            key = old_keys[index]
 
-            if number is not None:
-                self._place_cons_number(keys, slots, mask, number, cons_id)
+            if key != _IntKeyDict_EMPTY_SLOT:
+                self._place(keys, values, mask, key, old_values[index])
 
-        self._cons_keys = keys
-        self._cons_slots = slots
-        self._cons_mask = mask
+        self._keys = keys
+        self._values = values
+        self._mask = mask
 
-    def lookup_cons_number(self, number: int) -> "Constructor | None":
-        keys = self._cons_keys
-        mask = self._cons_mask
-        index = (number ^ (number >> 16)) & mask
 
-        while True:
-            key = keys[index]
+class Schema:
+    __slots__ = (
+        "constructors",
+        "types",
+        "layer",
+        "_cons_ids",
+        "_cons_lookup",
+    )
 
-            if key == number:
-                return self._cons_ids[self._cons_slots[index]]
+    constructors: typing.Final[dict[str, "Constructor"]]
+    types: typing.Final[dict[str, set["Constructor"]]]
+    layer: int | None
+    _cons_ids: list["Constructor"]
+    _cons_lookup: IntKeyDict
 
-            if key == _CONS_TABLE_EMPTY:
-                return None
+    def __init__(self) -> None:
+        self.constructors = dict()
+        self.types = dict()
+        self.layer = None
+        self._cons_ids = []
+        self._cons_lookup = IntKeyDict()
 
-            index = (index + 1) & mask
+    def _index_cons_number(self, number: int, cons: "Constructor") -> None:
+        cons_id = len(self._cons_ids)
+        self._cons_ids.append(cons)
+        self._cons_lookup[number] = cons_id
 
     def __repr__(self) -> str:
         return "\n".join(repr(cons) for cons in self.constructors.values())
@@ -872,16 +925,16 @@ class Schema:
             return self.deserialize_primitive(reader, parameter)
 
         if parameter.is_boxed:
-            cons_number = reader.read_u32()
+            cons_number = reader.read_i32()
 
             if parameter.is_vector:
                 if cons_number != _vector_cons_number_int:
-                    cons = self.lookup_cons_number(cons_number)
+                    cons_id = self._cons_lookup.get(cons_number)
 
-                    if cons is not None and cons.is_gzip_container:
+                    if cons_id >= 0 and self._cons_ids[cons_id].is_gzip_container:
                         return self.deserialize(ByteReader(reader.read_binary_string_zlib()), parameter)
 
-                    raise ValueError(f"Unknown constructor {hex(cons_number)} for vector")
+                    raise ValueError(f"Unknown constructor {hex(cons_number & 0xFFFFFFFF)} for vector")
 
                 element_parameter = parameter.element_parameter
 
@@ -893,12 +946,14 @@ class Schema:
                     for _ in range(reader.read_u32())
                 ]
 
-            cons = self.lookup_cons_number(cons_number)
+            cons_id = self._cons_lookup.get(cons_number)
 
-            if not cons:
-                raise ValueError(f"Unknown constructor {hex(cons_number)}")
+            if cons_id < 0:
+                raise ValueError(f"Unknown constructor {hex(cons_number & 0xFFFFFFFF)}")
 
-            if cons.is_gzip_container:
+            boxed_cons = self._cons_ids[cons_id]
+
+            if boxed_cons.is_gzip_container:
                 return self.deserialize(ByteReader(reader.read_binary_string_zlib()), parameter)
 
             parameter_type = parameter.type
@@ -910,10 +965,10 @@ class Schema:
                     allowed = self.types[parameter_type]
                     parameter.typecheck_constructors = allowed
 
-                if cons not in allowed and cons.ptype:
-                    raise ValueError(f"type mismatch, constructor `{cons.name}` not in type `{parameter_type}`")
+                if boxed_cons not in allowed and boxed_cons.ptype:
+                    raise ValueError(f"type mismatch, constructor `{boxed_cons.name}` not in type `{parameter_type}`")
 
-            return cons.deserialize_bare_data(reader)
+            return boxed_cons.deserialize_bare_data(reader)
         else:
             if parameter.is_vector:
                 element_parameter = parameter.element_parameter
@@ -947,9 +1002,6 @@ class Schema:
     def bare_kwargs(self, *, _cons: str, **body: "TlBodyDataValue") -> "Value":
         return self.serialize(False, _cons, body)
 
-    def bare(self, body: "TlBodyData") -> "Value":
-        return self.serialize(False, extract_cons_from_tl_body(body), body)
-
     def boxed_kwargs(self, *, _cons: str, **body: "TlBodyDataValue") -> "Value":
         return self.serialize(True, _cons, body)
 
@@ -960,11 +1012,13 @@ class Schema:
         return self.deserialize(reader, parameter)
 
     def read_by_boxed_data(self, reader: ByteReader) -> "TlBodyData":
-        cons_number = reader.read_u32()
-        cons = self.lookup_cons_number(cons_number)
+        cons_number = reader.read_i32()
+        cons_id = self._cons_lookup.get(cons_number)
 
-        if cons is None:
-            raise TypeError(f"Unknown constructor for constructor number {hex(cons_number)}")
+        if cons_id < 0:
+            raise TypeError(f"Unknown constructor for constructor number {hex(cons_number & 0xFFFFFFFF)}")
+
+        cons = self._cons_ids[cons_id]
 
         if cons.is_gzip_container:
             return self.read_by_boxed_data(ByteReader(reader.read_binary_string_zlib()))
@@ -972,43 +1026,27 @@ class Schema:
         return cons.deserialize_bare_data(reader)
 
 
-class Flags:
-    __slots__ = ("_flags",)
-
-    _flags: typing.Final[int]
-
-    def __init__(self, initial_value: int = 0) -> None:
-        self._flags = initial_value
-
-    def get_flat_bytes(self) -> bytes:
-        return self._flags.to_bytes(4, "little", signed=False)
-
-
 class Value:
-    __slots__ = ("cons", "boxed", "flags", "buffers")
+    __slots__ = ("cons", "boxed", "data")
 
     cons: typing.Final["Constructor"]
     boxed: typing.Final[bool]
-    buffers: typing.Final[list[bytes]]
-    flags: dict[int, Flags] | None
+    data: bytes
 
-    def __init__(self, cons: "Constructor", boxed: bool = False):
+    def __init__(self, cons: "Constructor", boxed: bool = False, data: bytes = b""):
         self.cons = cons
         self.boxed = boxed
 
-        cons_number = self.cons.number
-
-        if boxed and cons_number is None:
+        if boxed and cons.number is None:
             raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{cons!r}`")
 
-        self.flags = None
-        self.buffers = [cons_number] if boxed and cons_number else []
+        self.data = data
 
     def __repr__(self) -> str:
         return f"{'boxed' if self.boxed else 'bare'}({self.cons!r})"
 
     def get_flat_bytes(self) -> bytes:
-        return b"".join(self.buffers)
+        return self.data
 
 
 class ParameterFlag:
@@ -1377,7 +1415,7 @@ class BoolFieldDeserialization(AbstractDeserializationStep):
         self._key = key
 
     def deserialize_bare_data(self, reader: ByteReader, output: "TlBodyData", flags: int) -> int:
-        output[self._key] = reader.read_u32() == _bool_true_cons_number_int
+        output[self._key] = reader.read_i32() == _bool_true_cons_number_int
         return 0
 
 
@@ -1509,7 +1547,6 @@ class Constructor:
         "flags_check_table",
         "deserialization_default_dict",
         "flag_words_count",
-        "flag_indices",
         "is_gzip_container",
         "line"
     )
@@ -1527,7 +1564,6 @@ class Constructor:
     flags_check_table: typing.Final[tuple[tuple[int, int, frozenset[str], int], ...]]
     deserialization_default_dict: typing.Final["TlBodyData"]
     flag_words_count: typing.Final[int]
-    flag_indices: typing.Final[tuple[int, ...]]
     is_gzip_container: typing.Final[bool]
     line: typing.Final[str]
 
@@ -1547,7 +1583,7 @@ class Constructor:
         self.schema = schema
         self.name = name
         self.number = number
-        self.number_int = None if number is None else int.from_bytes(number, "little", signed=False)
+        self.number_int = None if number is None else read_i32_le(number, 0)
         self.ptype = ptype
         self.parameters = parameters
         self.flags = None if flags is None else frozenset(flags)
@@ -1558,7 +1594,6 @@ class Constructor:
         self.deserialization_default_dict = self._generate_deserialization_default_dict(parameters, name)
         cons_flags = self.flags
         self.flag_words_count = 0 if cons_flags is None else max(cons_flags) + 1
-        self.flag_indices = () if cons_flags is None else tuple(sorted(cons_flags))
         self.is_gzip_container = name == "gzip_packed"
 
     def boxed_buffer_match(self, buffer: bytes | bytearray | Value) -> bool:
@@ -1630,7 +1665,7 @@ class Constructor:
     def __repr__(self) -> str:
         return self.line
 
-    def _append_argument(self, buffers: "list[bytes]", parameter: Parameter, argument: typing.Union["TlBodyDataValue", "Value"]) -> None:
+    def _append_argument(self, writer: BytesWriter, parameter: Parameter, argument: typing.Union["TlBodyDataValue", "Value"]) -> None:
         if parameter.accepts_str and isinstance(argument, str):
             argument = argument.encode("utf-8")
 
@@ -1653,9 +1688,9 @@ class Constructor:
                     if nested_number is None:
                         raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{nested!r}`")
 
-                    buffers.append(nested_number)
+                    writer.write(nested_number)
 
-                nested._serialize_fields(buffers, argument)
+                nested._serialize_fields(writer, argument)
                 return
 
         if parameter.is_primitive:
@@ -1664,15 +1699,15 @@ class Constructor:
             if serialize_kind < 0:
                 raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
 
-            buffers.append(_serialize_primitive(serialize_kind, argument))
+            _write_primitive(writer, serialize_kind, argument)
         elif parameter.is_vector:
             if parameter.is_boxed:
-                buffers.append(_vector_cons_number)
+                writer.write(_vector_cons_number)
 
             if not isinstance(argument, list):
                 raise TypeError(f"Expected a list for parameter `{parameter!r}` but found `{argument!r}`")
 
-            buffers.append(len(argument).to_bytes(4, "little", signed=False))
+            write_i32_le(writer, len(argument))
 
             element_parameter = parameter.element_parameter
 
@@ -1680,18 +1715,18 @@ class Constructor:
                 raise TypeError(f"Unknown vector parameter type {parameter:!r}")
 
             for element_argument in argument:
-                self._append_argument(buffers, element_parameter, element_argument)
+                self._append_argument(writer, element_parameter, element_argument)
         else:
             self.schema.typecheck(parameter, argument)
 
             if isinstance(argument, bytes):
-                buffers.append(argument)
+                writer.write(argument)
             elif isinstance(argument, Value):
-                buffers.extend(argument.buffers)
+                writer.write(argument.get_flat_bytes())
             else:
                 raise TypeError(f"For parameter {parameter!r} expected a serialized value, but found `{argument!r}`")
 
-    def _serialize_fields(self, buffers: "list[bytes]", body: "TlBodyData", with_flags: bool = False) -> "dict[int, Flags] | None":
+    def _serialize_fields(self, writer: BytesWriter, body: "TlBodyData") -> None:
         cons_flags = self.flags
         flag_values: list[int] | None = [0] * self.flag_words_count if cons_flags is not None else None
         flag_slots: list[tuple[int, int]] = [] if cons_flags is not None else _NO_FLAG_SLOTS
@@ -1709,8 +1744,8 @@ class Constructor:
                 if flag_values is None:
                     raise TypeError(f"Tried to append flag to data for a flagless constructor `{self!r}`")
 
-                flag_slots.append((len(buffers), flag_index))
-                buffers.append(b"")
+                flag_slots.append((len(writer), flag_index))
+                write_i32_le(writer, 0)
                 continue
 
             argument = body.get(parameter.name)
@@ -1736,13 +1771,17 @@ class Constructor:
             direct_serialize_kind = parameter.direct_serialize_kind
 
             if direct_serialize_kind >= 0:
-                buffers.append(_serialize_primitive(direct_serialize_kind, argument))
+                _write_primitive(writer, direct_serialize_kind, argument)
             else:
-                self._append_argument(buffers, parameter, argument)
+                self._append_argument(writer, parameter, argument)
 
         if flag_values is not None:
             for slot, flag_index in flag_slots:
-                buffers[slot] = flag_values[flag_index].to_bytes(4, "little", signed=False)
+                flag_word = flag_values[flag_index]
+                writer[slot] = flag_word & 0xFF
+                writer[slot + 1] = (flag_word >> 8) & 0xFF
+                writer[slot + 2] = (flag_word >> 16) & 0xFF
+                writer[slot + 3] = (flag_word >> 24) & 0xFF
 
         if group_counts is not None:
             for group_id, (flag_number, flag_index, names, parameters_len) in enumerate(groups):
@@ -1755,15 +1794,19 @@ class Constructor:
 
                 raise TypeError(f"Missing parameters `{missing!r}` in `{self.name}` for flag number `{flag_number}` in flags index `{flag_index}`")
 
-        if not with_flags or flag_values is None:
-            return None
-
-        return {flag_index: Flags(flag_values[flag_index]) for flag_index in self.flag_indices}
-
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
-        data = Value(self, boxed=boxed)
-        data.flags = self._serialize_fields(data.buffers, body, with_flags=True)
-        return data
+        writer = BytesWriter()
+
+        if boxed:
+            cons_number = self.number
+
+            if cons_number is None:
+                raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{self!r}`")
+
+            writer.write(cons_number)
+
+        self._serialize_fields(writer, body)
+        return Value(self, boxed, writer.getvalue())
 
     def deserialize_boxed_data(self, reader: ByteReader) -> "TlBodyData":
         number_int = self.number_int
@@ -1771,10 +1814,10 @@ class Constructor:
         if number_int is None:
             raise TypeError(f"Constructor `{self!r}` is bare")
 
-        cons_number = reader.read_u32()
+        cons_number = reader.read_i32()
 
         if cons_number != number_int:
-            raise TypeError(f"Constructor number `{hex(cons_number)}` mismatch {self!r}")
+            raise TypeError(f"Constructor number `{hex(cons_number & 0xFFFFFFFF)}` mismatch {self!r}")
 
         return self.deserialize_bare_data(reader)
 
