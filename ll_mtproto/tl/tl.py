@@ -33,7 +33,7 @@ from librt.strings import (
 from librt.vecs import vec
 
 if typing.TYPE_CHECKING:
-    from mypy_extensions import i64
+    from mypy_extensions import i32, i64
 
 __all__ = (
     "Schema",
@@ -94,7 +94,7 @@ class ByteReader:
 
         return self.buffer[offset:]
 
-    def read_i32(self) -> int:
+    def read_i32(self) -> "i32":
         offset = self.offset
         self.offset = offset + 4
         return read_i32_le(self.buffer, offset)
@@ -158,16 +158,18 @@ class ByteReader:
         return buffer[offset:offset + str_len]
 
 
-def _compile_cons_number(definition: bytes) -> bytes:
-    n = binascii.crc32(definition)
-    return n.to_bytes(4, "little", signed=False)
+def _compile_cons_number(definition: bytes) -> int:
+    crc = binascii.crc32(definition)
+    return crc - _U32_RANGE if crc > 0x7FFFFFFF else crc
 
 
-_bool_true_cons_number: typing.Final = _compile_cons_number(b"boolTrue = Bool")
-_bool_false_cons_number: typing.Final = _compile_cons_number(b"boolFalse = Bool")
-_bool_true_cons_number_int: typing.Final = read_i32_le(_bool_true_cons_number, 0)
-_vector_cons_number: typing.Final = _compile_cons_number(b"vector t:Type # [ t ] = Vector t")
-_vector_cons_number_int: typing.Final = read_i32_le(_vector_cons_number, 0)
+def _cons_number_hex(number: int) -> str:
+    return hex(number & 0xFFFFFFFF)
+
+
+_bool_true_cons_number_int: typing.Final["i32"] = _compile_cons_number(b"boolTrue = Bool")
+_bool_false_cons_number_int: typing.Final["i32"] = _compile_cons_number(b"boolFalse = Bool")
+_vector_cons_number_int: typing.Final["i32"] = _compile_cons_number(b"vector t:Type # [ t ] = Vector t")
 
 _zero_padding: typing.Final = (b"", b"\x00", b"\x00\x00", b"\x00\x00\x00")
 
@@ -258,11 +260,11 @@ def _write_true(_writer: BytesWriter, argument: "TlBodyDataValue") -> None:
 
 def _write_bool(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     if argument is True:
-        writer.write(_bool_true_cons_number)
+        write_i32_le(writer, _bool_true_cons_number_int)
         return
 
     if argument is False:
-        writer.write(_bool_false_cons_number)
+        write_i32_le(writer, _bool_false_cons_number_int)
         return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `Bool`")
@@ -588,22 +590,16 @@ _ptype_RE: typing.Final[re.Pattern[str]] = re.compile(
     r"^(?P<is_vector>Vector<(?P<vector_element_type>[a-zA-Z\d._]*)>$)?(?P<element_type>[a-zA-Z\d._]*$)?"
 )
 
-# Keys are signed 32-bit values, so 2**32 can never collide with a real key.
-_IntKeyDict_EMPTY_SLOT: typing.Final[int] = 0x100000000
+_IntKeyDict_EMPTY_SLOT: typing.Final["i64"] = -0x8000000000000000
 
 
 class IntKeyDict:
-    """Insert-only open addressing map from a signed 32-bit ``int`` to ``int``.
-    Keys are mixed with a cheap xorshift and probed in librt ``vec[i64]``
-    tables, so lookups stay on native integers instead of boxed ones.
-    """
-
     __slots__ = ("_keys", "_values", "_mask", "_size")
 
     _keys: "vec[i64]"
     _values: "vec[i64]"
-    _mask: int
-    _size: int
+    _mask: "i64"
+    _size: "i64"
 
     def __init__(self) -> None:
         self._keys = vec[i64]([_IntKeyDict_EMPTY_SLOT] * 8)
@@ -615,16 +611,16 @@ class IntKeyDict:
         return self._size
 
     def get(self, key: int) -> "i64":
-        """Return the value stored for ``key``, or ``-1`` when it is absent."""
         keys = self._keys
         values = self._values
         mask = self._mask
-        index = (key ^ (key >> 16)) & mask
+        k: i64 = key
+        index = (k ^ (k >> 16)) & mask
 
         while True:
             stored = keys[index]
 
-            if stored == key:
+            if stored == k:
                 return values[index]
 
             if stored == _IntKeyDict_EMPTY_SLOT:
@@ -636,11 +632,14 @@ class IntKeyDict:
         if (self._size + 1) * 2 > len(self._keys):
             self._resize(self._size + 1)
 
-        if self._place(self._keys, self._values, self._mask, key, value):
+        k: i64 = key
+        v: i64 = value
+
+        if self._place(self._keys, self._values, self._mask, k, v):
             self._size += 1
 
     @staticmethod
-    def _place(keys: "vec[i64]", values: "vec[i64]", mask: int, key: int, value: int) -> bool:
+    def _place(keys: "vec[i64]", values: "vec[i64]", mask: "i64", key: "i64", value: "i64") -> bool:
         index = (key ^ (key >> 16)) & mask
 
         while keys[index] != _IntKeyDict_EMPTY_SLOT:
@@ -654,8 +653,8 @@ class IntKeyDict:
         values[index] = value
         return True
 
-    def _resize(self, min_entries: int) -> None:
-        size = 8
+    def _resize(self, min_entries: "i64") -> None:
+        size: i64 = 8
 
         while size < min_entries * 2:
             size <<= 1
@@ -867,7 +866,7 @@ class Schema:
 
         self.constructors[cons.name] = cons
 
-        if cons.number_int is not None:
+        if cons.number is not None:
             self._index_cons_number(cons.number_int, cons)
 
         if (cons_ptype := cons.ptype) is not None:
@@ -934,7 +933,7 @@ class Schema:
                     if cons_id >= 0 and self._cons_ids[cons_id].is_gzip_container:
                         return self.deserialize(ByteReader(reader.read_binary_string_zlib()), parameter)
 
-                    raise ValueError(f"Unknown constructor {hex(cons_number & 0xFFFFFFFF)} for vector")
+                    raise ValueError(f"Unknown constructor {_cons_number_hex(cons_number)} for vector")
 
                 element_parameter = parameter.element_parameter
 
@@ -949,7 +948,7 @@ class Schema:
             cons_id = self._cons_lookup.get(cons_number)
 
             if cons_id < 0:
-                raise ValueError(f"Unknown constructor {hex(cons_number & 0xFFFFFFFF)}")
+                raise ValueError(f"Unknown constructor {_cons_number_hex(cons_number)}")
 
             boxed_cons = self._cons_ids[cons_id]
 
@@ -1016,7 +1015,7 @@ class Schema:
         cons_id = self._cons_lookup.get(cons_number)
 
         if cons_id < 0:
-            raise TypeError(f"Unknown constructor for constructor number {hex(cons_number & 0xFFFFFFFF)}")
+            raise TypeError(f"Unknown constructor for constructor number {_cons_number_hex(cons_number)}")
 
         cons = self._cons_ids[cons_id]
 
@@ -1555,7 +1554,7 @@ class Constructor:
     ptype: typing.Final[str | None]
     name: typing.Final[str]
     number: typing.Final[bytes | None]
-    number_int: typing.Final[int | None]
+    number_int: typing.Final["i32"]
     flags: typing.Final[frozenset[int] | None]
     parameters: typing.Final[tuple[Parameter, ...]]
     is_function: typing.Final[bool]
@@ -1583,7 +1582,7 @@ class Constructor:
         self.schema = schema
         self.name = name
         self.number = number
-        self.number_int = None if number is None else read_i32_le(number, 0)
+        self.number_int = 0 if number is None else read_i32_le(number, 0)
         self.ptype = ptype
         self.parameters = parameters
         self.flags = None if flags is None else frozenset(flags)
@@ -1683,12 +1682,10 @@ class Constructor:
                 self.schema.typecheck_cons(parameter, nested)
 
                 if parameter.is_boxed:
-                    nested_number = nested.number
-
-                    if nested_number is None:
+                    if nested.number is None:
                         raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{nested!r}`")
 
-                    writer.write(nested_number)
+                    write_i32_le(writer, nested.number_int)
 
                 nested._serialize_fields(writer, argument)
                 return
@@ -1702,7 +1699,7 @@ class Constructor:
             _write_primitive(writer, serialize_kind, argument)
         elif parameter.is_vector:
             if parameter.is_boxed:
-                writer.write(_vector_cons_number)
+                write_i32_le(writer, _vector_cons_number_int)
 
             if not isinstance(argument, list):
                 raise TypeError(f"Expected a list for parameter `{parameter!r}` but found `{argument!r}`")
@@ -1798,26 +1795,23 @@ class Constructor:
         writer = BytesWriter()
 
         if boxed:
-            cons_number = self.number
-
-            if cons_number is None:
+            if self.number is None:
                 raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{self!r}`")
 
-            writer.write(cons_number)
+            write_i32_le(writer, self.number_int)
 
         self._serialize_fields(writer, body)
         return Value(self, boxed, writer.getvalue())
 
     def deserialize_boxed_data(self, reader: ByteReader) -> "TlBodyData":
-        number_int = self.number_int
-
-        if number_int is None:
+        if self.number is None:
             raise TypeError(f"Constructor `{self!r}` is bare")
 
+        number_int = self.number_int
         cons_number = reader.read_i32()
 
         if cons_number != number_int:
-            raise TypeError(f"Constructor number `{hex(cons_number & 0xFFFFFFFF)}` mismatch {self!r}")
+            raise TypeError(f"Constructor number `{_cons_number_hex(cons_number)}` mismatch {self!r}")
 
         return self.deserialize_bare_data(reader)
 
