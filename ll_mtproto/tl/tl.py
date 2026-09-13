@@ -217,7 +217,7 @@ def _deserialize_double(reader: ByteReader) -> "TlBodyDataValue":
 
 
 def _deserialize_string(reader: ByteReader) -> "TlBodyDataValue":
-    return reader.read_binary_string().decode()
+    return reader.read_binary_string().decode("utf-8")
 
 
 def _deserialize_bytes(reader: ByteReader) -> "TlBodyDataValue":
@@ -1180,7 +1180,7 @@ class StringFieldDeserialization(AbstractDeserializationStep):
         self._key = key
 
     def deserialize_bare_data(self, reader: ByteReader, output: "TlBodyData", flags: int) -> int:
-        output[self._key] = reader.read_binary_string().decode()
+        output[self._key] = reader.read_binary_string().decode("utf-8")
         return 0
 
 
@@ -1203,7 +1203,7 @@ class FlaggedStringFieldDeserialization(StringFieldDeserialization):
 
     def deserialize_bare_data(self, reader: ByteReader, output: "TlBodyData", flags: int) -> int:
         if flags & self._mask:
-            output[self._key] = reader.read_binary_string().decode()
+            output[self._key] = reader.read_binary_string().decode("utf-8")
 
         return 0
 
