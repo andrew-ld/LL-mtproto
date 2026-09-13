@@ -1419,6 +1419,9 @@ class FlagFieldDeserialization(AbstractDeserializationStep):
             if p.type == "true" and p.parameter_flag is not None and p.parameter_flag.flag_index == parameter.flag_index
         )
 
+        if not true_parameters:
+            return FlagFieldDeserializationWithoutTrue(shift, true_parameters)
+
         return cls(shift, true_parameters)
 
     def __init__(self, shift: int, true_parameters: tuple[tuple[int, str], ...]) -> None:
@@ -1433,6 +1436,11 @@ class FlagFieldDeserialization(AbstractDeserializationStep):
                 output[flag_name] = True
 
         return flags << self._shift
+
+
+class FlagFieldDeserializationWithoutTrue(FlagFieldDeserialization):
+    def deserialize_bare_data(self, reader: ByteReader, output: "TlBodyData", flags: int) -> int:
+        return reader.read_u32() << self._shift
 
 
 class RequiredParameterFieldDeserialization(AbstractDeserializationStep):
