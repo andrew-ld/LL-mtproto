@@ -1397,7 +1397,7 @@ class FlagFieldDeserialization(AbstractDeserializationStep):
     __slots__ = ("_shift", "_true_parameters")
 
     _shift: typing.Final[int]
-    _true_parameters: tuple[tuple[int, str], ...]
+    _true_parameters: typing.Final[tuple[tuple[int, str], ...]]
 
     @staticmethod
     def is_supported(parameter: "Parameter") -> bool:
