@@ -180,10 +180,6 @@ def pack_binary_string(data: bytes) -> bytes:
     return writer.getvalue()
 
 
-def _deserialize_true(_reader: ByteReader) -> "TlBodyDataValue":
-    return True
-
-
 def _deserialize_bool(reader: ByteReader) -> "TlBodyDataValue":
     return reader.read_i32() == _bool_true_cons_number_int
 
@@ -233,7 +229,6 @@ def _deserialize_rawobject(reader: ByteReader) -> "TlBodyDataValue":
 
 
 _primitive_deserializers: typing.Final[dict[str, typing.Callable[[ByteReader], "TlBodyDataValue"]]] = {
-    "true": _deserialize_true,
     "Bool": _deserialize_bool,
     "int": _deserialize_int,
     "uint": _deserialize_uint,
@@ -478,7 +473,6 @@ def _write_primitive(writer: BytesWriter, kind: int, argument: "TlBodyDataValue"
         return
 
     if kind == _KIND_TRUE:
-        _write_true(writer, argument)
         return
 
     if kind == _KIND_UINT:
@@ -1152,7 +1146,7 @@ class AbstractDeserializationStep:
         return False
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "AbstractDeserializationStep":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "AbstractDeserializationStep | None":
         raise TypeError(f"Unsupported optimized deserialization {parameter!r}")
 
     @staticmethod
@@ -1169,51 +1163,6 @@ class AbstractDeserializationStep:
         raise NotImplementedError()
 
 
-class TrueFieldDeserialization(AbstractDeserializationStep):
-    __slots__ = ("_key",)
-
-    _key: typing.Final[str]
-
-    @staticmethod
-    def is_supported(parameter: "Parameter") -> bool:
-        return parameter.parameter_flag is None and parameter.type == "true"
-
-    @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "TrueFieldDeserialization":
-        return cls(parameter.name)
-
-    def __init__(self, key: str) -> None:
-        self._key = key
-
-    def deserialize_bare_data(self, reader: ByteReader, output: "TlBodyData", flags: int) -> int:
-        output[self._key] = True
-        return 0
-
-
-class FlaggedTrueFieldDeserialization(TrueFieldDeserialization):
-    __slots__ = ("_mask",)
-
-    _mask: typing.Final[int]
-
-    @staticmethod
-    def is_supported(parameter: "Parameter") -> bool:
-        return parameter.parameter_flag is not None and parameter.type == "true"
-
-    @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "FlaggedTrueFieldDeserialization":
-        return cls(parameter.name, cls._flag_mask(parameter))
-
-    def __init__(self, key: str, mask: int) -> None:
-        super().__init__(key)
-        self._mask = mask
-
-    def deserialize_bare_data(self, reader: ByteReader, output: "TlBodyData", flags: int) -> int:
-        if flags & self._mask:
-            output[self._key] = True
-
-        return 0
-
-
 class StringFieldDeserialization(AbstractDeserializationStep):
     __slots__ = ("_key",)
 
@@ -1224,7 +1173,7 @@ class StringFieldDeserialization(AbstractDeserializationStep):
         return parameter.parameter_flag is None and parameter.type == "string"
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "StringFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "StringFieldDeserialization":
         return cls(parameter.name)
 
     def __init__(self, key: str) -> None:
@@ -1245,7 +1194,7 @@ class FlaggedStringFieldDeserialization(StringFieldDeserialization):
         return parameter.parameter_flag is not None and parameter.type == "string"
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "FlaggedStringFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "FlaggedStringFieldDeserialization":
         return cls(parameter.name, cls._flag_mask(parameter))
 
     def __init__(self, key: str, mask: int) -> None:
@@ -1269,7 +1218,7 @@ class ByteStringFieldDeserialization(AbstractDeserializationStep):
         return parameter.parameter_flag is None and parameter.type == "bytes"
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "ByteStringFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "ByteStringFieldDeserialization":
         return cls(parameter.name)
 
     def __init__(self, key: str) -> None:
@@ -1290,7 +1239,7 @@ class FlaggedByteStringFieldDeserialization(ByteStringFieldDeserialization):
         return parameter.parameter_flag is not None and parameter.type == "bytes"
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "FlaggedByteStringFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "FlaggedByteStringFieldDeserialization":
         return cls(parameter.name, cls._flag_mask(parameter))
 
     def __init__(self, key: str, mask: int) -> None:
@@ -1349,7 +1298,7 @@ class StructFieldDeserialization(AbstractDeserializationStep):
         return parameter.parameter_flag is None and parameter.type in _fixed_size_kinds
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "StructFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "StructFieldDeserialization":
         parameter_type = parameter.type
 
         if parameter_type is None or parameter_type not in _fixed_size_kinds:
@@ -1376,7 +1325,7 @@ class FlaggedStructFieldDeserialization(StructFieldDeserialization):
         return parameter.parameter_flag is not None and parameter.type in _fixed_size_kinds
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "FlaggedStructFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "FlaggedStructFieldDeserialization":
         parameter_type = parameter.type
 
         if parameter_type is None or parameter_type not in _fixed_size_kinds:
@@ -1405,7 +1354,7 @@ class BoolFieldDeserialization(AbstractDeserializationStep):
         return parameter.parameter_flag is None and parameter.type == "Bool"
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "BoolFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "BoolFieldDeserialization":
         return cls(parameter.name)
 
     def __init__(self, key: str) -> None:
@@ -1427,7 +1376,7 @@ class BytesFieldDeserialization(AbstractDeserializationStep):
         return parameter.parameter_flag is None and parameter.type in _fixed_size_byte_sizes
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "BytesFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "BytesFieldDeserialization":
         parameter_type = parameter.type
 
         if parameter_type is None or parameter_type not in _fixed_size_byte_sizes:
@@ -1445,28 +1394,45 @@ class BytesFieldDeserialization(AbstractDeserializationStep):
 
 
 class FlagFieldDeserialization(AbstractDeserializationStep):
-    __slots__ = ("_shift",)
+    __slots__ = ("_shift", "_true_parameters")
 
     _shift: typing.Final[int]
+    _true_parameters: tuple[tuple[int, str], ...]
 
     @staticmethod
     def is_supported(parameter: "Parameter") -> bool:
-        return parameter.is_flag
+        return parameter.is_flag or (parameter.type == "true" and parameter.parameter_flag is not None)
 
     @classmethod
-    def from_parameter(cls, parameter: "Parameter") -> "FlagFieldDeserialization":
+    def from_parameter(cls, parameter: "Parameter", constructor: "Constructor") -> "FlagFieldDeserialization | None":
+        if parameter.type == "true":
+            return None
+
         shift = parameter.extended_flag_index
 
         if shift is None:
             raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
 
-        return cls(shift)
+        true_parameters: tuple[tuple[int, str], ...] = tuple(
+            (1 << p.parameter_flag.flag_number, p.name)
+            for p in constructor.parameters
+            if p.type == "true" and p.parameter_flag is not None and p.parameter_flag.flag_index == parameter.flag_index
+        )
 
-    def __init__(self, shift: int) -> None:
+        return cls(shift, true_parameters)
+
+    def __init__(self, shift: int, true_parameters: tuple[tuple[int, str], ...]) -> None:
         self._shift = shift
+        self._true_parameters = true_parameters
 
     def deserialize_bare_data(self, reader: ByteReader, output: "TlBodyData", flags: int) -> int:
-        return reader.read_u32() << self._shift
+        flags = reader.read_u32()
+
+        for (flag_mask, flag_name) in self._true_parameters:
+            if flags & flag_mask:
+                output[flag_name] = True
+
+        return flags << self._shift
 
 
 class RequiredParameterFieldDeserialization(AbstractDeserializationStep):
@@ -1524,8 +1490,6 @@ _field_deserializations: typing.Final[tuple[type[AbstractDeserializationStep], .
     FlaggedStringFieldDeserialization,
     ByteStringFieldDeserialization,
     FlaggedByteStringFieldDeserialization,
-    TrueFieldDeserialization,
-    FlaggedTrueFieldDeserialization,
 )
 
 
@@ -1649,7 +1613,9 @@ class Constructor:
         for parameter in parameters:
             for step_class in _field_deserializations:
                 if step_class.is_supported(parameter):
-                    output.append(step_class.from_parameter(parameter))
+                    step_instance = step_class.from_parameter(parameter, self)
+                    if step_instance is not None:
+                        output.append(step_instance)
                     break
             else:
                 if parameter.required:
