@@ -31,9 +31,7 @@ from librt.strings import (
     write_i64_le,
 )
 from librt.vecs import vec
-
-if typing.TYPE_CHECKING:
-    from mypy_extensions import i32, i64
+from mypy_extensions import i32, i64
 
 __all__ = (
     "Schema",
