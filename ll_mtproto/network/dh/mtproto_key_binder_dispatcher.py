@@ -22,7 +22,7 @@ from ll_mtproto.network.dispatcher import Dispatcher, SignalingMessage
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.tl.byteutils import sha1
 from ll_mtproto.tl.structure import BaseStructure
-from ll_mtproto.tl.tl import NativeByteReader
+from ll_mtproto.tl.tl import ByteReader
 from ll_mtproto.tl.tl_utils import flat_value_buffer, TypedSchemaConstructor
 from ll_mtproto.tl.tls_system import RpcResult, RpcError, NewSessionCreated, MsgsAck
 
@@ -151,7 +151,7 @@ class MTProtoKeyBinderDispatcher(Dispatcher):
         rpc_error_cons = TypedSchemaConstructor(self._datacenter.schema, RpcError)
 
         if rpc_error_cons.boxed_buffer_match(body.result):
-            error_reader = NativeByteReader(flat_value_buffer(body.result))
+            error_reader = ByteReader(flat_value_buffer(body.result))
             error = rpc_error_cons.deserialize_boxed_data(error_reader)
             raise RpcErrorException.from_rpc_error(error)
 

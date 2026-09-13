@@ -19,9 +19,8 @@ import typing
 
 from ll_mtproto.crypto.aes_ige import AesIge
 from ll_mtproto.crypto.providers.crypto_provider_base import CryptoProviderBase
-from ll_mtproto.tl.bytereader import SyncByteReader
 from ll_mtproto.tl.byteutils import xor, sha256
-from ll_mtproto.tl.tl import pack_binary_string, NativeByteReader
+from ll_mtproto.tl.tl import pack_binary_string, ByteReader
 
 __all__ = ("PublicRSA",)
 
@@ -46,7 +45,7 @@ class PublicRSA:
             raise SyntaxError("Error parsing public key data")
 
         asn1 = base64.standard_b64decode(match.groupdict()["key"])
-        n, e = self._read_asn1(NativeByteReader(asn1))
+        n, e = self._read_asn1(ByteReader(asn1))
 
         if not isinstance(n, bytes):
             raise SyntaxError(f"Error parsing public key data, the N field is not a buffer `{n!r}`")
@@ -67,7 +66,7 @@ class PublicRSA:
         self.e = int.from_bytes(e, "big")
 
     @staticmethod
-    def _read_asn1(reader: SyncByteReader) -> _Asn1Field:
+    def _read_asn1(reader: ByteReader) -> _Asn1Field:
         field_type, field_length = reader(2)
 
         if field_length & 0x80:

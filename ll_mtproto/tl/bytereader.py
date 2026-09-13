@@ -11,21 +11,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
-import abc
 import typing
 
-__all__ = ("ByteReader", "ByteConsumer", "SyncByteReader")
+__all__ = ("AsyncByteReader", "ByteConsumer")
 
-ByteReader = typing.Callable[[int], typing.Awaitable[bytes]]
+AsyncByteReader = typing.Callable[[int], typing.Awaitable[bytes]]
 
 ByteConsumer = typing.Callable[[bytes], None]
-
-
-class SyncByteReader(metaclass=abc.ABCMeta):
-    @abc.abstractmethod
-    def __call__(self, nbytes: int) -> bytes:
-        raise NotImplementedError()
-
-    @abc.abstractmethod
-    def __bool__(self) -> bool:
-        raise NotImplementedError()

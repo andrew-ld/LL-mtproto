@@ -28,7 +28,7 @@ from ll_mtproto.network.transport.transport_link_factory import TransportLinkFac
 from ll_mtproto.network.transport_error import TransportError
 from ll_mtproto.tl.byteutils import sha256, ByteReaderApply, sha1
 from ll_mtproto.tl.structure import DynamicStructure, BaseStructure
-from ll_mtproto.tl.tl import TlBodyDataValue, Value, TlBodyData, NativeByteReader, extract_cons_from_tl_body
+from ll_mtproto.tl.tl import TlBodyDataValue, Value, TlBodyData, ByteReader, extract_cons_from_tl_body
 from ll_mtproto.tl.tl_utils import TypedSchemaConstructor
 from ll_mtproto.tl.tls_system import MessageInnerDataFromServer, UnencryptedMessage, MessageFromServer
 
@@ -131,7 +131,7 @@ class MTProto:
             body_len = int.from_bytes(body_len_envelope, signed=False, byteorder="little")
             body_envelope = await self._link.readn(body_len)
 
-            full_message_reader = NativeByteReader(b"".join((server_auth_key_id, message_id, body_len_envelope, body_envelope)))
+            full_message_reader = ByteReader(b"".join((server_auth_key_id, message_id, body_len_envelope, body_envelope)))
 
             try:
                 message = await self._in_thread(lambda: self._unencrypted_message_constructor.deserialize_bare_data(full_message_reader))
@@ -208,7 +208,7 @@ class MTProto:
             await self._in_thread(lambda: plain_sha256.update(auth_key_part))
             msg_aes_stream_with_hash = ByteReaderApply(msg_aes_stream, plain_sha256.update, self._in_thread)
 
-            message_inner_data_reader = NativeByteReader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
+            message_inner_data_reader = ByteReader(await msg_aes_stream_with_hash(8 + 8 + 8 + 4))
 
             try:
                 message = await self._in_thread(lambda: self._message_inner_data_from_server_constructor.deserialize_bare_data(message_inner_data_reader))
@@ -238,7 +238,7 @@ class MTProto:
             if ((message.message.msg_id >> 32) - self._datacenter.get_synchronized_time()) not in range(-300, 30):
                 raise RuntimeError("Time is not synchronised with telegram time!")
 
-            message_body_reader = NativeByteReader(message_body_envelope)
+            message_body_reader = ByteReader(message_body_envelope)
 
             try:
                 message_body = DynamicStructure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(message_body_reader)))

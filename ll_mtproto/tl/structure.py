@@ -33,7 +33,7 @@ StructureValue = typing.Union[
 class StructureMeta(abc.ABCMeta):
     @typing.no_type_check
     def __instancecheck__(cls, instance: "BaseStructure") -> bool:
-        if hasattr(cls, 'CONS') and isinstance(instance, BaseStructure):
+        if hasattr(cls, "CONS") and isinstance(instance, BaseStructure):
             return bool(instance.constructor_name == cls.CONS)
         return super().__instancecheck__(instance)
 
@@ -99,7 +99,7 @@ class TypedStructure(BaseStructure, typing.Generic[TypedStructureObjectType]):
         super().__init__(self.CONS)
 
     def as_tl_body_data(self) -> TlBodyData:
-        data: TlBodyData = {'_cons': self.CONS}
+        data: TlBodyData = {"_cons": self.CONS}
         for field in dataclasses.fields(self):
             value = getattr(self, field.name)
             if isinstance(value, TypedStructure):

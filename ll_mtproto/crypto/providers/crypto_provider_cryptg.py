@@ -22,7 +22,8 @@ __all__ = ("CryptoProviderCryptg",)
 
 class CryptoProviderCryptg(CryptoProviderBase):
     def factorize_pq(self, pq: int) -> tuple[int, int]:
-        return cryptg.factorize_pq_pair(pq)
+        p, q = cryptg.factorize_pq_pair(pq)
+        return p, q
 
     def decrypt_aes_ige(self, ciphertext: bytes, key: bytes, iv: bytes) -> tuple[bytes, bytes]:
         result_iv = bytes(iv)

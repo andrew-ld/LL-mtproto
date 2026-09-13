@@ -23,9 +23,9 @@ from ll_mtproto.in_thread import InThread
 from ll_mtproto.math import primes
 from ll_mtproto.network.datacenter_info import DatacenterInfo
 from ll_mtproto.network.mtproto import MTProto
-from ll_mtproto.tl.byteutils import to_bytes, sha1, xor, SyncByteReaderProxy
+from ll_mtproto.tl.byteutils import to_bytes, sha1, xor
 from ll_mtproto.tl.structure import BaseStructure, DynamicStructure
-from ll_mtproto.tl.tl import NativeByteReader
+from ll_mtproto.tl.tl import ByteReader
 from ll_mtproto.tl.tls_system import DhGenOk, ServerDHParamsOk, ServerDHInnerData, ResPQ
 
 __all__ = ("MTProtoKeyCreator",)
@@ -196,12 +196,10 @@ class MTProtoKeyCreator:
             self._in_thread(lambda: int.from_bytes(self._crypto_provider.secure_random(256), signed=False)),
         )
 
-        answer_reader = NativeByteReader(answer)
-        answer_reader_sha1 = hashlib.sha1()
-        answer_reader_with_hash = SyncByteReaderProxy(answer_reader, answer_reader_sha1.update)
+        answer_reader = ByteReader(answer)
 
-        params2 = DynamicStructure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(answer_reader_with_hash)))
-        answer_hash_computed = await self._in_thread(answer_reader_sha1.digest)
+        params2 = DynamicStructure.from_tl_obj(await self._in_thread(lambda: self._datacenter.schema.read_by_boxed_data(answer_reader)))
+        answer_hash_computed = await self._in_thread(lambda: hashlib.sha1(answer[:answer_reader.offset]).digest())
 
         if not hmac.compare_digest(answer_hash_computed, answer_hash):
             raise RuntimeError("Diffie–Hellman exchange failed: params2 hash mismatch")

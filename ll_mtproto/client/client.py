@@ -35,7 +35,7 @@ from ll_mtproto.network.dispatcher import Dispatcher, dispatch_event, SignalingM
 from ll_mtproto.network.mtproto import MTProto
 from ll_mtproto.network.transport.transport_link_factory import TransportLinkFactory
 from ll_mtproto.tl.structure import BaseStructure, StructureValue, TypedStructure, TypedStructureObjectType, DynamicStructure
-from ll_mtproto.tl.tl import TlBodyData, NativeByteReader, Value, extract_cons_from_tl_body, extract_cons_from_tl_body_opt, TlBodyDataValue
+from ll_mtproto.tl.tl import TlBodyData, ByteReader, Value, extract_cons_from_tl_body, extract_cons_from_tl_body_opt, TlBodyDataValue
 from ll_mtproto.tl.tl_utils import TypedSchemaConstructor, flat_value_buffer
 from ll_mtproto.tl.tls_system import RpcError, DestroySessionOk, DestroySessionNone, FutureSalts, RpcResult, BadServerSalt, BadMsgNotification, \
     NewSessionCreated, Pong, MessageFromServer, MessageFromClient, UnencryptedMessage, MsgsAck
@@ -986,7 +986,7 @@ class Client:
         else:
             response_parameter = None
 
-        body_result_reader = NativeByteReader(flat_value_buffer(body.result))
+        body_result_reader = ByteReader(flat_value_buffer(body.result))
 
         result_body: TlBodyDataValue
 
