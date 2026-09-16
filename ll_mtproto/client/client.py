@@ -298,7 +298,12 @@ class Client:
                 invoke_after_requests=invoke_after_requests
             )
 
-            pending_request.cleaner = self._loop.call_later(timeout_seconds, lambda: self._finalize_request_and_cleanup(pending_request))
+            pending_request.cleaner = self._loop.call_later(
+                timeout_seconds,
+                self._finalize_request_and_cleanup,
+                pending_request
+            )
+
             output.append(pending_request)
 
 
