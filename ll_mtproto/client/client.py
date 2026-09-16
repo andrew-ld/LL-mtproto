@@ -40,7 +40,7 @@ from ll_mtproto.tl.tl_utils import TypedSchemaConstructor, flat_value_buffer
 from ll_mtproto.tl.tls_system import RpcError, DestroySessionOk, DestroySessionNone, FutureSalts, RpcResult, BadServerSalt, BadMsgNotification, \
     NewSessionCreated, Pong, MessageFromServer, MessageFromClient, UnencryptedMessage, MsgsAck
 
-__all__ = ("Client", "ClientInThread")
+__all__ = ("Client", "ClientInThread", "RpcCallContainerUserOrder")
 
 
 # noinspection PyProtectedMember
@@ -71,6 +71,24 @@ class ClientInThread(InThread):
 
     def __call__(self, target: typing.Callable[[], InThread.InThreadRetType]) -> asyncio.Future[InThread.InThreadRetType]:
         return asyncio.get_running_loop().run_in_executor(self._blocking_executor, target)
+
+
+class RpcCallContainerUserOrder:
+    __slots__ = ("requests", "depends_on", "serialized_requests")
+
+    requests: list[TlBodyData | BaseStructure] | list[TypedStructure[typing.Any]]
+    serialized_requests: list[Value] | None
+    depends_on: RpcCallContainerUserOrder | None
+
+    def __init__(
+            self,
+            requests: list[TlBodyData | BaseStructure] | list[TypedStructure[typing.Any]],
+            serialized_requests: list[Value] | None = None,
+            depends_on: RpcCallContainerUserOrder | None = None
+    ):
+        self.requests = requests
+        self.depends_on = depends_on
+        self.serialized_requests = serialized_requests
 
 
 class Client:
@@ -228,51 +246,47 @@ class Client:
         await self._start_mtproto_loop_if_needed()
         return await self._updates_queue.get()
 
-    async def rpc_call_container(
+    async def _serialize_rpc_call_container_user_order(
             self,
-            payloads: list[TlBodyData | BaseStructure] | list[TypedStructure[typing.Any]],
-            force_init_connection: bool = False,
-            serialized_payloads: list[Value] | None = None,
-            timeout_seconds: int | None = None,
-            ordered_server_side_processing: bool | None = None,
-    ) -> list[StructureValue | BaseException]:
-        if not payloads:
-            return []
+            output: list[PendingRequest],
+            payloads: RpcCallContainerUserOrder,
+            *,
+            force_init_connection: bool,
+            timeout_seconds: int
+    ) -> None:
+        invoke_after_requests: list[PendingRequest] = []
 
-        if timeout_seconds is None:
-            timeout_seconds = self._default_timeout_seconds
-
-        if ordered_server_side_processing is None:
-            ordered_server_side_processing = False
+        if payloads.depends_on:
+            await self._serialize_rpc_call_container_user_order(
+                invoke_after_requests,
+                payloads.depends_on,
+                force_init_connection=force_init_connection,
+                timeout_seconds=timeout_seconds
+            )
+            output.extend(invoke_after_requests)
 
         payloads_as_body_data: list[TlBodyData] = list(
             p.as_tl_body_data() if isinstance(p, BaseStructure) else p
-            for p in payloads
+            for p in payloads.requests
         )
 
-        if serialized_payloads is None:
-            serialized_payloads = await self._in_thread(lambda: list(map(self._datacenter.schema.boxed, payloads_as_body_data)))
+        serialized_requests = payloads.serialized_requests
 
-        if len(serialized_payloads) != len(payloads_as_body_data):
+        if serialized_requests is None:
+            serialized_requests = await self._in_thread(lambda: list(map(self._datacenter.schema.boxed, payloads_as_body_data)))
+
+        if len(serialized_requests) != len(payloads_as_body_data):
             raise TypeError("serialized payloads len and payloads len mismatches")
 
-        for payload, serialized_payload in zip(payloads_as_body_data, serialized_payloads):
+        for payload, serialized_payload in zip(payloads_as_body_data, serialized_requests):
             payload_cons = extract_cons_from_tl_body(payload)
             serialized_payload_cons = serialized_payload.cons.name
 
             if payload_cons != serialized_payload_cons:
                 raise TypeError(f"Serialized payload constructor type `{serialized_payload_cons!r}` mismatches payload cons `{payload_cons!r}`")
 
-        pending_requests: list[PendingRequest] = []
-        last_pending_request: None | PendingRequest = None
-
-        for payload, serialized_payload in zip(payloads_as_body_data, serialized_payloads):
-            invoke_after_requests: list[PendingRequest] | None = None
-
-            if ordered_server_side_processing and last_pending_request is not None:
-                invoke_after_requests = [last_pending_request]
-
-            pending_request = last_pending_request = PendingRequest(
+        for payload, serialized_payload in zip(payloads_as_body_data, serialized_requests):
+            pending_request = PendingRequest(
                 response=self._loop.create_future(),
                 message=payload,
                 seq_no_func=self._used_session_key.get_next_odd_seqno,
@@ -285,14 +299,50 @@ class Client:
             )
 
             pending_request.cleaner = self._loop.call_later(timeout_seconds, lambda: self._finalize_request_and_cleanup(pending_request))
-            pending_requests.append(pending_request)
+            output.append(pending_request)
+
+
+    async def rpc_call_container_user_order(
+            self,
+            payloads: RpcCallContainerUserOrder,
+            force_init_connection: bool = False,
+            timeout_seconds: int | None = None,
+    ) -> list[StructureValue | BaseException]:
+        if timeout_seconds is None:
+            timeout_seconds = self._default_timeout_seconds
+
+        requests: list[PendingRequest] = []
+
+        await self._serialize_rpc_call_container_user_order(
+            requests,
+            payloads,
+            force_init_connection=force_init_connection,
+            timeout_seconds=timeout_seconds
+        )
+
+        if not requests:
+            return []
 
         await self._start_mtproto_loop_if_needed()
-        await self._rpc_call(PendingContainerRequest(pending_requests))
+        await self._rpc_call(PendingContainerRequest(requests))
 
-        await asyncio.wait((request.response for request in pending_requests), return_when=asyncio.ALL_COMPLETED)
+        await asyncio.wait((request.response for request in requests), return_when=asyncio.ALL_COMPLETED)
 
-        return [request.get_value() for request in pending_requests]
+        return [request.get_value() for request in requests]
+
+
+    async def rpc_call_container(
+            self,
+            payloads: list[TlBodyData | BaseStructure] | list[TypedStructure[typing.Any]],
+            force_init_connection: bool = False,
+            serialized_payloads: list[Value] | None = None,
+            timeout_seconds: int | None = None,
+    ) -> list[StructureValue | BaseException]:
+        return await self.rpc_call_container_user_order(
+            payloads=RpcCallContainerUserOrder(payloads, serialized_payloads, None),
+            force_init_connection=force_init_connection,
+            timeout_seconds=timeout_seconds
+        )
 
     @typing.overload
     async def rpc_call(

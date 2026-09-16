@@ -3,13 +3,14 @@ import concurrent.futures
 import logging
 
 from ll_mtproto import TelegramDatacenter
-from ll_mtproto.client.client import Client
+from ll_mtproto.client.client import Client, RpcCallContainerUserOrder
 from ll_mtproto.client.connection_info import ConnectionInfo
 from ll_mtproto.crypto.auth_key import AuthKey
 from ll_mtproto.crypto.providers.crypto_provider_openssl.crypto_provider_openssl import CryptoProviderOpenSSL
 from ll_mtproto.network.transport.transport_address_resolver_cached import CachedTransportAddressResolver
 from ll_mtproto.network.transport.transport_codec_intermediate import TransportCodecIntermediateFactory
 from ll_mtproto.network.transport.transport_link_tcp import TransportLinkTcpFactory
+from ll_mtproto.tl.tls_application import Functions
 
 
 # noinspection PyProtectedMember
@@ -33,7 +34,6 @@ async def main():
         crypto_provider,
         use_perfect_forward_secrecy=True,
         no_updates=True,
-        write_queue_wakeup_delay_seconds=1
     )
 
     print(await session.rpc_call_container([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
@@ -48,7 +48,17 @@ async def main():
     session._used_session_key.server_salt = -1
     print(await session.rpc_call_container([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))
 
-    print(await session.rpc_call_container([{"_cons": "help.getConfig"}] * 1024, ordered_server_side_processing=True))
+    user_order = RpcCallContainerUserOrder(
+        requests=[Functions.HelpGetAppConfig(hash=0)] * 7,
+        depends_on=RpcCallContainerUserOrder(
+            requests=[Functions.HelpGetConfig()] * 3,
+            depends_on=RpcCallContainerUserOrder(
+                requests=[Functions.HelpGetConfig()],
+            )
+        )
+    )
+
+    await session.rpc_call_container_user_order(user_order)
 
     session.disconnect()
 
