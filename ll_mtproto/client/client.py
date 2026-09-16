@@ -274,6 +274,7 @@ class Client:
 
         if serialized_requests is None:
             serialized_requests = await self._in_thread(lambda: list(map(self._datacenter.schema.boxed, payloads_as_body_data)))
+            payloads.serialized_requests = serialized_requests
 
         if len(serialized_requests) != len(payloads_as_body_data):
             raise TypeError("serialized payloads len and payloads len mismatches")
