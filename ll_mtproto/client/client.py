@@ -638,13 +638,22 @@ class Client:
             request_body = self._wrap_into_init_connection(request_body)
 
         if message.invoke_after_requests:
-            invoke_after_msg_ids = [
-                req.last_message_id
+            uncompleted_requests = [
+                req
                 for req in message.invoke_after_requests
-                if not req.response.done() and req.last_message_id is not None
+                if not req.response.done()
             ]
 
-            request_body = self._wrap_into_invoke_after_msg_ids(request_body, invoke_after_msg_ids)
+            uncompleted_requests_msg_ids = [
+                req.last_message_id
+                for req in uncompleted_requests
+                if req.last_message_id is not None
+            ]
+
+            if len(uncompleted_requests_msg_ids) != len(uncompleted_requests):
+                logging.warning("missing some message id for _wrap_into_invoke_after_msg_ids")
+
+            request_body = self._wrap_into_invoke_after_msg_ids(request_body, uncompleted_requests_msg_ids)
 
         payload, message_id = await self._in_thread(lambda: mtproto.prepare_message_for_write(message.next_seq_no(), request_body))
 
