@@ -33,6 +33,7 @@ async def main():
         crypto_provider,
         use_perfect_forward_secrecy=True,
         no_updates=True,
+        write_queue_wakeup_delay_seconds=1
     )
 
     print(await session.rpc_call_container([{"_cons": "help.getConfig"}, {"_cons": "help.getConfig"}]))

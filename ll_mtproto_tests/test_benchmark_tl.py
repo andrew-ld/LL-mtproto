@@ -5,7 +5,7 @@ import typing
 
 from ll_mtproto import TelegramDatacenter
 from ll_mtproto.tl.structure import DynamicStructure
-from ll_mtproto.tl.tl import NativeByteReader
+from ll_mtproto.tl.tl import ByteReader
 
 tlobjpath = sys.argv[-1]
 
@@ -21,7 +21,7 @@ serialized = tlschema.serialize(True, tlobjcons, tlobjdict).get_flat_bytes()
 
 
 def test_read():
-    tlschema.read_by_boxed_data(NativeByteReader(serialized))
+    tlschema.read_by_boxed_data(ByteReader(serialized))
 
 
 def test_write():
