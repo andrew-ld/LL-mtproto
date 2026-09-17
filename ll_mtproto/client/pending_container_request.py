@@ -19,7 +19,6 @@ class PendingContainerRequest:
 
     requests: list[PendingRequest]
     last_message_id: int | None
-    ordered_processing: bool
 
     @staticmethod
     def _validate_request(request: PendingRequest) -> None:

@@ -316,6 +316,9 @@ class MTProtoKeyCreator:
         if len(p_string) + len(q_string) != 8:
             raise RuntimeError("Diffie–Hellman exchange failed: p q length is invalid, `%r`", pq)
 
+        if p * q != pq:
+            raise RuntimeError("Diffie–Hellman exchange failed: p q factorization is invalid, `%r`", pq)
+
         temp_key_expires_in = self.TEMP_AUTH_KEY_EXPIRE_TIME + self._datacenter.get_synchronized_time()
 
         dc_id = self._datacenter.datacenter_id

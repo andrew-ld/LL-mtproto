@@ -13,6 +13,7 @@
 
 
 import copy
+import logging
 import random
 import typing
 
@@ -54,10 +55,17 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
 
         for dc_option in supported_dc_options:
             found_datacenter = next(
-                datacenter
-                for datacenter in datacenters
-                if datacenter.datacenter_id == dc_option.id and datacenter.is_media == bool(dc_option.media_only)
+                (
+                    datacenter
+                    for datacenter in datacenters
+                    if datacenter.datacenter_id == dc_option.id and datacenter.is_media == dc_option.media_only
+                ),
+                None
             )
+
+            if found_datacenter is None:
+                logging.debug("no known datacenter for dc option %r, skipping", dc_option)
+                continue
 
             self.on_new_address(found_datacenter, dc_option.ip_address, dc_option.port)
 

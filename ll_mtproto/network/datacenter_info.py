@@ -58,6 +58,10 @@ class DatacenterInfo:
     def get_synchronized_time(self) -> int:
         return int(time.time()) + self._time_difference
 
+    @staticmethod
+    def get_synchronized_time_fraction() -> int:
+        return int((time.time() % 1) * (1 << 32))
+
     def __copy__(self) -> "DatacenterInfo":
         return DatacenterInfo(
             self.default_direct_address,

@@ -548,6 +548,32 @@ class Client:
             if container_message_last_message_id := container_message.last_message_id:
                 self._pending_requests.pop(container_message_last_message_id, None)
 
+    def _retries_exhausted(self, request: PendingRequest | PendingContainerRequest) -> bool:
+        match request:
+            case PendingContainerRequest():
+                return all(member.retries >= self._on_server_side_error_retries for member in request.requests)
+
+            case _:
+                return request.retries >= self._on_server_side_error_retries
+
+    def _finalize_pending_request_with_error(self, request: PendingRequest | PendingContainerRequest, error: BaseException) -> None:
+        match request:
+            case PendingContainerRequest():
+                for member in request.requests:
+                    if not member.response.done():
+                        member.response.set_exception(error)
+
+                    self._finalize_request_and_cleanup(member)
+
+            case PendingRequest():
+                if not request.response.done():
+                    request.response.set_exception(error)
+
+                self._finalize_request_and_cleanup(request)
+
+            case _:
+                raise TypeError(fr"Unexpected object in pending messages `{request!r}`")
+
     def _finalize_request_and_cleanup(self, request: PendingRequest) -> None:
         if last_message_id := request.last_message_id:
             self._pending_requests.pop(last_message_id, None)
@@ -727,12 +753,11 @@ class Client:
 
     async def _mtproto_write_loop(self, mtproto: MTProto) -> None:
         while True:
+            raw_items = [await self._write_queue.get()]
+
             if self._write_queue_wakeup_delay_seconds and self._write_queue.empty():
                 await asyncio.sleep(self._write_queue_wakeup_delay_seconds)
-            else:
-                await asyncio.sleep(0)
 
-            raw_items = [await self._write_queue.get()]
             while not self._write_queue.empty():
                 raw_items.append(self._write_queue.get_nowait())
                 await asyncio.sleep(0)
@@ -804,7 +829,7 @@ class Client:
         read_task = self._loop.create_task(self._mtproto_read_loop(mtproto))
         write_task = self._loop.create_task(self._mtproto_write_loop(mtproto))
 
-        for unused_session in self._used_session_key.unused_sessions:
+        for unused_session in tuple(self._used_session_key.unused_sessions):
             await self._create_destroy_session_request(unused_session)
 
         # noinspection PyBroadException
@@ -877,7 +902,7 @@ class Client:
 
     def _process_session_destroy(self, body: DestroySessionOk | DestroySessionNone) -> None:
         logging.debug("session destroy received: %s", body.constructor_name)
-        self._used_session_key.unused_sessions.remove(body.session_id)
+        self._used_session_key.unused_sessions.discard(body.session_id)
         self._used_session_key.flush_changes()
 
     def _process_future_salts(self, body: FutureSalts) -> None:
@@ -964,7 +989,10 @@ class Client:
         logging.debug("updating salt: %d", body.new_server_salt)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            await self._rpc_call(bad_request)
+            if self._retries_exhausted(bad_request):
+                self._finalize_pending_request_with_error(bad_request, RpcErrorException(body.error_code, "BAD_SERVER_SALT", None))
+            else:
+                await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -980,26 +1008,16 @@ class Client:
 
     async def _process_bad_msg_notification_reject_message(self, body: BadMsgNotification) -> None:
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            rpc_error = RpcErrorException(body.error_code, "BAD_MSG_NOTIFICATION", None)
-
-            match bad_request:
-                case PendingContainerRequest():
-                    for request in bad_request.requests:
-                        request.response.set_exception(rpc_error)
-                        self._finalize_request_and_cleanup(request)
-
-                case PendingRequest():
-                    bad_request.response.set_exception(rpc_error)
-                    self._finalize_request_and_cleanup(bad_request)
-
-                case _:
-                    raise TypeError(fr"Unexpected object in pending messages `{bad_request!r}`")
+            self._finalize_pending_request_with_error(bad_request, RpcErrorException(body.error_code, "BAD_MSG_NOTIFICATION", None))
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
     async def _process_bad_msg_notification_msg_seqno_too_high(self, body: BadMsgNotification) -> None:
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            await self._rpc_call(bad_request)
+            if self._retries_exhausted(bad_request):
+                self._finalize_pending_request_with_error(bad_request, RpcErrorException(body.error_code, "BAD_MSG_NOTIFICATION", None))
+            else:
+                await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -1012,7 +1030,10 @@ class Client:
         logging.debug("updating seqno by %d to %d", session.seqno_increment, session.seqno)
 
         if bad_request := self._pending_requests.pop(body.bad_msg_id, None):
-            await self._rpc_call(bad_request)
+            if self._retries_exhausted(bad_request):
+                self._finalize_pending_request_with_error(bad_request, RpcErrorException(body.error_code, "BAD_MSG_NOTIFICATION", None))
+            else:
+                await self._rpc_call(bad_request)
         else:
             logging.debug("bad_msg_id %d not found", body.bad_msg_id)
 
@@ -1079,8 +1100,7 @@ class Client:
                     self._used_session_key.flush_changes()
                     self.disconnect()
 
-                else:
-                    self._finalize_response_throw_rpc_error(result.error_message, error_code, pending_request)
+                self._finalize_response_throw_rpc_error(result.error_message, error_code, pending_request)
 
             elif pending_request.retries >= self._on_server_side_error_retries:
                 self._finalize_response_throw_rpc_error(result.error_message, error_code, pending_request)

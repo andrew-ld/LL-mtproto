@@ -106,7 +106,7 @@ class MTProto:
         self._message_inner_data_from_server_constructor = TypedSchemaConstructor(datacenter.schema, MessageInnerDataFromServer)
 
     def get_next_message_id(self) -> int:
-        message_id = self._datacenter.get_synchronized_time() << 32
+        message_id = (self._datacenter.get_synchronized_time() << 32) | (self._datacenter.get_synchronized_time_fraction() & 0xFFFFFFFC)
 
         if message_id <= self._last_message_id:
             message_id = self._last_message_id + 1
@@ -220,7 +220,7 @@ class MTProto:
 
             remaining_plain_buffer = msg_aes_stream.remaining_plain_buffer()
 
-            if len(remaining_plain_buffer) not in range(12, 1024):
+            if not 12 <= len(remaining_plain_buffer) <= 1024:
                 raise ValueError("Received a message with wrong padding length!")
 
             await self._in_thread(lambda: plain_sha256.update(remaining_plain_buffer))
