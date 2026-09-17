@@ -758,6 +758,7 @@ class Schema:
                     raise SyntaxError(f"Error in flag: `{parameter_token}`")
 
                 flag_index = int(flag_parsed["flag_index"]) if "flag_index" in flag_parsed else 0
+                flag_index = max(flag_index - 1, 0)
             else:
                 flag_parsed = None
                 flag_index = None
@@ -784,15 +785,16 @@ class Schema:
                 element_parameter = None
 
             if parameter_parsed:
+                flag_index = int(parameter_parsed["flag_index"]) if "flag_index" in parameter_parsed else 0
+                flag_index = max(flag_index - 1, 0)
+
                 parameter = Parameter(
                     pname=sys.intern(parameter_parsed["name"]),
                     ptype=sys.intern(parameter_parsed["type"]),
                     flag_number=int(parameter_parsed["flag_number"])
                     if "flag_number" in parameter_parsed
                     else None,
-                    flag_index=int(parameter_parsed["flag_index"])
-                    if "flag_index" in parameter_parsed
-                    else 0,
+                    flag_index=flag_index,
                     is_vector=is_vector,
                     is_boxed="boxed_vector" in parameter_parsed if is_vector else "boxed" in parameter_parsed,
                     element_parameter=element_parameter,
@@ -1069,7 +1071,7 @@ class ParameterFlag:
     def __init__(self, flag_index: int, flag_number: int):
         self.flag_index = flag_index
         self.flag_number = flag_number
-        self.extended_flag_mask = (1 << flag_number) << (max(0, flag_index - 1) * 31)
+        self.extended_flag_mask = (1 << flag_number) << (flag_index * 31)
         self.group_id = -1
 
     def __repr__(self) -> str:
@@ -1133,7 +1135,7 @@ class Parameter:
         self.element_parameter = element_parameter
         self.is_flag = is_flag
         self.flag_index = flag_index if is_flag else None
-        self.extended_flag_index = (max(0, flag_index - 1) * 31) if flag_index is not None else None
+        self.extended_flag_index = (flag_index * 31) if flag_index is not None else None
         self.is_primitive = ptype in _primitives
         self.required = flag_number is None
         self.parameter_flag = None if flag_number is None or flag_index is None else ParameterFlag(flag_index, flag_number)
