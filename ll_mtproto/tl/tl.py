@@ -1409,10 +1409,11 @@ class BytesFieldDeserialization(AbstractDeserializationStep):
 
 
 class FlagFieldDeserialization(AbstractDeserializationStep):
-    __slots__ = ("_shift", "_true_parameters")
+    __slots__ = ("_shift", "_true_parameters", "_true_parameters_combined_mask")
 
     _shift: typing.Final[int]
     _true_parameters: typing.Final[tuple[tuple[int, str], ...]]
+    _true_parameters_combined_mask: typing.Final[int]
 
     @staticmethod
     def is_supported(parameter: "Parameter") -> bool:
@@ -1434,21 +1435,28 @@ class FlagFieldDeserialization(AbstractDeserializationStep):
             if p.type == "true" and p.parameter_flag is not None and p.parameter_flag.flag_index == parameter.flag_index
         )
 
+        true_parameters_combined_mask = 0
+
+        for (flag_mask, _) in true_parameters:
+            true_parameters_combined_mask |= flag_mask
+
         if not true_parameters:
-            return FlagFieldDeserializationWithoutTrue(shift, true_parameters)
+            return FlagFieldDeserializationWithoutTrue(shift, true_parameters, true_parameters_combined_mask)
 
-        return cls(shift, true_parameters)
+        return cls(shift, true_parameters, true_parameters_combined_mask)
 
-    def __init__(self, shift: int, true_parameters: tuple[tuple[int, str], ...]) -> None:
+    def __init__(self, shift: int, true_parameters: tuple[tuple[int, str], ...], true_parameters_combined_mask: int) -> None:
         self._shift = shift
         self._true_parameters = true_parameters
+        self._true_parameters_combined_mask = true_parameters_combined_mask
 
     def deserialize_bare_data(self, reader: ByteReader, output: "TlBodyData", flags: int) -> int:
         flags = reader.read_u32()
 
-        for (flag_mask, flag_name) in self._true_parameters:
-            if flags & flag_mask:
-                output[flag_name] = True
+        if flags & self._true_parameters_combined_mask:
+            for (flag_mask, flag_name) in self._true_parameters:
+                if flags & flag_mask:
+                    output[flag_name] = True
 
         return flags << self._shift
 
