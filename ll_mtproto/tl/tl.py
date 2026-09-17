@@ -422,6 +422,13 @@ def _write_gzip(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     raise TypeError(f"Cannot serialize python {argument!r} as `gzip`")
 
 
+def _patch_i32_le(writer: BytesWriter, offset: int, value: int) -> None:
+    writer[offset] = value & 0xFF
+    writer[offset + 1] = (value >> 8) & 0xFF
+    writer[offset + 2] = (value >> 16) & 0xFF
+    writer[offset + 3] = (value >> 24) & 0xFF
+
+
 # Ints, not an Enum: mypyc turns the dispatch chain into direct calls.
 _KIND_TRUE: typing.Final = 0
 _KIND_BOOL: typing.Final = 1
@@ -987,6 +994,12 @@ class Schema:
     def serialize(self, boxed: bool, cons_name: str, body: "TlBodyData") -> "Value":
         if cons := self.constructors.get(cons_name, None):
             return cons.serialize(boxed, body)
+        else:
+            raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
+
+    def serialize_into(self, writer: BytesWriter, boxed: bool, cons_name: str, body: "TlBodyData") -> None:
+        if cons := self.constructors.get(cons_name, None):
+            cons.serialize_into(writer, boxed, body)
         else:
             raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
 
@@ -1636,6 +1649,39 @@ class Constructor:
     def __repr__(self) -> str:
         return self.line
 
+    def _append_primitive_body(self, writer: BytesWriter, parameter: Parameter, cons_name: str, body: "TlBodyData") -> None:
+        serialize_kind = parameter.serialize_kind
+
+        if serialize_kind == _KIND_RAWOBJECT:
+            self.schema.serialize_into(writer, parameter.is_boxed, cons_name, body)
+            return
+
+        if serialize_kind == _KIND_PLAIN_OBJECT:
+            length_offset = len(writer)
+            write_i32_le(writer, 0)
+            self.schema.serialize_into(writer, parameter.is_boxed, cons_name, body)
+            _patch_i32_le(writer, length_offset, len(writer) - length_offset - 4)
+            return
+
+        if serialize_kind == _KIND_PADDED_OBJECT:
+            length_offset = len(writer)
+            write_i32_le(writer, 0)
+            self.schema.serialize_into(writer, parameter.is_boxed, cons_name, body)
+            data_len = len(writer) - length_offset - 4
+            padding_len = -data_len & 15
+            padding_len += 16 * (_randbits(64) % 16)
+            writer.write(_randbytes(padding_len))
+            _patch_i32_le(writer, length_offset, data_len + padding_len)
+            return
+
+        if serialize_kind == _KIND_GZIP:
+            nested_writer = BytesWriter()
+            self.schema.serialize_into(nested_writer, parameter.is_boxed, cons_name, body)
+            writer.write(pack_binary_string(_gzip_compress(nested_writer.getvalue())))
+            return
+
+        raise TypeError(f"Unknown primitive body parameter `{parameter!r}`")
+
     def _append_argument(self, writer: BytesWriter, parameter: Parameter, argument: typing.Union["TlBodyDataValue", "Value"]) -> None:
         if parameter.accepts_str and isinstance(argument, str):
             argument = argument.encode("utf-8")
@@ -1644,23 +1690,17 @@ class Constructor:
             cons_name = typing.cast(str, argument["_cons"])
 
             if parameter.is_primitive:
-                argument = self.schema.serialize(parameter.is_boxed, cons_name, argument)
-            else:
-                nested = self.schema.constructors.get(cons_name, None)
-
-                if nested is None:
-                    raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
-
-                self.schema.typecheck_cons(parameter, nested)
-
-                if parameter.is_boxed:
-                    if nested.number is None:
-                        raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{nested!r}`")
-
-                    write_i32_le(writer, nested.number_int)
-
-                nested._serialize_fields(writer, argument)
+                self._append_primitive_body(writer, parameter, cons_name, argument)
                 return
+
+            nested = self.schema.constructors.get(cons_name, None)
+
+            if nested is None:
+                raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
+
+            self.schema.typecheck_cons(parameter, nested)
+            nested.serialize_into(writer, parameter.is_boxed, argument)
+            return
 
         if parameter.is_primitive:
             serialize_kind = parameter.serialize_kind
@@ -1681,7 +1721,7 @@ class Constructor:
             element_parameter = parameter.element_parameter
 
             if element_parameter is None:
-                raise TypeError(f"Unknown vector parameter type {parameter:!r}")
+                raise TypeError(f"Unknown vector parameter type {parameter!r}")
 
             for element_argument in argument:
                 self._append_argument(writer, element_parameter, element_argument)
@@ -1763,9 +1803,7 @@ class Constructor:
 
                 raise TypeError(f"Missing parameters `{missing!r}` in `{self.name}` for flag number `{flag_number}` in flags index `{flag_index}`")
 
-    def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
-        writer = BytesWriter()
-
+    def serialize_into(self, writer: BytesWriter, boxed: bool, body: "TlBodyData") -> None:
         if boxed:
             if self.number is None:
                 raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{self!r}`")
@@ -1773,6 +1811,10 @@ class Constructor:
             write_i32_le(writer, self.number_int)
 
         self._serialize_fields(writer, body)
+
+    def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
+        writer = BytesWriter()
+        self.serialize_into(writer, boxed, body)
         return Value(self, boxed, writer.getvalue())
 
     def deserialize_boxed_data(self, reader: ByteReader) -> "TlBodyData":
