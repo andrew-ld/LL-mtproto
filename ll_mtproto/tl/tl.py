@@ -1796,11 +1796,7 @@ class Constructor:
 
         if flag_values is not None:
             for slot, flag_index in flag_slots:
-                flag_word = flag_values[flag_index]
-                writer[slot] = flag_word & 0xFF
-                writer[slot + 1] = (flag_word >> 8) & 0xFF
-                writer[slot + 2] = (flag_word >> 16) & 0xFF
-                writer[slot + 3] = (flag_word >> 24) & 0xFF
+                _patch_i32_le(writer, slot, flag_values[flag_index])
 
         if group_counts is not None:
             for group_id, (flag_number, flag_index, names, parameters_len) in enumerate(groups):
