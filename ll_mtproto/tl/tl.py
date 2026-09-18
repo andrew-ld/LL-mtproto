@@ -1543,7 +1543,8 @@ class Constructor:
         "is_gzip_container",
         "line",
         "on_serialize_flags_empty_value_list",
-        "on_serialize_flags_check_table_empty_group_count_list"
+        "on_serialize_flags_check_table_empty_group_count_list",
+        "has_flags"
     )
 
     schema: typing.Final[Schema]
@@ -1563,6 +1564,7 @@ class Constructor:
     line: typing.Final[str]
     on_serialize_flags_empty_value_list: typing.Final[list[int]]
     on_serialize_flags_check_table_empty_group_count_list: typing.Final[list[int]]
+    has_flags: typing.Final[bool]
 
     def __init__(
             self,
@@ -1593,6 +1595,7 @@ class Constructor:
         self.flag_words_count = 0 if cons_flags is None else max(cons_flags) + 1
         self.on_serialize_flags_empty_value_list = [0] * self.flag_words_count
         self.on_serialize_flags_check_table_empty_group_count_list = [0] * len(self.flags_check_table)
+        self.has_flags = cons_flags is not None or any(p.parameter_flag is not None for p in parameters)
         self.is_gzip_container = name == "gzip_packed"
 
     def boxed_buffer_match(self, buffer: bytes | bytearray | Value) -> bool:
@@ -1700,33 +1703,7 @@ class Constructor:
         raise TypeError(f"Unknown primitive body parameter `{parameter!r}`")
 
     def _append_argument(self, writer: BytesWriter, parameter: Parameter, argument: typing.Union["TlBodyDataValue", "Value"]) -> None:
-        if parameter.accepts_str and isinstance(argument, str):
-            argument = argument.encode("utf-8")
-
-        if parameter.accepts_dict and isinstance(argument, dict):
-            cons_name = typing.cast(str, argument["_cons"])
-
-            if parameter.is_primitive:
-                self._append_primitive_body(writer, parameter, cons_name, argument)
-                return
-
-            nested = self.schema.constructors.get(cons_name, None)
-
-            if nested is None:
-                raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
-
-            self.schema.typecheck_cons(parameter, nested)
-            nested.serialize_into(writer, parameter.is_boxed, argument)
-            return
-
-        if parameter.is_primitive:
-            serialize_kind = parameter.serialize_kind
-
-            if serialize_kind < 0:
-                raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
-
-            _write_primitive(writer, serialize_kind, argument)
-        elif parameter.is_vector:
+        if parameter.is_vector:
             if parameter.is_boxed:
                 write_i32_le(writer, _vector_cons_number_int)
 
@@ -1742,17 +1719,67 @@ class Constructor:
 
             for element_argument in argument:
                 self._append_argument(writer, element_parameter, element_argument)
-        else:
-            self.schema.typecheck(parameter, argument)
+            return
 
-            if isinstance(argument, bytes):
-                writer.write(argument)
-            elif isinstance(argument, Value):
-                writer.write(argument.get_flat_bytes())
-            else:
-                raise TypeError(f"For parameter {parameter!r} expected a serialized value, but found `{argument!r}`")
+        if parameter.is_primitive:
+            if parameter.accepts_str and isinstance(argument, str):
+                argument = argument.encode("utf-8")
+
+            if parameter.accepts_dict and isinstance(argument, dict):
+                self._append_primitive_body(writer, parameter, typing.cast(str, argument["_cons"]), argument)
+                return
+
+            serialize_kind = parameter.serialize_kind
+
+            if serialize_kind < 0:
+                raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
+
+            _write_primitive(writer, serialize_kind, argument)
+            return
+
+        if isinstance(argument, dict):
+            cons_name = typing.cast(str, argument["_cons"])
+            nested = self.schema.constructors.get(cons_name, None)
+
+            if nested is None:
+                raise NotImplementedError(f"Constructor `{cons_name}` not present in schema.")
+
+            self.schema.typecheck_cons(parameter, nested)
+            nested.serialize_into(writer, parameter.is_boxed, argument)
+            return
+
+        self.schema.typecheck(parameter, argument)
+
+        if isinstance(argument, bytes):
+            writer.write(argument)
+        elif isinstance(argument, Value):
+            writer.write(argument.get_flat_bytes())
+        else:
+            raise TypeError(f"For parameter {parameter!r} expected a serialized value, but found `{argument!r}`")
 
     def _serialize_fields(self, writer: BytesWriter, body: "TlBodyData") -> None:
+        if self.has_flags:
+            self._serialize_fields_flagged(writer, body)
+        else:
+            self._serialize_fields_plain(writer, body)
+
+    def _serialize_fields_plain(self, writer: BytesWriter, body: "TlBodyData") -> None:
+        for parameter in self.parameters:
+            argument = body.get(parameter.name)
+
+            if argument is None:
+                if parameter.required:
+                    raise TypeError(f"required `{parameter}` is missing in `{self.name}`")
+                continue
+
+            direct_serialize_kind = parameter.direct_serialize_kind
+
+            if direct_serialize_kind >= 0:
+                _write_primitive(writer, direct_serialize_kind, argument)
+            else:
+                self._append_argument(writer, parameter, argument)
+
+    def _serialize_fields_flagged(self, writer: BytesWriter, body: "TlBodyData") -> None:
         flag_slots: list[tuple[int, int]] = []
         flag_values: list[int] = self.on_serialize_flags_empty_value_list.copy()
         group_counts: list[int] = self.on_serialize_flags_check_table_empty_group_count_list.copy()
@@ -1777,7 +1804,7 @@ class Constructor:
 
                 group_id = parameter_flag.group_id
 
-                if group_counts is not None and group_id >= 0:
+                if group_id >= 0:
                     group_counts[group_id] += 1
 
             direct_serialize_kind = parameter.direct_serialize_kind
@@ -1811,7 +1838,18 @@ class Constructor:
 
     def serialize(self, boxed: bool, body: "TlBodyData") -> Value:
         writer = BytesWriter()
-        self.serialize_into(writer, boxed, body)
+
+        if boxed:
+            if self.number is None:
+                raise RuntimeError(f"Tried to create a boxed value for a numberless constructor `{self!r}`")
+
+            write_i32_le(writer, self.number_int)
+
+        if self.has_flags:
+            self._serialize_fields_flagged(writer, body)
+        else:
+            self._serialize_fields_plain(writer, body)
+
         return Value(self, boxed, writer.getvalue())
 
     def deserialize_boxed_data(self, reader: ByteReader) -> "TlBodyData":
