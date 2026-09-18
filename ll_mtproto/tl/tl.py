@@ -171,8 +171,6 @@ _vector_cons_number_int: typing.Final["i32"] = _compile_cons_number(b"vector t:T
 
 _zero_padding: typing.Final = (b"", b"\x00", b"\x00\x00", b"\x00\x00\x00")
 
-_NO_FLAG_SLOTS: typing.Final[list[tuple[int, int]]] = []
-
 
 def pack_binary_string(data: bytes) -> bytes:
     writer = BytesWriter()
@@ -1096,12 +1094,14 @@ class Parameter:
         "direct_serialize_kind",
         "accepts_str",
         "accepts_dict",
-        "typecheck_constructors"
+        "typecheck_constructors",
+        "non_null_flag_index"
     )
 
     name: typing.Final[str]
     type: typing.Final[str | None]
     flag_index: typing.Final[int | None]
+    non_null_flag_index: typing.Final[int]
     is_vector: typing.Final[bool]
     is_boxed: typing.Final[bool]
     is_flag: typing.Final[bool]
@@ -1145,6 +1145,7 @@ class Parameter:
         self.accepts_dict = ptype in _value_accepting_primitives or (not self.is_primitive and not is_vector)
         self.direct_serialize_kind = -1 if self.accepts_str or self.accepts_dict else self.serialize_kind
         self.typecheck_constructors = None
+        self.non_null_flag_index = 0 if self.flag_index is None else self.flag_index
 
     def __repr__(self) -> str:
         if self.parameter_flag is not None:
@@ -1540,7 +1541,9 @@ class Constructor:
         "deserialization_default_dict",
         "flag_words_count",
         "is_gzip_container",
-        "line"
+        "line",
+        "on_serialize_flags_empty_value_list",
+        "on_serialize_flags_check_table_empty_group_count_list"
     )
 
     schema: typing.Final[Schema]
@@ -1558,6 +1561,8 @@ class Constructor:
     flag_words_count: typing.Final[int]
     is_gzip_container: typing.Final[bool]
     line: typing.Final[str]
+    on_serialize_flags_empty_value_list: typing.Final[list[int]]
+    on_serialize_flags_check_table_empty_group_count_list: typing.Final[list[int]]
 
     def __init__(
             self,
@@ -1586,6 +1591,8 @@ class Constructor:
         self.deserialization_default_dict = self._generate_deserialization_default_dict(parameters, name)
         cons_flags = self.flags
         self.flag_words_count = 0 if cons_flags is None else max(cons_flags) + 1
+        self.on_serialize_flags_empty_value_list = [0] * self.flag_words_count
+        self.on_serialize_flags_check_table_empty_group_count_list = [0] * len(self.flags_check_table)
         self.is_gzip_container = name == "gzip_packed"
 
     def boxed_buffer_match(self, buffer: bytes | bytearray | Value) -> bool:
@@ -1746,24 +1753,13 @@ class Constructor:
                 raise TypeError(f"For parameter {parameter!r} expected a serialized value, but found `{argument!r}`")
 
     def _serialize_fields(self, writer: BytesWriter, body: "TlBodyData") -> None:
-        cons_flags = self.flags
-        flag_values: list[int] | None = [0] * self.flag_words_count if cons_flags is not None else None
-        flag_slots: list[tuple[int, int]] = [] if cons_flags is not None else _NO_FLAG_SLOTS
-
-        groups = self.flags_check_table
-        group_counts = [0] * len(groups) if groups else None
+        flag_slots: list[tuple[int, int]] = []
+        flag_values: list[int] = self.on_serialize_flags_empty_value_list.copy()
+        group_counts: list[int] = self.on_serialize_flags_check_table_empty_group_count_list.copy()
 
         for parameter in self.parameters:
             if parameter.is_flag:
-                flag_index = parameter.flag_index
-
-                if flag_index is None:
-                    raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
-
-                if flag_values is None:
-                    raise TypeError(f"Tried to append flag to data for a flagless constructor `{self!r}`")
-
-                flag_slots.append((len(writer), flag_index))
+                flag_slots.append((len(writer), parameter.non_null_flag_index))
                 write_i32_le(writer, 0)
                 continue
 
@@ -1777,9 +1773,6 @@ class Constructor:
             parameter_flag = parameter.parameter_flag
 
             if parameter_flag is not None:
-                if flag_values is None:
-                    raise TypeError(f"Tried to set flag for a flagless constructor `{self!r}`")
-
                 flag_values[parameter_flag.flag_index] |= 1 << parameter_flag.flag_number
 
                 group_id = parameter_flag.group_id
@@ -1794,20 +1787,18 @@ class Constructor:
             else:
                 self._append_argument(writer, parameter, argument)
 
-        if flag_values is not None:
-            for slot, flag_index in flag_slots:
-                _patch_i32_le(writer, slot, flag_values[flag_index])
+        for slot, flag_index in flag_slots:
+            _patch_i32_le(writer, slot, flag_values[flag_index])
 
-        if group_counts is not None:
-            for group_id, (flag_number, flag_index, names, parameters_len) in enumerate(groups):
-                present_len = group_counts[group_id]
+        for group_id, (flag_number, flag_index, names, parameters_len) in enumerate(self.flags_check_table):
+            present_len = group_counts[group_id]
 
-                if present_len == 0 or present_len == parameters_len:
-                    continue
+            if present_len == 0 or present_len == parameters_len:
+                continue
 
-                missing = {name for name in names if body.get(name) is None}
+            missing = {name for name in names if body.get(name) is None}
 
-                raise TypeError(f"Missing parameters `{missing!r}` in `{self.name}` for flag number `{flag_number}` in flags index `{flag_index}`")
+            raise TypeError(f"Missing parameters `{missing!r}` in `{self.name}` for flag number `{flag_number}` in flags index `{flag_index}`")
 
     def serialize_into(self, writer: BytesWriter, boxed: bool, body: "TlBodyData") -> None:
         if boxed:
