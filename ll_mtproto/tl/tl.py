@@ -1777,7 +1777,7 @@ class Constructor:
                 self._append_argument(writer, parameter, argument)
 
     def _serialize_fields_flagged(self, writer: BytesWriter, body: "TlBodyData") -> None:
-        flag_slots: vec[i32] = vec[i32]([0] * self.flag_words_count)
+        flag_slots: vec[i32] = vec[i32]([0] * self.flag_words_count, capacity=self.flag_words_count)
         flag_values: vec[i32] = vec[i32]([0] * self.flag_words_count, capacity=self.flag_words_count)
         group_counts: vec[i32] = vec[i32]([0] * self.flags_check_table_len, capacity=self.flags_check_table_len)
 
