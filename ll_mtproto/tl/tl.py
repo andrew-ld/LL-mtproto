@@ -1542,9 +1542,8 @@ class Constructor:
         "flag_words_count",
         "is_gzip_container",
         "line",
-        "on_serialize_flags_empty_value_list",
-        "on_serialize_flags_check_table_empty_group_count_list",
-        "has_flags"
+        "has_flags",
+        "flags_check_table_len"
     )
 
     schema: typing.Final[Schema]
@@ -1562,8 +1561,7 @@ class Constructor:
     flag_words_count: typing.Final[int]
     is_gzip_container: typing.Final[bool]
     line: typing.Final[str]
-    on_serialize_flags_empty_value_list: typing.Final[list[int]]
-    on_serialize_flags_check_table_empty_group_count_list: typing.Final[list[int]]
+    flags_check_table_len: typing.Final[int]
     has_flags: typing.Final[bool]
 
     def __init__(
@@ -1590,11 +1588,10 @@ class Constructor:
         self.ptype_parameter = ptype_parameter
         self.deserialization_optimized_parameters = self._optimize_parameters_for_deserialization(parameters)
         self.flags_check_table = self._generate_flags_check_table(parameters)
+        self.flags_check_table_len = len(self.flags_check_table)
         self.deserialization_default_dict = self._generate_deserialization_default_dict(parameters, name)
         cons_flags = self.flags
         self.flag_words_count = 0 if cons_flags is None else max(cons_flags) + 1
-        self.on_serialize_flags_empty_value_list = [0] * self.flag_words_count
-        self.on_serialize_flags_check_table_empty_group_count_list = [0] * len(self.flags_check_table)
         self.has_flags = cons_flags is not None or any(p.parameter_flag is not None for p in parameters)
         self.is_gzip_container = name == "gzip_packed"
 
@@ -1780,13 +1777,13 @@ class Constructor:
                 self._append_argument(writer, parameter, argument)
 
     def _serialize_fields_flagged(self, writer: BytesWriter, body: "TlBodyData") -> None:
-        flag_slots: list[tuple[int, int]] = []
-        flag_values: list[int] = self.on_serialize_flags_empty_value_list.copy()
-        group_counts: list[int] = self.on_serialize_flags_check_table_empty_group_count_list.copy()
+        flag_slots: vec[i32] = vec[i32]([0] * self.flag_words_count)
+        flag_values: vec[i32] = vec[i32]([0] * self.flag_words_count, capacity=self.flag_words_count)
+        group_counts: vec[i32] = vec[i32]([0] * self.flags_check_table_len, capacity=self.flags_check_table_len)
 
         for parameter in self.parameters:
             if parameter.is_flag:
-                flag_slots.append((len(writer), parameter.non_null_flag_index))
+                flag_slots[parameter.non_null_flag_index] = len(writer)
                 write_i32_le(writer, 0)
                 continue
 
@@ -1814,8 +1811,11 @@ class Constructor:
             else:
                 self._append_argument(writer, parameter, argument)
 
-        for slot, flag_index in flag_slots:
-            _patch_i32_le(writer, slot, flag_values[flag_index])
+        flag_patch_index = 0
+
+        while flag_patch_index < self.flag_words_count:
+            _patch_i32_le(writer, flag_slots[flag_patch_index], flag_values[flag_patch_index])
+            flag_patch_index += 1
 
         for group_id, (flag_number, flag_index, names, parameters_len) in enumerate(self.flags_check_table):
             present_len = group_counts[group_id]
