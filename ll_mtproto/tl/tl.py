@@ -1556,7 +1556,7 @@ class Constructor:
     is_function: typing.Final[bool]
     ptype_parameter: typing.Final[Parameter | None]
     deserialization_optimized_parameters: typing.Final[_OptimizedParameters]
-    flags_check_table: typing.Final[tuple[tuple[int, int, frozenset[str], int], ...]]
+    flags_check_table: typing.Final[tuple[tuple[int, int, frozenset[str], int, int], ...]]
     deserialization_default_dict: typing.Final["TlBodyData"]
     flag_words_count: typing.Final[int]
     is_gzip_container: typing.Final[bool]
@@ -1615,7 +1615,7 @@ class Constructor:
         return dict(elements)
 
     @staticmethod
-    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> tuple[tuple[int, int, frozenset[str], int], ...]:
+    def _generate_flags_check_table(parameters: tuple[Parameter, ...]) -> tuple[tuple[int, int, frozenset[str], int, int], ...]:
         table: dict[tuple[int, int], list[Parameter]] = dict()
 
         for parameter in parameters:
@@ -1626,7 +1626,7 @@ class Constructor:
 
             table.setdefault((parameter_flag.flag_number, parameter_flag.flag_index), []).append(parameter)
 
-        groups: list[tuple[int, int, frozenset[str], int]] = []
+        groups: list[tuple[int, int, frozenset[str], int, int]] = []
 
         for (flag_number, flag_index), members in table.items():
             if len(members) < 2:
@@ -1640,7 +1640,7 @@ class Constructor:
                 if parameter_flag is not None:
                     parameter_flag.group_id = group_id
 
-            groups.append((flag_number, flag_index, frozenset(parameter.name for parameter in members), len(members)))
+            groups.append((flag_number, flag_index, frozenset(parameter.name for parameter in members), len(members), group_id))
 
         return tuple(groups)
 
@@ -1817,7 +1817,7 @@ class Constructor:
             _patch_i32_le(writer, flag_slots[flag_patch_index], flag_values[flag_patch_index])
             flag_patch_index += 1
 
-        for group_id, (flag_number, flag_index, names, parameters_len) in enumerate(self.flags_check_table):
+        for (flag_number, flag_index, names, parameters_len, group_id) in self.flags_check_table:
             present_len = group_counts[group_id]
 
             if present_len == 0 or present_len == parameters_len:
