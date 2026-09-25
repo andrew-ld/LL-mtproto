@@ -31,7 +31,7 @@ from librt.strings import (
     write_i64_le,
 )
 from librt.vecs import vec
-from mypy_extensions import i32, i64
+from mypy_extensions import i32, i64, u8
 
 __all__ = (
     "Schema",
@@ -420,11 +420,11 @@ def _write_gzip(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
     raise TypeError(f"Cannot serialize python {argument!r} as `gzip`")
 
 
-def _patch_i32_le(writer: BytesWriter, offset: int, value: int) -> None:
-    writer[offset] = value & 0xFF
-    writer[offset + 1] = (value >> 8) & 0xFF
-    writer[offset + 2] = (value >> 16) & 0xFF
-    writer[offset + 3] = (value >> 24) & 0xFF
+def _patch_i32_le(writer: BytesWriter, offset: i64, value: i64) -> None:
+    writer[offset] = u8(value & 0xFF)
+    writer[offset + 1] = u8((value >> 8) & 0xFF)
+    writer[offset + 2] = u8((value >> 16) & 0xFF)
+    writer[offset + 3] = u8((value >> 24) & 0xFF)
 
 
 # Ints, not an Enum: mypyc turns the dispatch chain into direct calls.
@@ -590,24 +590,24 @@ _ptype_RE: typing.Final[re.Pattern[str]] = re.compile(
 _IntKeyDict_EMPTY_SLOT: typing.Final["i64"] = -0x8000000000000000
 
 
-class IntKeyDict:
+class IntKeyDict[T]:
     __slots__ = ("_keys", "_values", "_mask", "_size")
 
     _keys: "vec[i64]"
-    _values: "vec[i64]"
+    _values: list[T | None]
     _mask: "i64"
     _size: "i64"
 
     def __init__(self) -> None:
         self._keys = vec[i64]([_IntKeyDict_EMPTY_SLOT] * 8)
-        self._values = vec[i64]([0] * 8)
+        self._values = [None] * 8
         self._mask = 7
         self._size = 0
 
     def __len__(self) -> int:
         return self._size
 
-    def get(self, key: int) -> "i64":
+    def get(self, key: int) -> T | None:
         keys = self._keys
         values = self._values
         mask = self._mask
@@ -621,22 +621,22 @@ class IntKeyDict:
                 return values[index]
 
             if stored == _IntKeyDict_EMPTY_SLOT:
-                return -1
+                return None
 
             index = (index + 1) & mask
 
-    def __setitem__(self, key: int, value: int) -> None:
+    def __setitem__(self, key: int, value: T) -> None:
         if (self._size + 1) * 2 > len(self._keys):
             self._resize(self._size + 1)
 
         k: i64 = key
-        v: i64 = value
+        v: T = value
 
         if self._place(self._keys, self._values, self._mask, k, v):
             self._size += 1
 
     @staticmethod
-    def _place(keys: "vec[i64]", values: "vec[i64]", mask: "i64", key: "i64", value: "i64") -> bool:
+    def _place(keys: "vec[i64]", values: list[T | None], mask: "i64", key: "i64", value: T | None) -> bool:
         index = (key ^ (key >> 16)) & mask
 
         while keys[index] != _IntKeyDict_EMPTY_SLOT:
@@ -658,7 +658,7 @@ class IntKeyDict:
 
         mask = size - 1
         keys = vec[i64]([_IntKeyDict_EMPTY_SLOT] * size)
-        values = vec[i64]([0] * size)
+        values: list[T | None] = [None] * size
         old_keys = self._keys
         old_values = self._values
 
@@ -672,33 +672,27 @@ class IntKeyDict:
         self._values = values
         self._mask = mask
 
-
 class Schema:
     __slots__ = (
         "constructors",
         "types",
         "layer",
-        "_cons_ids",
         "_cons_lookup",
     )
 
     constructors: typing.Final[dict[str, "Constructor"]]
     types: typing.Final[dict[str, set["Constructor"]]]
     layer: int | None
-    _cons_ids: list["Constructor"]
-    _cons_lookup: IntKeyDict
+    _cons_lookup: IntKeyDict[Constructor]
 
     def __init__(self) -> None:
         self.constructors = dict()
         self.types = dict()
         self.layer = None
-        self._cons_ids = []
         self._cons_lookup = IntKeyDict()
 
     def _index_cons_number(self, number: int, cons: "Constructor") -> None:
-        cons_id = len(self._cons_ids)
-        self._cons_ids.append(cons)
-        self._cons_lookup[number] = cons_id
+        self._cons_lookup[number] = cons
 
     def __repr__(self) -> str:
         return "\n".join(repr(cons) for cons in self.constructors.values())
@@ -927,9 +921,9 @@ class Schema:
 
             if parameter.is_vector:
                 if cons_number != _vector_cons_number_int:
-                    cons_id = self._cons_lookup.get(cons_number)
+                    cons = self._cons_lookup.get(cons_number)
 
-                    if cons_id >= 0 and self._cons_ids[cons_id].is_gzip_container:
+                    if cons is not None and cons.is_gzip_container:
                         return self.deserialize(ByteReader(reader.read_binary_string_zlib()), parameter)
 
                     raise ValueError(f"Unknown constructor {_cons_number_hex(cons_number)} for vector")
@@ -944,12 +938,10 @@ class Schema:
                     for _ in range(reader.read_u32())
                 ]
 
-            cons_id = self._cons_lookup.get(cons_number)
+            boxed_cons = self._cons_lookup.get(cons_number)
 
-            if cons_id < 0:
+            if boxed_cons is None:
                 raise ValueError(f"Unknown constructor {_cons_number_hex(cons_number)}")
-
-            boxed_cons = self._cons_ids[cons_id]
 
             if boxed_cons.is_gzip_container:
                 return self.deserialize(ByteReader(reader.read_binary_string_zlib()), parameter)
@@ -1017,12 +1009,10 @@ class Schema:
 
     def read_by_boxed_data(self, reader: ByteReader) -> "TlBodyData":
         cons_number = reader.read_i32()
-        cons_id = self._cons_lookup.get(cons_number)
+        cons = self._cons_lookup.get(cons_number)
 
-        if cons_id < 0:
+        if cons is None:
             raise TypeError(f"Unknown constructor for constructor number {_cons_number_hex(cons_number)}")
-
-        cons = self._cons_ids[cons_id]
 
         if cons.is_gzip_container:
             return self.read_by_boxed_data(ByteReader(reader.read_binary_string_zlib()))
@@ -1064,13 +1054,13 @@ class ParameterFlag:
     flag_index: typing.Final[int]
     flag_number: typing.Final[int]
     extended_flag_mask: typing.Final[int]
-    group_id: int
+    group_id: int | None
 
     def __init__(self, flag_index: int, flag_number: int):
         self.flag_index = flag_index
         self.flag_number = flag_number
         self.extended_flag_mask = (1 << flag_number) << (flag_index * 31)
-        self.group_id = -1
+        self.group_id = None
 
     def __repr__(self) -> str:
         return f"flags{self.flag_index}.{self.flag_number}"
@@ -1111,8 +1101,8 @@ class Parameter:
     parameter_flag: typing.Final[ParameterFlag | None]
     extended_flag_index: typing.Final[int | None]
     primitive_deserializer: typing.Final[typing.Callable[[ByteReader], "TlBodyDataValue"] | None]
-    serialize_kind: typing.Final[int]
-    direct_serialize_kind: typing.Final[int]
+    serialize_kind: typing.Final[int | None]
+    direct_serialize_kind: typing.Final[int | None]
     accepts_str: typing.Final[bool]
     accepts_dict: typing.Final[bool]
     typecheck_constructors: set["Constructor"] | None
@@ -1140,10 +1130,10 @@ class Parameter:
         self.required = flag_number is None
         self.parameter_flag = None if flag_number is None or flag_index is None else ParameterFlag(flag_index, flag_number)
         self.primitive_deserializer = None if ptype is None else _primitive_deserializers.get(ptype)
-        self.serialize_kind = -1 if ptype is None else _serialize_kinds.get(ptype, -1)
+        self.serialize_kind = None if ptype is None else _serialize_kinds.get(ptype, None)
         self.accepts_str = ptype in _str_accepting_primitives
         self.accepts_dict = ptype in _value_accepting_primitives or (not self.is_primitive and not is_vector)
-        self.direct_serialize_kind = -1 if self.accepts_str or self.accepts_dict else self.serialize_kind
+        self.direct_serialize_kind = None if self.accepts_str or self.accepts_dict else self.serialize_kind
         self.typecheck_constructors = None
         self.non_null_flag_index = 0 if self.flag_index is None else self.flag_index
 
@@ -1728,7 +1718,7 @@ class Constructor:
 
             serialize_kind = parameter.serialize_kind
 
-            if serialize_kind < 0:
+            if serialize_kind is None:
                 raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
 
             _write_primitive(writer, serialize_kind, argument)
@@ -1771,15 +1761,15 @@ class Constructor:
 
             direct_serialize_kind = parameter.direct_serialize_kind
 
-            if direct_serialize_kind >= 0:
+            if direct_serialize_kind is not None:
                 _write_primitive(writer, direct_serialize_kind, argument)
             else:
                 self._append_argument(writer, parameter, argument)
 
     def _serialize_fields_flagged(self, writer: BytesWriter, body: "TlBodyData") -> None:
-        flag_slots: vec[i32] = vec[i32]([0] * self.flag_words_count, capacity=self.flag_words_count)
-        flag_values: vec[i32] = vec[i32]([0] * self.flag_words_count, capacity=self.flag_words_count)
-        group_counts: vec[i32] = vec[i32]([0] * self.flags_check_table_len, capacity=self.flags_check_table_len)
+        flag_slots: vec[i64] = vec[i64]([0] * self.flag_words_count, capacity=self.flag_words_count)
+        flag_values: vec[i64] = vec[i64]([0] * self.flag_words_count, capacity=self.flag_words_count)
+        group_counts: vec[i64] = vec[i64]([0] * self.flags_check_table_len, capacity=self.flags_check_table_len)
 
         for parameter in self.parameters:
             if parameter.is_flag:
@@ -1801,17 +1791,18 @@ class Constructor:
 
                 group_id = parameter_flag.group_id
 
-                if group_id >= 0:
+                if group_id is not None:
                     group_counts[group_id] += 1
 
             direct_serialize_kind = parameter.direct_serialize_kind
 
-            if direct_serialize_kind >= 0:
+            if direct_serialize_kind is not None:
                 _write_primitive(writer, direct_serialize_kind, argument)
             else:
                 self._append_argument(writer, parameter, argument)
 
-        flag_patch_index = 0
+        _patch_i32_le(writer, flag_slots[0], flag_values[0])
+        flag_patch_index = 1
 
         while flag_patch_index < self.flag_words_count:
             _patch_i32_le(writer, flag_slots[flag_patch_index], flag_values[flag_patch_index])
