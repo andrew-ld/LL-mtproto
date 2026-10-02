@@ -1679,21 +1679,13 @@ class Constructor:
             return
 
         if parameter.is_primitive:
-            if parameter.accepts_str and isinstance(argument, str):
-                argument = argument.encode("utf-8")
-
-            if parameter.accepts_dict and isinstance(argument, dict):
-                serialize_kind = parameter.serialize_kind
-
-                if serialize_kind is not None:
-                    _write_primitive(writer, serialize_kind, argument)
-                else:
-                    raise TypeError(f"Unknown primitive type {parameter!r}")
-
             serialize_kind = parameter.serialize_kind
 
             if serialize_kind is None:
                 raise TypeError(f"Unknown primitive type `{parameter!r}` `{argument!r}`")
+
+            if parameter.accepts_str and isinstance(argument, str):
+                argument = argument.encode("utf-8")
 
             _write_primitive(writer, serialize_kind, argument)
             return
