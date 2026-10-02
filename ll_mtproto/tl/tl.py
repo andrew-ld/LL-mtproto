@@ -1659,39 +1659,6 @@ class Constructor:
     def __repr__(self) -> str:
         return self.line
 
-    def _append_primitive_body(self, writer: BytesWriter, parameter: Parameter, cons_name: str, body: "TlBodyData") -> None:
-        serialize_kind = parameter.serialize_kind
-
-        if serialize_kind == _KIND_RAWOBJECT:
-            self.schema.serialize_into(writer, parameter.is_boxed, cons_name, body)
-            return
-
-        if serialize_kind == _KIND_PLAIN_OBJECT:
-            length_offset = len(writer)
-            write_i32_le(writer, 0)
-            self.schema.serialize_into(writer, parameter.is_boxed, cons_name, body)
-            _patch_i32_le(writer, length_offset, len(writer) - length_offset - 4)
-            return
-
-        if serialize_kind == _KIND_PADDED_OBJECT:
-            length_offset = len(writer)
-            write_i32_le(writer, 0)
-            self.schema.serialize_into(writer, parameter.is_boxed, cons_name, body)
-            data_len = len(writer) - length_offset - 4
-            padding_len = -data_len & 15
-            padding_len += 16 * (_randbits(64) % 16)
-            writer.write(_randbytes(padding_len))
-            _patch_i32_le(writer, length_offset, data_len + padding_len)
-            return
-
-        if serialize_kind == _KIND_GZIP:
-            nested_writer = BytesWriter()
-            self.schema.serialize_into(nested_writer, parameter.is_boxed, cons_name, body)
-            writer.write(pack_binary_string(_gzip_compress(nested_writer.getvalue())))
-            return
-
-        raise TypeError(f"Unknown primitive body parameter `{parameter!r}`")
-
     def _append_argument(self, writer: BytesWriter, parameter: Parameter, argument: typing.Union["TlBodyDataValue", "Value"]) -> None:
         if parameter.is_vector:
             if parameter.is_boxed:
@@ -1716,8 +1683,12 @@ class Constructor:
                 argument = argument.encode("utf-8")
 
             if parameter.accepts_dict and isinstance(argument, dict):
-                self._append_primitive_body(writer, parameter, typing.cast(str, argument["_cons"]), argument)
-                return
+                serialize_kind = parameter.serialize_kind
+
+                if serialize_kind is not None:
+                    _write_primitive(writer, serialize_kind, argument)
+                else:
+                    raise TypeError(f"Unknown primitive type {parameter!r}")
 
             serialize_kind = parameter.serialize_kind
 
