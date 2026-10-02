@@ -1048,11 +1048,13 @@ class ParameterFlag:
         "flag_index",
         "flag_number",
         "extended_flag_mask",
-        "group_id"
+        "group_id",
+        "flag_mask"
     )
 
     flag_index: typing.Final[int]
     flag_number: typing.Final[int]
+    flag_mask: typing.Final[int]
     extended_flag_mask: typing.Final[int]
     group_id: int | None
 
@@ -1060,6 +1062,7 @@ class ParameterFlag:
         self.flag_index = flag_index
         self.flag_number = flag_number
         self.extended_flag_mask = (1 << flag_number) << (flag_index * 31)
+        self.flag_mask = 1 << flag_number
         self.group_id = None
 
     def __repr__(self) -> str:
@@ -1421,7 +1424,7 @@ class FlagFieldDeserialization(AbstractDeserializationStep):
             raise TypeError(f"Unknown flag index for parameter `{parameter!r}`")
 
         true_parameters: tuple[tuple[int, str], ...] = tuple(
-            (1 << p.parameter_flag.flag_number, p.name)
+            (p.parameter_flag.flag_mask, p.name)
             for p in constructor.parameters
             if p.type == "true" and p.parameter_flag is not None and p.parameter_flag.flag_index == parameter.flag_index
         )
@@ -1787,7 +1790,7 @@ class Constructor:
             parameter_flag = parameter.parameter_flag
 
             if parameter_flag is not None:
-                flag_values[parameter_flag.flag_index] |= 1 << parameter_flag.flag_number
+                flag_values[parameter_flag.flag_index] |= parameter_flag.flag_mask
 
                 group_id = parameter_flag.group_id
 
