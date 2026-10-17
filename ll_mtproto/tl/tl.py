@@ -377,13 +377,17 @@ def _write_binary_string(writer: BytesWriter, argument: "TlBodyDataValue") -> No
     raise TypeError(f"Cannot serialize python {argument!r} as `string`/`bytes`")
 
 
-def _write_rawobject(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
+def _write_rawobject(writer: BytesWriter, argument: "TlBodyDataValue", schema: "Schema") -> None:
     if isinstance(argument, bytes):
         writer.write(argument)
         return
 
     if isinstance(argument, Value):
         writer.write(argument.get_flat_bytes())
+        return
+
+    if isinstance(argument, dict):
+        schema.serialize_into(writer, True, extract_cons_from_tl_body(argument), argument)
         return
 
     raise TypeError(f"Cannot serialize python {argument!r} as `rawobject`")
@@ -464,7 +468,7 @@ _serialize_kinds: typing.Final[dict[str, int]] = {
 }
 
 
-def _write_primitive(writer: BytesWriter, kind: int, argument: "TlBodyDataValue") -> None:
+def _write_primitive(writer: BytesWriter, kind: int, argument: "TlBodyDataValue", schema: "Schema") -> None:
     if kind == _KIND_INT:
         _write_int(writer, argument)
         return
@@ -509,7 +513,7 @@ def _write_primitive(writer: BytesWriter, kind: int, argument: "TlBodyDataValue"
         return
 
     if kind == _KIND_RAWOBJECT:
-        _write_rawobject(writer, argument)
+        _write_rawobject(writer, argument, schema)
         return
 
     if kind == _KIND_PLAIN_OBJECT:
@@ -1687,7 +1691,7 @@ class Constructor:
             if parameter.accepts_str and isinstance(argument, str):
                 argument = argument.encode("utf-8")
 
-            _write_primitive(writer, serialize_kind, argument)
+            _write_primitive(writer, serialize_kind, argument, self.schema)
             return
 
         if isinstance(argument, dict):
@@ -1728,7 +1732,7 @@ class Constructor:
             direct_serialize_kind = parameter.direct_serialize_kind
 
             if direct_serialize_kind is not None:
-                _write_primitive(writer, direct_serialize_kind, argument)
+                _write_primitive(writer, direct_serialize_kind, argument, self.schema)
             else:
                 self._append_argument(writer, parameter, argument)
 
@@ -1763,7 +1767,7 @@ class Constructor:
             direct_serialize_kind = parameter.direct_serialize_kind
 
             if direct_serialize_kind is not None:
-                _write_primitive(writer, direct_serialize_kind, argument)
+                _write_primitive(writer, direct_serialize_kind, argument, self.schema)
             else:
                 self._append_argument(writer, parameter, argument)
 
