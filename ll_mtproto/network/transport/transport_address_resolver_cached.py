@@ -58,7 +58,7 @@ class CachedTransportAddressResolver(TransportAddressResolverBase):
                 (
                     datacenter
                     for datacenter in datacenters
-                    if datacenter.datacenter_id == dc_option.id and datacenter.is_media == dc_option.media_only
+                    if datacenter.datacenter_id == dc_option.id and bool(datacenter.is_media) == bool(dc_option.media_only)
                 ),
                 None
             )

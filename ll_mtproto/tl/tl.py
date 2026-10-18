@@ -393,23 +393,51 @@ def _write_rawobject(writer: BytesWriter, argument: "TlBodyDataValue", schema: "
     raise TypeError(f"Cannot serialize python {argument!r} as `rawobject`")
 
 
-def _write_plain_object(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
+def _write_plain_object(writer: BytesWriter, argument: "TlBodyDataValue", schema: "Schema") -> None:
     if isinstance(argument, Value):
         data = argument.get_flat_bytes()
         write_i32_le(writer, len(data))
         writer.write(data)
         return
 
+    if isinstance(argument, dict):
+        before_write_len = len(writer)
+        write_i32_le(writer, 0)
+
+        schema.serialize_into(writer, True, extract_cons_from_tl_body(argument), argument)
+
+        after_write_len = len(writer)
+        object_len = after_write_len - before_write_len - 4
+        _patch_i32_le(writer, before_write_len, object_len)
+        return
+
     raise TypeError(f"Cannot serialize python {argument!r} as `PlainObject`")
 
 
-def _write_padded_object(writer: BytesWriter, argument: "TlBodyDataValue") -> None:
+def _write_padded_object(writer: BytesWriter, argument: "TlBodyDataValue", schema: "Schema") -> None:
     if isinstance(argument, Value):
         data = argument.get_flat_bytes()
+
         padding_len = -len(data) & 15
         padding_len += 16 * (_randbits(64) % 16)
+
         write_i32_le(writer, len(data) + padding_len)
         writer.write(data)
+        writer.write(_randbytes(padding_len))
+        return
+
+    if isinstance(argument, dict):
+        before_write_len = len(writer)
+        write_i32_le(writer, 0)
+
+        schema.serialize_into(writer, True, extract_cons_from_tl_body(argument), argument)
+
+        after_write_len = len(writer)
+        object_len = after_write_len - before_write_len - 4
+        padding_len = -object_len & 15
+        padding_len += 16 * (_randbits(64) % 16)
+
+        _patch_i32_le(writer, before_write_len, padding_len + object_len)
         writer.write(_randbytes(padding_len))
         return
 
@@ -517,11 +545,11 @@ def _write_primitive(writer: BytesWriter, kind: int, argument: "TlBodyDataValue"
         return
 
     if kind == _KIND_PLAIN_OBJECT:
-        _write_plain_object(writer, argument)
+        _write_plain_object(writer, argument, schema)
         return
 
     if kind == _KIND_PADDED_OBJECT:
-        _write_padded_object(writer, argument)
+        _write_padded_object(writer, argument, schema)
         return
 
     if kind == _KIND_GZIP:

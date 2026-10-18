@@ -28,8 +28,9 @@ class DatacenterInfo:
         "schema",
         "datacenter_id",
         "is_media",
-        "_time_difference",
-        "is_test"
+        "is_test",
+        "_sync_server_time",
+        "_sync_uptime",
     )
 
     default_direct_address: str
@@ -40,27 +41,42 @@ class DatacenterInfo:
     is_media: bool
     is_test: bool
 
-    _time_difference: int
+    _sync_server_time: int
+    _sync_uptime: float
 
-    def __init__(self, address: str, port: int, public_rsa: PublicRSA, schema: Schema, datacenter_id: int, is_media: bool, is_test: bool):
+    def __init__(
+        self,
+        address: str,
+        port: int,
+        public_rsa: PublicRSA,
+        schema: Schema,
+        datacenter_id: int,
+        is_media: bool,
+        is_test: bool,
+        time_sync: tuple[int, float] | None = None,
+    ):
         self.default_direct_address = address
         self.default_direct_port = port
         self.public_rsa = public_rsa
         self.schema = schema
         self.datacenter_id = datacenter_id
         self.is_media = is_media
-        self._time_difference = 0
         self.is_test = is_test
 
+        if time_sync is None:
+            self._sync_server_time = int(time.time())
+            self._sync_uptime = time.monotonic()
+        else:
+            self._sync_server_time, self._sync_uptime = time_sync
+
+
     def set_synchronized_time(self, synchronized_now: int) -> None:
-        self._time_difference = synchronized_now - int(time.time())
+        self._sync_server_time = synchronized_now
+        self._sync_uptime = time.monotonic()
 
     def get_synchronized_time(self) -> int:
-        return int(time.time()) + self._time_difference
-
-    @staticmethod
-    def get_synchronized_time_fraction() -> int:
-        return int((time.time() % 1) * (1 << 32))
+        elapsed = time.monotonic() - self._sync_uptime
+        return int(self._sync_server_time + elapsed)
 
     def __copy__(self) -> "DatacenterInfo":
         return DatacenterInfo(
@@ -70,7 +86,8 @@ class DatacenterInfo:
             self.schema,
             self.datacenter_id,
             self.is_media,
-            self.is_test
+            self.is_test,
+            time_sync=(self._sync_server_time, self._sync_uptime),
         )
 
     def __str__(self) -> str:
