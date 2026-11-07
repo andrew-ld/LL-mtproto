@@ -451,13 +451,6 @@ class Client:
     async def _create_init_requests(self) -> None:
         await self._create_future_salt_request()
         await self._create_ping_request()
-        await self._create_get_update_state_request()
-
-    async def _create_get_update_state_request(self):
-        if self._no_updates:
-            return
-
-        await self.rpc_call({"_cons": "updates.getState"})
 
     def _pop_pending_request_exact(self, message_id: int) -> PendingRequest | None:
         pending_request = self._pending_requests.pop(message_id, None)
