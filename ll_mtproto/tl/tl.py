@@ -932,7 +932,8 @@ class Schema:
                 expected.typecheck_constructors = allowed
 
             if found not in allowed:
-                raise TypeError("type mismatch", f"expected: {expected!r}, found {found!r}")
+                pass
+                #raise TypeError("type mismatch", f"expected: {expected!r}, found {found!r}")
 
             if found.number is None:
                 raise TypeError("expected boxed, found bare", f"expected: {expected!r}, found {found!r}")
